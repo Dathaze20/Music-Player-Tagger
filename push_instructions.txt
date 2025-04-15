@@ -1,0 +1,31 @@
+1.  **Initialize a Git Repository:**
+    *   Open your terminal and navigate to your project directory.
+    *   Run `git init` to initialize a new Git repository in your project folder.
+
+2.  **Stage Your Files:**
+    *   Run `git add .` to stage all the files in your project directory for the initial commit. If you only want to stage specific files, replace the `.` with the file path. Example `git add src/file.tsx`.
+
+3.  **Commit Your Changes:**
+    *   Run `git commit -m "Initial commit of the project"` to commit the staged files with a message describing the commit. You can replace "Initial commit of the project" with a more descriptive message.
+
+4.  **Add a Remote Repository:**
+    *   Go to GitHub and create a new, empty repository (do not initialize it with a README or license).
+    *   Copy the repository's URL. It should look something like `https://github.com/yourusername/yourrepository.git` or `git@github.com:yourusername/yourrepository.git`.
+    *   In your terminal, run `git remote add origin <repository_url>`, replacing `<repository_url>` with the URL you copied. This adds your GitHub repository as a remote named "origin".
+
+5.  **Rename the Main Branch:**
+    *   Run `git branch -M main` to rename the default branch to `main`.
+
+6.  **Push to GitHub:**
+    *   Run `git push -u origin main` to push your local `main` branch to the `main` branch on the remote "origin" (your GitHub repository).
+    * **If asked to sign in please put in the correct Username and Password.**
+    *   You may be asked to authenticate with GitHub. This depends on your setup:
+        *   **HTTPS:** Enter your GitHub username and a Personal Access Token (PAT) as the password.
+        *   **SSH:** If you've set up SSH, it should authenticate automatically.
+
+**Troubleshooting:**
+
+*   **Authentication Issues:** If you get an authentication error, double-check that you're using the correct credentials (username and PAT or SSH key).
+*   **`Everything up-to-date`:** If Git says "Everything up-to-date" when you try to commit, make sure you've actually staged files with `git add` first.
+* **Branch names.** If you have already set up a branch, make sure that the name is the same.
+*   **Remote Already Exists:** If you get an error about the remote "origin" already existing, it means you've already added a remote. Run `git remote -v` to see your remotes, or run `git remote rm origin` to remove it and then re-add it with `git remote add origin <repository_url>`.
