@@ -1,1 +1,3 @@
-// Flows will be imported for their side effects in this file.
+import '@/ai/flows/tag-music-metadata.ts';
+import '@/ai/flows/generate-album-art.ts';
+import '@/ai/flows/scrape-and-sync-lyrics.ts';
