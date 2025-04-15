@@ -1,0 +1,52 @@
+[
+  {
+    "name": "Bohemian Rhapsody",
+    "title": "Bohemian Rhapsody",
+    "artist": "Queen",
+    "album": "A Night at the Opera",
+    "genre": "Progressive Rock",
+    "mood": "Epic",
+    "tempo": 144,
+    "key": "Bb Major"
+  },
+  {
+    "name": "Imagine",
+    "title": "Imagine",
+    "artist": "John Lennon",
+    "album": "Imagine",
+    "genre": "Pop Rock",
+    "mood": "Peaceful",
+    "tempo": 75,
+    "key": "C Major"
+  },
+  {
+    "name": "Like a Rolling Stone",
+    "title": "Like a Rolling Stone",
+    "artist": "Bob Dylan",
+    "album": "Highway 61 Revisited",
+    "genre": "Folk Rock",
+    "mood": "Reflective",
+    "tempo": 95,
+    "key": "C Major"
+  },
+  {
+    "name": "Smells Like Teen Spirit",
+    "title": "Smells Like Teen Spirit",
+    "artist": "Nirvana",
+    "album": "Nevermind",
+    "genre": "Grunge",
+    "mood": "Rebellious",
+    "tempo": 117,
+    "key": "F Minor"
+  },
+  {
+    "name": "Hey Jude",
+    "title": "Hey Jude",
+    "artist": "The Beatles",
+    "album": "Hey Jude",
+    "genre": "Rock",
+    "mood": "Uplifting",
+    "tempo": 72,
+    "key": "F Major"
+  }
+]

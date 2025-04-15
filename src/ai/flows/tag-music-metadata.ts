@@ -9,7 +9,7 @@
 
 import {ai} from '@/ai/ai-instance';
 import {z} from 'genkit';
-import {getMusicMetadata} from '@/services/music-metadata';
+import {fetchMusicMetadata} from '@/services/music-metadata';
 
 const TagMusicMetadataInputSchema = z.object({
   filePath: z.string().describe('The path to the audio file.'),
@@ -74,7 +74,7 @@ const tagMusicMetadataFlow = ai.defineFlow<
   inputSchema: TagMusicMetadataInputSchema,
   outputSchema: TagMusicMetadataOutputSchema,
 }, async input => {
-  const existingMetadata = await getMusicMetadata(input.filePath);
+  const existingMetadata = await fetchMusicMetadata(input.filePath);
   const {output} = await prompt({
     filePath: input.filePath,
     title: existingMetadata.title,

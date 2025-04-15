@@ -30,14 +30,10 @@ export interface MusicMetadata {
  * @param filePath The path to the audio file.
  * @returns A promise that resolves to a MusicMetadata object containing the metadata.
  */
-export async function getMusicMetadata(filePath: string): Promise<MusicMetadata> {
+export async function fetchMusicMetadata(filePath: string): Promise<MusicMetadata> {
   // TODO: Implement this by calling an API or using a library.
 
   return {
-    title: 'Example Song',
-    artist: 'Example Artist',
-    album: 'Example Album',
-    trackNumber: 1,
-    albumArtUrl: 'https://example.com/album-art.jpg',
+    
   };
 }
