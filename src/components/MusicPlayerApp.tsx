@@ -31,6 +31,8 @@ interface Song {
   duration: number;
   isTagging: boolean;
   isFavorite: boolean;
+  releaseType: string;
+  featuredArtists: string;
 }
 
 interface TaggingStatus {
@@ -41,6 +43,7 @@ interface TaggingStatus {
 }
 
 type Tab = 'artists' | 'songs' | 'albums' | 'playlists';
+type AlbumFilter = 'all' | 'albums' | 'mixtapes' | 'eps';
 
 interface ArtistInfo {
   name: string;
@@ -55,6 +58,7 @@ interface AlbumInfo {
   year: string;
   artUrl: string;
   songCount: number;
+  releaseType: string;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -72,17 +76,44 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-function parseFileName(fileName: string): { artist: string; title: string } {
-  const name = fileName.replace(/\.[^/.]+$/, '');
+function parseFileName(fileName: string): { artist: string; title: string; featuredArtists: string } {
+  let name = fileName.replace(/\.[^/.]+$/, '');
+
+  // Strip leading track numbers: "01 - ", "01. ", "Track 01 - "
+  name = name.replace(/^(?:Track\s*)?(\d{1,3})\s*[-.)]\s*/i, '');
+
+  // Strip producer credits: "(Prod. by X)" or "[Prod. X]"
+  name = name.replace(/[\[(]prod\.?\s*(?:by\s*)?[^\])]+[\])]/gi, '').trim();
+
+  // Extract featured artists from title portion
+  let featuredArtists = '';
+  const featMatch = name.match(/\s+(?:ft\.?|feat\.?|featuring)\s+(.+?)(?:\s*[-]|$)/i);
+  if (featMatch) {
+    featuredArtists = featMatch[1].trim();
+    name = name.replace(featMatch[0], featMatch[0].endsWith('-') ? ' -' : '');
+  }
+
+  // Strip DJ tags: "DJ Drama - Gangsta Grillz - " prefix
+  const djMatch = name.match(/^DJ\s+\w+(?:\s+\w+)?\s*-\s*(?:Gangsta Grillz|presents?)\s*-\s*/i);
+  if (djMatch) {
+    name = name.substring(djMatch[0].length);
+  }
+
   if (name.includes(' - ')) {
     const parts = name.split(' - ');
-    return { artist: parts[0].trim(), title: parts.slice(1).join(' - ').trim() };
+    let title = parts.slice(1).join(' - ').trim();
+    const titleFeatMatch = title.match(/\s+(?:ft\.?|feat\.?|featuring)\s+(.+)/i);
+    if (titleFeatMatch) {
+      featuredArtists = titleFeatMatch[1].trim();
+      title = title.replace(titleFeatMatch[0], '').trim();
+    }
+    return { artist: parts[0].trim(), title, featuredArtists };
   }
   if (name.includes('_-_')) {
     const parts = name.split('_-_');
-    return { artist: parts[0].replace(/_/g, ' ').trim(), title: parts.slice(1).join(' - ').replace(/_/g, ' ').trim() };
+    return { artist: parts[0].replace(/_/g, ' ').trim(), title: parts.slice(1).join(' - ').replace(/_/g, ' ').trim(), featuredArtists };
   }
-  return { artist: 'Unknown Artist', title: name.replace(/_/g, ' ').trim() };
+  return { artist: 'Unknown Artist', title: name.replace(/_/g, ' ').trim(), featuredArtists };
 }
 
 const GRADIENTS: [string, string][] = [
@@ -120,44 +151,72 @@ function ArtPlaceholder({ text, size, round }: { text: string; size: number; rou
 // ═══════════════════════════════════════════════════════
 
 const DEMO_SONGS: Song[] = [
-  { id: 'd1', fileName: '2Pac - California Love.mp3', url: '', title: 'California Love', artist: '2Pac', album: 'All Eyez on Me', year: '1996', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 265, isTagging: false, isFavorite: false },
-  { id: 'd2', fileName: '2Pac - Dear Mama.mp3', url: '', title: 'Dear Mama', artist: '2Pac', album: 'Me Against the World', year: '1995', genre: 'Hip-Hop', trackNumber: 9, albumArtUrl: '', lyrics: '', duration: 285, isTagging: false, isFavorite: true },
-  { id: 'd3', fileName: '2Pac - Changes.mp3', url: '', title: 'Changes', artist: '2Pac', album: 'Greatest Hits', year: '1998', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 269, isTagging: false, isFavorite: false },
-  { id: 'd4', fileName: '2Pac - Hit Em Up.mp3', url: '', title: 'Hit \'Em Up', artist: '2Pac', album: 'All Eyez on Me', year: '1996', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 312, isTagging: false, isFavorite: false },
-  { id: 'd5', fileName: '2Pac - Ambitionz Az a Ridah.mp3', url: '', title: 'Ambitionz Az a Ridah', artist: '2Pac', album: 'All Eyez on Me', year: '1996', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 279, isTagging: false, isFavorite: false },
-  { id: 'd6', fileName: '2Pac - So Many Tears.mp3', url: '', title: 'So Many Tears', artist: '2Pac', album: 'Me Against the World', year: '1995', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 254, isTagging: false, isFavorite: false },
-  { id: 'd7', fileName: '2Pac - Hail Mary.mp3', url: '', title: 'Hail Mary', artist: '2Pac', album: 'The Don Killuminati', year: '1996', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 313, isTagging: false, isFavorite: false },
-  { id: 'd8', fileName: '2Pac - Keep Ya Head Up.mp3', url: '', title: 'Keep Ya Head Up', artist: '2Pac', album: 'Strictly 4 My N.I.G.G.A.Z.', year: '1993', genre: 'Hip-Hop', trackNumber: 12, albumArtUrl: '', lyrics: '', duration: 283, isTagging: false, isFavorite: true },
-  { id: 'd10', fileName: '50 Cent - In Da Club.mp3', url: '', title: 'In Da Club', artist: '50 Cent', album: "Get Rich or Die Tryin'", year: '2003', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 193, isTagging: false, isFavorite: true },
-  { id: 'd11', fileName: '50 Cent - 21 Questions.mp3', url: '', title: '21 Questions', artist: '50 Cent', album: "Get Rich or Die Tryin'", year: '2003', genre: 'Hip-Hop', trackNumber: 6, albumArtUrl: '', lyrics: '', duration: 263, isTagging: false, isFavorite: false },
-  { id: 'd12', fileName: '50 Cent - Candy Shop.mp3', url: '', title: 'Candy Shop', artist: '50 Cent', album: 'The Massacre', year: '2005', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 215, isTagging: false, isFavorite: false },
-  { id: 'd13', fileName: '50 Cent - Many Men.mp3', url: '', title: 'Many Men', artist: '50 Cent', album: "Get Rich or Die Tryin'", year: '2003', genre: 'Hip-Hop', trackNumber: 4, albumArtUrl: '', lyrics: '', duration: 249, isTagging: false, isFavorite: false },
-  { id: 'd14', fileName: '50 Cent - P.I.M.P.mp3', url: '', title: 'P.I.M.P.', artist: '50 Cent', album: "Get Rich or Die Tryin'", year: '2003', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 234, isTagging: false, isFavorite: false },
-  { id: 'd20', fileName: 'Eminem - Lose Yourself.mp3', url: '', title: 'Lose Yourself', artist: 'Eminem', album: '8 Mile Soundtrack', year: '2002', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 326, isTagging: false, isFavorite: true },
-  { id: 'd21', fileName: 'Eminem - The Real Slim Shady.mp3', url: '', title: 'The Real Slim Shady', artist: 'Eminem', album: 'The Marshall Mathers LP', year: '2000', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 284, isTagging: false, isFavorite: false },
-  { id: 'd22', fileName: 'Eminem - Without Me.mp3', url: '', title: 'Without Me', artist: 'Eminem', album: 'The Eminem Show', year: '2002', genre: 'Hip-Hop', trackNumber: 6, albumArtUrl: '', lyrics: '', duration: 290, isTagging: false, isFavorite: false },
-  { id: 'd23', fileName: 'Eminem - Stan.mp3', url: '', title: 'Stan', artist: 'Eminem', album: 'The Marshall Mathers LP', year: '2000', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 404, isTagging: false, isFavorite: true },
-  { id: 'd24', fileName: 'Eminem - Mockingbird.mp3', url: '', title: 'Mockingbird', artist: 'Eminem', album: 'Encore', year: '2004', genre: 'Hip-Hop', trackNumber: 13, albumArtUrl: '', lyrics: '', duration: 250, isTagging: false, isFavorite: false },
-  { id: 'd30', fileName: 'Kendrick Lamar - HUMBLE.mp3', url: '', title: 'HUMBLE.', artist: 'Kendrick Lamar', album: 'DAMN.', year: '2017', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 177, isTagging: false, isFavorite: true },
-  { id: 'd31', fileName: 'Kendrick Lamar - DNA.mp3', url: '', title: 'DNA.', artist: 'Kendrick Lamar', album: 'DAMN.', year: '2017', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 186, isTagging: false, isFavorite: false },
-  { id: 'd32', fileName: 'Kendrick Lamar - Alright.mp3', url: '', title: 'Alright', artist: 'Kendrick Lamar', album: 'To Pimp a Butterfly', year: '2015', genre: 'Hip-Hop', trackNumber: 7, albumArtUrl: '', lyrics: '', duration: 219, isTagging: false, isFavorite: false },
-  { id: 'd33', fileName: 'Kendrick Lamar - Swimming Pools.mp3', url: '', title: 'Swimming Pools (Drank)', artist: 'Kendrick Lamar', album: 'good kid, m.A.A.d city', year: '2012', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 313, isTagging: false, isFavorite: false },
-  { id: 'd40', fileName: 'Nas - N.Y. State of Mind.mp3', url: '', title: 'N.Y. State of Mind', artist: 'Nas', album: 'Illmatic', year: '1994', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 293, isTagging: false, isFavorite: true },
-  { id: 'd41', fileName: 'Nas - If I Ruled the World.mp3', url: '', title: 'If I Ruled the World', artist: 'Nas', album: 'It Was Written', year: '1996', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 280, isTagging: false, isFavorite: false },
-  { id: 'd42', fileName: 'Nas - One Mic.mp3', url: '', title: 'One Mic', artist: 'Nas', album: 'Stillmatic', year: '2001', genre: 'Hip-Hop', trackNumber: 7, albumArtUrl: '', lyrics: '', duration: 290, isTagging: false, isFavorite: false },
-  { id: 'd50', fileName: 'Dr. Dre - Still D.R.E.mp3', url: '', title: 'Still D.R.E.', artist: 'Dr. Dre', album: '2001', year: '1999', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 271, isTagging: false, isFavorite: true },
-  { id: 'd51', fileName: 'Dr. Dre - The Next Episode.mp3', url: '', title: 'The Next Episode', artist: 'Dr. Dre', album: '2001', year: '1999', genre: 'Hip-Hop', trackNumber: 17, albumArtUrl: '', lyrics: '', duration: 155, isTagging: false, isFavorite: false },
-  { id: 'd52', fileName: 'Dr. Dre - Forgot About Dre.mp3', url: '', title: 'Forgot About Dre', artist: 'Dr. Dre', album: '2001', year: '1999', genre: 'Hip-Hop', trackNumber: 9, albumArtUrl: '', lyrics: '', duration: 223, isTagging: false, isFavorite: false },
-  { id: 'd60', fileName: 'J. Cole - No Role Modelz.mp3', url: '', title: 'No Role Modelz', artist: 'J. Cole', album: '2014 Forest Hills Drive', year: '2014', genre: 'Hip-Hop', trackNumber: 12, albumArtUrl: '', lyrics: '', duration: 293, isTagging: false, isFavorite: true },
-  { id: 'd61', fileName: 'J. Cole - Middle Child.mp3', url: '', title: 'Middle Child', artist: 'J. Cole', album: 'Revenge of the Dreamers III', year: '2019', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 213, isTagging: false, isFavorite: false },
-  { id: 'd62', fileName: 'J. Cole - Power Trip.mp3', url: '', title: 'Power Trip', artist: 'J. Cole', album: 'Born Sinner', year: '2013', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 240, isTagging: false, isFavorite: false },
-  { id: 'd70', fileName: '112 - Peaches & Cream.mp3', url: '', title: 'Peaches & Cream', artist: '112', album: 'Part III', year: '2001', genre: 'R&B', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 245, isTagging: false, isFavorite: false },
-  { id: 'd71', fileName: '112 - Cupid.mp3', url: '', title: 'Cupid', artist: '112', album: '112', year: '1996', genre: 'R&B', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 268, isTagging: false, isFavorite: false },
-  { id: 'd72', fileName: '112 - Only You.mp3', url: '', title: 'Only You', artist: '112', album: '112', year: '1996', genre: 'R&B', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 260, isTagging: false, isFavorite: true },
-  { id: 'd80', fileName: '22Gz - Suburban.mp3', url: '', title: 'Suburban', artist: '22Gz', album: 'The Blixky Tape', year: '2019', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 198, isTagging: false, isFavorite: false },
-  { id: 'd81', fileName: '22Gz - Sniper Gang Freestyle.mp3', url: '', title: 'Sniper Gang Freestyle', artist: '22Gz', album: 'Growth & Development', year: '2020', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 180, isTagging: false, isFavorite: false },
-  { id: 'd90', fileName: '38 Spesh - 6 Summers.mp3', url: '', title: '6 Summers', artist: '38 Spesh', album: '6 Shots', year: '2020', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 210, isTagging: false, isFavorite: false },
-  { id: 'd91', fileName: '38 Spesh - Dangerous.mp3', url: '', title: 'Dangerous', artist: '38 Spesh', album: '6 Shots', year: '2020', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 195, isTagging: false, isFavorite: false },
+  // ── Albums ──
+  { id: 'd1', fileName: '2Pac - California Love.mp3', url: '', title: 'California Love', artist: '2Pac', album: 'All Eyez on Me', year: '1996', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 265, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd2', fileName: '2Pac - Dear Mama.mp3', url: '', title: 'Dear Mama', artist: '2Pac', album: 'Me Against the World', year: '1995', genre: 'Hip-Hop', trackNumber: 9, albumArtUrl: '', lyrics: '', duration: 285, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd3', fileName: '2Pac - Changes.mp3', url: '', title: 'Changes', artist: '2Pac', album: 'Greatest Hits', year: '1998', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 269, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd4', fileName: '2Pac - Hit Em Up.mp3', url: '', title: 'Hit \'Em Up', artist: '2Pac', album: 'All Eyez on Me', year: '1996', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 312, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd5', fileName: '2Pac - Ambitionz Az a Ridah.mp3', url: '', title: 'Ambitionz Az a Ridah', artist: '2Pac', album: 'All Eyez on Me', year: '1996', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 279, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd6', fileName: '2Pac - So Many Tears.mp3', url: '', title: 'So Many Tears', artist: '2Pac', album: 'Me Against the World', year: '1995', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 254, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd7', fileName: '2Pac - Hail Mary.mp3', url: '', title: 'Hail Mary', artist: '2Pac', album: 'The Don Killuminati', year: '1996', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 313, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd8', fileName: '2Pac - Keep Ya Head Up.mp3', url: '', title: 'Keep Ya Head Up', artist: '2Pac', album: 'Strictly 4 My N.I.G.G.A.Z.', year: '1993', genre: 'Hip-Hop', trackNumber: 12, albumArtUrl: '', lyrics: '', duration: 283, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd10', fileName: '50 Cent - In Da Club.mp3', url: '', title: 'In Da Club', artist: '50 Cent', album: "Get Rich or Die Tryin'", year: '2003', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 193, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd11', fileName: '50 Cent - 21 Questions.mp3', url: '', title: '21 Questions', artist: '50 Cent', album: "Get Rich or Die Tryin'", year: '2003', genre: 'Hip-Hop', trackNumber: 6, albumArtUrl: '', lyrics: '', duration: 263, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: 'Nate Dogg' },
+  { id: 'd12', fileName: '50 Cent - Candy Shop.mp3', url: '', title: 'Candy Shop', artist: '50 Cent', album: 'The Massacre', year: '2005', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 215, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: 'Olivia' },
+  { id: 'd13', fileName: '50 Cent - Many Men.mp3', url: '', title: 'Many Men', artist: '50 Cent', album: "Get Rich or Die Tryin'", year: '2003', genre: 'Hip-Hop', trackNumber: 4, albumArtUrl: '', lyrics: '', duration: 249, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd14', fileName: '50 Cent - P.I.M.P.mp3', url: '', title: 'P.I.M.P.', artist: '50 Cent', album: "Get Rich or Die Tryin'", year: '2003', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 234, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd20', fileName: 'Eminem - Lose Yourself.mp3', url: '', title: 'Lose Yourself', artist: 'Eminem', album: '8 Mile Soundtrack', year: '2002', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 326, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd21', fileName: 'Eminem - The Real Slim Shady.mp3', url: '', title: 'The Real Slim Shady', artist: 'Eminem', album: 'The Marshall Mathers LP', year: '2000', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 284, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd22', fileName: 'Eminem - Without Me.mp3', url: '', title: 'Without Me', artist: 'Eminem', album: 'The Eminem Show', year: '2002', genre: 'Hip-Hop', trackNumber: 6, albumArtUrl: '', lyrics: '', duration: 290, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd23', fileName: 'Eminem - Stan.mp3', url: '', title: 'Stan', artist: 'Eminem', album: 'The Marshall Mathers LP', year: '2000', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 404, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: 'Dido' },
+  { id: 'd24', fileName: 'Eminem - Mockingbird.mp3', url: '', title: 'Mockingbird', artist: 'Eminem', album: 'Encore', year: '2004', genre: 'Hip-Hop', trackNumber: 13, albumArtUrl: '', lyrics: '', duration: 250, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd30', fileName: 'Kendrick Lamar - HUMBLE.mp3', url: '', title: 'HUMBLE.', artist: 'Kendrick Lamar', album: 'DAMN.', year: '2017', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 177, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd31', fileName: 'Kendrick Lamar - DNA.mp3', url: '', title: 'DNA.', artist: 'Kendrick Lamar', album: 'DAMN.', year: '2017', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 186, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd32', fileName: 'Kendrick Lamar - Alright.mp3', url: '', title: 'Alright', artist: 'Kendrick Lamar', album: 'To Pimp a Butterfly', year: '2015', genre: 'Hip-Hop', trackNumber: 7, albumArtUrl: '', lyrics: '', duration: 219, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd33', fileName: 'Kendrick Lamar - Swimming Pools.mp3', url: '', title: 'Swimming Pools (Drank)', artist: 'Kendrick Lamar', album: 'good kid, m.A.A.d city', year: '2012', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 313, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd40', fileName: 'Nas - N.Y. State of Mind.mp3', url: '', title: 'N.Y. State of Mind', artist: 'Nas', album: 'Illmatic', year: '1994', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 293, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd41', fileName: 'Nas - If I Ruled the World.mp3', url: '', title: 'If I Ruled the World', artist: 'Nas', album: 'It Was Written', year: '1996', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 280, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: 'Lauryn Hill' },
+  { id: 'd42', fileName: 'Nas - One Mic.mp3', url: '', title: 'One Mic', artist: 'Nas', album: 'Stillmatic', year: '2001', genre: 'Hip-Hop', trackNumber: 7, albumArtUrl: '', lyrics: '', duration: 290, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd50', fileName: 'Dr. Dre - Still D.R.E.mp3', url: '', title: 'Still D.R.E.', artist: 'Dr. Dre', album: '2001', year: '1999', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 271, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: 'Snoop Dogg' },
+  { id: 'd51', fileName: 'Dr. Dre - The Next Episode.mp3', url: '', title: 'The Next Episode', artist: 'Dr. Dre', album: '2001', year: '1999', genre: 'Hip-Hop', trackNumber: 17, albumArtUrl: '', lyrics: '', duration: 155, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: 'Snoop Dogg' },
+  { id: 'd52', fileName: 'Dr. Dre - Forgot About Dre.mp3', url: '', title: 'Forgot About Dre', artist: 'Dr. Dre', album: '2001', year: '1999', genre: 'Hip-Hop', trackNumber: 9, albumArtUrl: '', lyrics: '', duration: 223, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: 'Eminem' },
+  { id: 'd60', fileName: 'J. Cole - No Role Modelz.mp3', url: '', title: 'No Role Modelz', artist: 'J. Cole', album: '2014 Forest Hills Drive', year: '2014', genre: 'Hip-Hop', trackNumber: 12, albumArtUrl: '', lyrics: '', duration: 293, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd61', fileName: 'J. Cole - Middle Child.mp3', url: '', title: 'Middle Child', artist: 'J. Cole', album: 'Revenge of the Dreamers III', year: '2019', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 213, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd62', fileName: 'J. Cole - Power Trip.mp3', url: '', title: 'Power Trip', artist: 'J. Cole', album: 'Born Sinner', year: '2013', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 240, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: 'Miguel' },
+  { id: 'd70', fileName: '112 - Peaches & Cream.mp3', url: '', title: 'Peaches & Cream', artist: '112', album: 'Part III', year: '2001', genre: 'R&B', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 245, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd71', fileName: '112 - Cupid.mp3', url: '', title: 'Cupid', artist: '112', album: '112', year: '1996', genre: 'R&B', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 268, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd72', fileName: '112 - Only You.mp3', url: '', title: 'Only You', artist: '112', album: '112', year: '1996', genre: 'R&B', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 260, isTagging: false, isFavorite: true, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd80', fileName: '22Gz - Suburban.mp3', url: '', title: 'Suburban', artist: '22Gz', album: 'The Blixky Tape', year: '2019', genre: 'Drill', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 198, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'd81', fileName: '22Gz - Sniper Gang Freestyle.mp3', url: '', title: 'Sniper Gang Freestyle', artist: '22Gz', album: 'Growth & Development', year: '2020', genre: 'Drill', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 180, isTagging: false, isFavorite: false, releaseType: 'Album', featuredArtists: '' },
+  { id: 'd90', fileName: '38 Spesh - 6 Summers.mp3', url: '', title: '6 Summers', artist: '38 Spesh', album: '6 Shots', year: '2020', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 210, isTagging: false, isFavorite: false, releaseType: 'EP', featuredArtists: '' },
+  { id: 'd91', fileName: '38 Spesh - Dangerous.mp3', url: '', title: 'Dangerous', artist: '38 Spesh', album: '6 Shots', year: '2020', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 195, isTagging: false, isFavorite: false, releaseType: 'EP', featuredArtists: '' },
+
+  // ── Mixtapes ──
+  { id: 'm1', fileName: 'Lil Wayne - A Milli.mp3', url: '', title: 'A Milli', artist: 'Lil Wayne', album: 'Da Drought 3', year: '2007', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 228, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm2', fileName: 'Lil Wayne - Ride 4 My Niggas.mp3', url: '', title: 'Ride 4 My Niggas', artist: 'Lil Wayne', album: 'Da Drought 3', year: '2007', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 245, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm3', fileName: 'Lil Wayne - Sportscenter.mp3', url: '', title: 'Sportscenter', artist: 'Lil Wayne', album: 'Da Drought 3', year: '2007', genre: 'Hip-Hop', trackNumber: 8, albumArtUrl: '', lyrics: '', duration: 210, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm4', fileName: 'Lil Wayne - Ice Cream Paint Job.mp3', url: '', title: 'Ice Cream Paint Job', artist: 'Lil Wayne', album: 'No Ceilings', year: '2009', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 198, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm5', fileName: 'Lil Wayne - Watch My Shoes.mp3', url: '', title: 'Watch My Shoes', artist: 'Lil Wayne', album: 'No Ceilings', year: '2009', genre: 'Hip-Hop', trackNumber: 6, albumArtUrl: '', lyrics: '', duration: 262, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm6', fileName: 'Lil Wayne - Dedication 2 Intro.mp3', url: '', title: 'Dedication 2 Intro', artist: 'Lil Wayne', album: 'Dedication 2', year: '2006', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 180, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm10', fileName: 'Future - Codeine Crazy.mp3', url: '', title: 'Codeine Crazy', artist: 'Future', album: 'Monster', year: '2014', genre: 'Trap', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 290, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm11', fileName: 'Future - My Savages.mp3', url: '', title: 'My Savages', artist: 'Future', album: 'Monster', year: '2014', genre: 'Trap', trackNumber: 4, albumArtUrl: '', lyrics: '', duration: 215, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm12', fileName: 'Future - 56 Nights.mp3', url: '', title: '56 Nights', artist: 'Future', album: '56 Nights', year: '2015', genre: 'Trap', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 232, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm13', fileName: 'Future - March Madness.mp3', url: '', title: 'March Madness', artist: 'Future', album: '56 Nights', year: '2015', genre: 'Trap', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 246, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm20', fileName: 'Wiz Khalifa - Mezmorized.mp3', url: '', title: 'Mezmorized', artist: 'Wiz Khalifa', album: 'Kush & OJ', year: '2010', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 189, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm21', fileName: 'Wiz Khalifa - Still Blazin.mp3', url: '', title: 'Still Blazin', artist: 'Wiz Khalifa', album: 'Kush & OJ', year: '2010', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 220, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm22', fileName: 'Wiz Khalifa - Cabin Fever.mp3', url: '', title: 'Cabin Fever', artist: 'Wiz Khalifa', album: 'Cabin Fever', year: '2011', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 195, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm30', fileName: 'Chance the Rapper - Cocoa Butter Kisses.mp3', url: '', title: 'Cocoa Butter Kisses', artist: 'Chance the Rapper', album: 'Acid Rap', year: '2013', genre: 'Hip-Hop', trackNumber: 6, albumArtUrl: '', lyrics: '', duration: 275, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: 'Vic Mensa, Twista' },
+  { id: 'm31', fileName: 'Chance the Rapper - Juice.mp3', url: '', title: 'Juice', artist: 'Chance the Rapper', album: 'Acid Rap', year: '2013', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 198, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm40', fileName: 'Mac Miller - Nikes on My Feet.mp3', url: '', title: 'Nikes on My Feet', artist: 'Mac Miller', album: 'K.I.D.S.', year: '2010', genre: 'Hip-Hop', trackNumber: 3, albumArtUrl: '', lyrics: '', duration: 230, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm41', fileName: 'Mac Miller - Best Day Ever.mp3', url: '', title: 'Best Day Ever', artist: 'Mac Miller', album: 'Best Day Ever', year: '2011', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 243, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm50', fileName: 'Kevin Gates - Paper Chasers.mp3', url: '', title: 'Paper Chasers', artist: 'Kevin Gates', album: 'Luca Brasi Story', year: '2013', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 248, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm51', fileName: 'Kevin Gates - Wylin.mp3', url: '', title: 'Wylin', artist: 'Kevin Gates', album: 'Stranger Than Fiction', year: '2013', genre: 'Hip-Hop', trackNumber: 4, albumArtUrl: '', lyrics: '', duration: 225, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm60', fileName: 'J. Cole - Before I\'m Gone.mp3', url: '', title: "Before I'm Gone", artist: 'J. Cole', album: 'Friday Night Lights', year: '2010', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 260, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm61', fileName: 'J. Cole - Too Deep for the Intro.mp3', url: '', title: 'Too Deep for the Intro', artist: 'J. Cole', album: 'Friday Night Lights', year: '2010', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 238, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm70', fileName: 'Drake - Successful.mp3', url: '', title: 'Successful', artist: 'Drake', album: 'So Far Gone', year: '2009', genre: 'Hip-Hop', trackNumber: 4, albumArtUrl: '', lyrics: '', duration: 247, isTagging: false, isFavorite: true, releaseType: 'Mixtape', featuredArtists: 'Trey Songz, Lil Wayne' },
+  { id: 'm71', fileName: 'Drake - Best I Ever Had.mp3', url: '', title: 'Best I Ever Had', artist: 'Drake', album: 'So Far Gone', year: '2009', genre: 'Hip-Hop', trackNumber: 2, albumArtUrl: '', lyrics: '', duration: 262, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm80', fileName: 'Nipsey Hussle - Hussle in the House.mp3', url: '', title: 'Hussle in the House', artist: 'Nipsey Hussle', album: 'Crenshaw', year: '2013', genre: 'Hip-Hop', trackNumber: 1, albumArtUrl: '', lyrics: '', duration: 218, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
+  { id: 'm81', fileName: 'Nipsey Hussle - Face the World.mp3', url: '', title: 'Face the World', artist: 'Nipsey Hussle', album: 'Crenshaw', year: '2013', genre: 'Hip-Hop', trackNumber: 5, albumArtUrl: '', lyrics: '', duration: 237, isTagging: false, isFavorite: false, releaseType: 'Mixtape', featuredArtists: '' },
 ];
 
 // ═══════════════════════════════════════════════════════
@@ -185,9 +244,12 @@ export default function MusicPlayerApp() {
   const [showLyrics, setShowLyrics] = useState(false);
   const [taggingStatus, setTaggingStatus] = useState<TaggingStatus>({ total: 0, completed: 0, current: '', isActive: false });
   const [queue, setQueue] = useState<Song[]>([]);
+  const [albumFilter, setAlbumFilter] = useState<AlbumFilter>('all');
+  const [isDragging, setIsDragging] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Derived data ───
 
@@ -205,22 +267,33 @@ export default function MusicPlayerApp() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [songs]);
 
-  const albums = useMemo<AlbumInfo[]>(() => {
-    const map = new Map<string, { artist: string; year: string; artUrl: string; count: number }>();
+  const allAlbums = useMemo<AlbumInfo[]>(() => {
+    const map = new Map<string, { artist: string; year: string; artUrl: string; count: number; releaseType: string }>();
     songs.forEach(s => {
       const key = `${s.album}|||${s.artist}`;
       if (!map.has(key)) {
-        map.set(key, { artist: s.artist, year: s.year, artUrl: s.albumArtUrl, count: 0 });
+        map.set(key, { artist: s.artist, year: s.year, artUrl: s.albumArtUrl, count: 0, releaseType: s.releaseType || 'Album' });
       }
       map.get(key)!.count++;
     });
     return Array.from(map.entries())
       .map(([key, data]) => {
         const [name] = key.split('|||');
-        return { name, artist: data.artist, year: data.year, artUrl: data.artUrl, songCount: data.count };
+        return { name, artist: data.artist, year: data.year, artUrl: data.artUrl, songCount: data.count, releaseType: data.releaseType };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [songs]);
+
+  const albums = useMemo<AlbumInfo[]>(() => {
+    if (albumFilter === 'all') return allAlbums;
+    const typeMap: Record<AlbumFilter, string[]> = {
+      all: [],
+      albums: ['Album'],
+      mixtapes: ['Mixtape'],
+      eps: ['EP', 'Single'],
+    };
+    return allAlbums.filter(a => typeMap[albumFilter].includes(a.releaseType));
+  }, [allAlbums, albumFilter]);
 
   const filteredSongs = useMemo(() => {
     if (!searchQuery) return [];
@@ -378,6 +451,8 @@ export default function MusicPlayerApp() {
         duration: 0,
         isTagging: true,
         isFavorite: false,
+        releaseType: '',
+        featuredArtists: parsed.featuredArtists,
       });
     }
     if (newSongs.length === 0) return;
@@ -421,6 +496,8 @@ export default function MusicPlayerApp() {
           albumArtUrl,
           lyrics,
           isTagging: false,
+          releaseType: metadata.releaseType || s.releaseType,
+          featuredArtists: metadata.featuredArtists || s.featuredArtists,
         } : s));
       } catch {
         setSongs(prev => prev.map(s => s.id === song.id ? { ...s, isTagging: false } : s));
@@ -452,12 +529,38 @@ export default function MusicPlayerApp() {
 
   const currentView = selectedAlbum ? 'album' : selectedArtist ? 'artist' : showSearch ? 'search' : 'library';
 
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileImport(e.dataTransfer.files);
+    }
+  }, [handleFileImport]);
+
   // ═══════════════════════════════════════════════════════
   // Render
   // ═══════════════════════════════════════════════════════
 
   return (
-    <div className="relative w-full max-w-md mx-auto h-screen flex flex-col bg-background overflow-hidden select-none">
+    <div
+      className="relative w-full max-w-md mx-auto h-screen flex flex-col bg-background overflow-hidden select-none"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
 
       {/* ─── Header ─── */}
       <header className="flex items-center justify-between px-4 py-3 z-20">
@@ -585,9 +688,11 @@ export default function MusicPlayerApp() {
                 <div className="flex-1 min-w-0">
                   <p className={`text-[14px] font-medium truncate ${currentSong?.id === song.id ? 'text-primary' : 'text-foreground'}`}>
                     {song.title}
+                    {song.featuredArtists && <span className="text-foreground/40 font-normal"> ft. {song.featuredArtists}</span>}
                   </p>
                   <p className="text-[12px] text-foreground/50 truncate mt-0.5">
                     {song.artist} {song.album ? `• ${song.album}` : ''}
+                    {song.releaseType === 'Mixtape' && <span className="text-amber-400/70"> • Mixtape</span>}
                   </p>
                 </div>
                 {song.isTagging && <Loader2 size={16} className="animate-spin text-primary flex-shrink-0" />}
@@ -605,24 +710,62 @@ export default function MusicPlayerApp() {
 
         {/* Library: Albums Tab */}
         {currentView === 'library' && activeTab === 'albums' && (
-          <div className="grid grid-cols-2 gap-4 p-4">
-            {albums.map(album => (
-              <button
-                key={`${album.name}-${album.artist}`}
-                onClick={() => setSelectedAlbum({ name: album.name, artist: album.artist })}
-                className="text-left group"
-              >
-                <div className="aspect-square rounded-xl overflow-hidden mb-2 shadow-lg">
-                  {album.artUrl ? (
-                    <img src={album.artUrl} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                  ) : (
-                    <ArtPlaceholder text={album.name} size={200} />
-                  )}
-                </div>
-                <p className="text-[13px] font-medium text-foreground truncate">{album.name}</p>
-                <p className="text-[11px] text-foreground/50 truncate">{album.artist} • {album.year || '—'}</p>
-              </button>
-            ))}
+          <div>
+            {/* Filter chips */}
+            <div className="flex gap-2 px-4 py-3 overflow-x-auto scrollbar-hide">
+              {([
+                ['all', 'All'],
+                ['albums', 'Albums'],
+                ['mixtapes', 'Mixtapes'],
+                ['eps', 'EPs & Singles'],
+              ] as [AlbumFilter, string][]).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setAlbumFilter(key)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    albumFilter === key
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-foreground/60 hover:text-foreground/80'
+                  }`}
+                >
+                  {label}
+                  <span className="ml-1.5 opacity-60">
+                    {key === 'all' ? allAlbums.length :
+                     key === 'albums' ? allAlbums.filter(a => a.releaseType === 'Album').length :
+                     key === 'mixtapes' ? allAlbums.filter(a => a.releaseType === 'Mixtape').length :
+                     allAlbums.filter(a => a.releaseType === 'EP' || a.releaseType === 'Single').length}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-4 px-4 pb-4">
+              {albums.map(album => (
+                <button
+                  key={`${album.name}-${album.artist}`}
+                  onClick={() => setSelectedAlbum({ name: album.name, artist: album.artist })}
+                  className="text-left group"
+                >
+                  <div className="aspect-square rounded-xl overflow-hidden mb-2 shadow-lg relative">
+                    {album.artUrl ? (
+                      <img src={album.artUrl} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                    ) : (
+                      <ArtPlaceholder text={album.name} size={200} />
+                    )}
+                    {album.releaseType && album.releaseType !== 'Album' && (
+                      <span className={`absolute top-2 left-2 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wide shadow-md ${
+                        album.releaseType === 'Mixtape' ? 'bg-amber-500/90 text-black' :
+                        album.releaseType === 'EP' ? 'bg-violet-500/90 text-white' :
+                        'bg-emerald-500/90 text-white'
+                      }`}>
+                        {album.releaseType}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[13px] font-medium text-foreground truncate">{album.name}</p>
+                  <p className="text-[11px] text-foreground/50 truncate">{album.artist} • {album.year || '—'}</p>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -697,23 +840,35 @@ export default function MusicPlayerApp() {
               <div className="px-4 mb-4">
                 <h3 className="text-sm font-semibold text-foreground/60 uppercase tracking-wider mb-3">Albums</h3>
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                  {artistAlbums.map(album => (
-                    <button
-                      key={album.name}
-                      onClick={() => setSelectedAlbum({ name: album.name, artist: album.artist })}
-                      className="flex-shrink-0 w-32 text-left"
-                    >
-                      <div className="w-32 h-32 rounded-xl overflow-hidden mb-2 shadow-lg">
-                        {album.artUrl ? (
-                          <img src={album.artUrl} alt={album.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <ArtPlaceholder text={album.name} size={128} />
-                        )}
-                      </div>
-                      <p className="text-[12px] font-medium text-foreground truncate">{album.name}</p>
-                      <p className="text-[11px] text-foreground/50">{album.year}</p>
-                    </button>
-                  ))}
+                  {artistAlbums.map(album => {
+                    const releaseType = songs.find(s => s.album === album.name && s.artist === album.artist)?.releaseType || '';
+                    return (
+                      <button
+                        key={album.name}
+                        onClick={() => setSelectedAlbum({ name: album.name, artist: album.artist })}
+                        className="flex-shrink-0 w-32 text-left"
+                      >
+                        <div className="w-32 h-32 rounded-xl overflow-hidden mb-2 shadow-lg relative">
+                          {album.artUrl ? (
+                            <img src={album.artUrl} alt={album.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <ArtPlaceholder text={album.name} size={128} />
+                          )}
+                          {releaseType && releaseType !== 'Album' && (
+                            <span className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase shadow-md ${
+                              releaseType === 'Mixtape' ? 'bg-amber-500/90 text-black' :
+                              releaseType === 'EP' ? 'bg-violet-500/90 text-white' :
+                              'bg-emerald-500/90 text-white'
+                            }`}>
+                              {releaseType}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[12px] font-medium text-foreground truncate">{album.name}</p>
+                        <p className="text-[11px] text-foreground/50">{album.year}</p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -761,7 +916,20 @@ export default function MusicPlayerApp() {
               </div>
               <h2 className="text-lg font-bold mt-4 text-center">{selectedAlbum.name}</h2>
               <p className="text-primary/80 text-sm mt-1">{selectedAlbum.artist}</p>
-              {albumSongs[0]?.year && <p className="text-foreground/40 text-xs mt-0.5">{albumSongs[0].year} • {albumSongs[0].genre}</p>}
+              <div className="flex items-center gap-2 mt-1">
+                {albumSongs[0]?.releaseType && (
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${
+                    albumSongs[0].releaseType === 'Mixtape' ? 'bg-amber-500/20 text-amber-400' :
+                    albumSongs[0].releaseType === 'EP' ? 'bg-violet-500/20 text-violet-400' :
+                    albumSongs[0].releaseType === 'Single' ? 'bg-emerald-500/20 text-emerald-400' :
+                    'bg-primary/20 text-primary'
+                  }`}>
+                    {albumSongs[0].releaseType}
+                  </span>
+                )}
+                {albumSongs[0]?.year && <span className="text-foreground/40 text-xs">{albumSongs[0].year}</span>}
+                {albumSongs[0]?.genre && <span className="text-foreground/40 text-xs">• {albumSongs[0].genre}</span>}
+              </div>
               <div className="flex gap-3 mt-4">
                 <button
                   onClick={() => { if (albumSongs.length > 0) playSong(albumSongs[0], albumSongs); }}
@@ -926,10 +1094,26 @@ export default function MusicPlayerApp() {
                 )}
               </div>
               <div className="w-full text-center mb-2">
-                <h2 className="text-xl font-bold truncate">{currentSong.title}</h2>
+                <h2 className="text-xl font-bold truncate">
+                  {currentSong.title}
+                  {currentSong.featuredArtists && (
+                    <span className="text-foreground/40 text-base font-normal"> ft. {currentSong.featuredArtists}</span>
+                  )}
+                </h2>
                 <p className="text-foreground/60 text-sm mt-1">{currentSong.artist}</p>
                 {currentSong.album && (
-                  <p className="text-foreground/40 text-xs mt-0.5">{currentSong.album} {currentSong.year ? `(${currentSong.year})` : ''}</p>
+                  <div className="flex items-center justify-center gap-2 mt-0.5">
+                    <p className="text-foreground/40 text-xs">{currentSong.album} {currentSong.year ? `(${currentSong.year})` : ''}</p>
+                    {currentSong.releaseType && currentSong.releaseType !== 'Album' && (
+                      <span className={`px-2 py-0.5 rounded-md text-[9px] font-semibold ${
+                        currentSong.releaseType === 'Mixtape' ? 'bg-amber-500/20 text-amber-400' :
+                        currentSong.releaseType === 'EP' ? 'bg-violet-500/20 text-violet-400' :
+                        'bg-emerald-500/20 text-emerald-400'
+                      }`}>
+                        {currentSong.releaseType}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -1019,13 +1203,20 @@ export default function MusicPlayerApp() {
             </div>
 
             {/* Song info badges */}
-            {(currentSong.genre || currentSong.year) && (
-              <div className="flex items-center justify-center gap-2 mt-4">
+            {(currentSong.genre || currentSong.year || currentSong.releaseType) && (
+              <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
                 {currentSong.genre && (
                   <span className="px-3 py-1 bg-secondary rounded-full text-[10px] text-foreground/60">{currentSong.genre}</span>
                 )}
                 {currentSong.year && (
                   <span className="px-3 py-1 bg-secondary rounded-full text-[10px] text-foreground/60">{currentSong.year}</span>
+                )}
+                {currentSong.releaseType && (
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-medium ${
+                    currentSong.releaseType === 'Mixtape' ? 'bg-amber-500/15 text-amber-400' :
+                    currentSong.releaseType === 'EP' ? 'bg-violet-500/15 text-violet-400' :
+                    'bg-secondary text-foreground/60'
+                  }`}>{currentSong.releaseType}</span>
                 )}
               </div>
             )}
@@ -1055,7 +1246,14 @@ export default function MusicPlayerApp() {
                 className="w-full flex items-center gap-4 px-6 py-3.5 text-left hover:bg-secondary/50 transition-colors"
               >
                 <Upload size={20} className="text-primary" />
-                <span className="text-sm font-medium">Import Music</span>
+                <span className="text-sm font-medium">Import Files</span>
+              </button>
+              <button
+                onClick={() => { folderInputRef.current?.click(); setShowDrawer(false); }}
+                className="w-full flex items-center gap-4 px-6 py-3.5 text-left hover:bg-secondary/50 transition-colors"
+              >
+                <FolderOpen size={20} className="text-primary" />
+                <span className="text-sm font-medium">Import Folder</span>
               </button>
               <button className="w-full flex items-center gap-4 px-6 py-3.5 text-left hover:bg-secondary/50 transition-colors">
                 <Heart size={20} className="text-foreground/60" />
@@ -1088,6 +1286,18 @@ export default function MusicPlayerApp() {
         </button>
       )}
 
+      {/* Drag & Drop Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-[60] bg-background/90 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in">
+          <div className="w-32 h-32 rounded-3xl border-4 border-dashed border-primary/60 flex items-center justify-center mb-6 animate-pulse">
+            <Upload size={48} className="text-primary/60" />
+          </div>
+          <p className="text-lg font-semibold text-foreground">Drop music files here</p>
+          <p className="text-sm text-foreground/50 mt-1">MP3, WAV, FLAC, OGG, M4A supported</p>
+          <p className="text-xs text-amber-400/70 mt-3">AI will auto-tag metadata, album art & lyrics</p>
+        </div>
+      )}
+
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -1096,6 +1306,17 @@ export default function MusicPlayerApp() {
         multiple
         className="hidden"
         onChange={e => { if (e.target.files) handleFileImport(e.target.files); e.target.value = ''; }}
+      />
+
+      {/* Hidden folder input */}
+      <input
+        ref={folderInputRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        className="hidden"
+        onChange={e => { if (e.target.files) handleFileImport(e.target.files); e.target.value = ''; }}
+        {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)}
       />
 
       {/* Hidden audio element */}
