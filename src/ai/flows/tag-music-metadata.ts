@@ -1,18 +1,11 @@
 'use server';
-/**
- * @fileOverview This file defines a Genkit flow for automatically tagging music metadata using AI analysis of the audio file.
- *
- * - tagMusicMetadata - A function that handles the music metadata tagging process.
- * - TagMusicMetadataInput - The input type for the tagMusicMetadata function.
- * - TagMusicMetadataOutput - The return type for the tagMusicMetadata function.
- */
 
 import {ai} from '@/ai/ai-instance';
 import {z} from 'genkit';
 import {fetchMusicMetadata} from '@/services/music-metadata';
 
 const TagMusicMetadataInputSchema = z.object({
-  filePath: z.string().describe('The path to the audio file.'),
+  filePath: z.string().describe('The file name or path of the audio file.'),
 });
 export type TagMusicMetadataInput = z.infer<typeof TagMusicMetadataInputSchema>;
 
@@ -22,6 +15,8 @@ const TagMusicMetadataOutputSchema = z.object({
   album: z.string().optional().describe('The name of the album.'),
   trackNumber: z.number().optional().describe('The track number of the song in the album.'),
   albumArtUrl: z.string().optional().describe('URL of the album art.'),
+  year: z.string().optional().describe('The release year of the song.'),
+  genre: z.string().optional().describe('The genre of the song.'),
 });
 export type TagMusicMetadataOutput = z.infer<typeof TagMusicMetadataOutputSchema>;
 
@@ -33,7 +28,7 @@ const prompt = ai.definePrompt({
   name: 'tagMusicMetadataPrompt',
   input: {
     schema: z.object({
-      filePath: z.string().describe('The path to the audio file.'),
+      filePath: z.string().describe('The file name or path of the audio file.'),
       title: z.string().optional().describe('The title of the song.'),
       artist: z.string().optional().describe('The name of the artist.'),
       album: z.string().optional().describe('The name of the album.'),
@@ -46,24 +41,30 @@ const prompt = ai.definePrompt({
       artist: z.string().optional().describe('The name of the artist.'),
       album: z.string().optional().describe('The name of the album.'),
       trackNumber: z.number().optional().describe('The track number of the song in the album.'),
-      albumArtUrl: z.string().optional().describe('URL of the album art.'),
+      albumArtUrl: z.string().optional().describe('A real, working URL to the album art image.'),
+      year: z.string().optional().describe('The release year of the song or album.'),
+      genre: z.string().optional().describe('The genre of the song (e.g. Hip-Hop, R&B, Pop, Rock, etc).'),
     }),
   },
-  prompt: `You are an AI tasked with identifying and tagging music metadata.
-  You will be provided with the file path of the music, along with any existing metadata.
-  Use your AI capabilities to analyze the audio file and accurately identify the missing metadata, including title, artist, album, and track number.
-  If the information is already available in the existing metadata, do not change it.
+  prompt: `You are a music metadata expert. Given a music file name, identify the song and provide complete, accurate metadata.
 
-  File Path: {{{filePath}}}
-  Existing Metadata:
+  Analyze the file name to determine the song. Look for patterns like "Artist - Title", "Artist_Title", or just the song title.
+  Use your knowledge of music to fill in ALL metadata fields accurately.
+
+  File name: {{{filePath}}}
+
+  Existing metadata (use if available, correct if wrong):
   Title: {{{title}}}
   Artist: {{{artist}}}
   Album: {{{album}}}
   Track Number: {{{trackNumber}}}
-  Based on your analysis, provide the complete and accurate music metadata.
-  If you are unable to determine a piece of information, leave it blank.
-  Include a URL to album art, if it can be found.
-  `,
+
+  Instructions:
+  - Identify the exact song from the file name
+  - Provide the correct title, artist, album name, track number, release year, and genre
+  - For albumArtUrl: provide a real, publicly accessible URL to the album cover image (e.g. from Wikipedia, MusicBrainz, or other public sources)
+  - If you cannot determine a field with confidence, leave it blank
+  - Be precise - use official song titles, album names, and artist names`,
 });
 
 const tagMusicMetadataFlow = ai.defineFlow<
