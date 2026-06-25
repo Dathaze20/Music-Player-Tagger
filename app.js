@@ -97,7 +97,8 @@ function saveLibrary() {
       return {
         fn: s.fn, title: s.title, artist: s.artist, album: s.album,
         year: s.year, genre: s.genre, track: s.track, art: s.art,
-        lyrics: s.lyrics, dur: s.dur, fav: s.fav, type: s.type, feat: s.feat
+        lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
+        dur: s.dur, fav: s.fav, type: s.type, feat: s.feat
       };
     });
     localStorage.setItem('muzio_library', JSON.stringify(data));
@@ -628,6 +629,73 @@ function updateMiniPlayer() {
   document.getElementById('miniProgressBar').style.width = pct + '%';
 }
 
+// ─── Synced Lyrics ───
+
+var lyricsLines = [];
+var currentLyricIdx = -1;
+var lyricsVisible = false;
+
+function parseLRC(lrc) {
+  if (!lrc) return [];
+  var lines = lrc.replace(/\\n/g, '\n').split('\n');
+  var parsed = [];
+  for (var i = 0; i < lines.length; i++) {
+    var match = lines[i].match(/^\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.*)$/);
+    if (match) {
+      var mins = parseInt(match[1]);
+      var secs = parseInt(match[2]);
+      var ms = match[3] ? parseInt(match[3].padEnd(3, '0')) : 0;
+      var time = mins * 60 + secs + ms / 1000;
+      var text = match[4].trim();
+      if (text) parsed.push({ time: time, text: text });
+    }
+  }
+  parsed.sort(function(a, b) { return a.time - b.time; });
+  return parsed;
+}
+
+function updateSyncedLyrics(time) {
+  if (!lyricsVisible || lyricsLines.length === 0) return;
+  var newIdx = -1;
+  for (var i = lyricsLines.length - 1; i >= 0; i--) {
+    if (time >= lyricsLines[i].time) { newIdx = i; break; }
+  }
+  if (newIdx === currentLyricIdx) return;
+  currentLyricIdx = newIdx;
+
+  var container = document.getElementById('syncedLyricsContainer');
+  if (!container) return;
+  var items = container.querySelectorAll('.lyric-line');
+  for (var j = 0; j < items.length; j++) {
+    if (j === currentLyricIdx) {
+      items[j].classList.add('active');
+      items[j].classList.remove('past', 'future');
+    } else if (j < currentLyricIdx) {
+      items[j].classList.add('past');
+      items[j].classList.remove('active', 'future');
+    } else {
+      items[j].classList.add('future');
+      items[j].classList.remove('active', 'past');
+    }
+  }
+  if (currentLyricIdx >= 0 && items[currentLyricIdx]) {
+    items[currentLyricIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function buildSyncedLyricsHTML() {
+  if (lyricsLines.length === 0) return '';
+  var html = '<div class="synced-lyrics-scroll" id="syncedLyricsContainer">';
+  html += '<div class="lyrics-spacer"></div>';
+  for (var i = 0; i < lyricsLines.length; i++) {
+    var cls = 'lyric-line future';
+    html += '<div class="' + cls + '" data-idx="' + i + '" data-time="' + lyricsLines[i].time + '">' + escHtml(lyricsLines[i].text) + '</div>';
+  }
+  html += '<div class="lyrics-spacer"></div>';
+  html += '</div>';
+  return html;
+}
+
 // ─── Now Playing ───
 
 function renderNowPlaying() {
@@ -682,14 +750,36 @@ function renderNowPlaying() {
   }
 
   html += '<button class="lyrics-toggle" id="npLyricsToggle">&#9835; Lyrics</button>';
-  html += '<div class="lyrics-panel hidden" id="lyricsPanel">';
-  if (currentSong.lyrics) {
-    html += '<div class="lyrics-text">' + escHtml(currentSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>') + '</div>';
-  } else {
-    html += '<div class="lyrics-empty"><p>&#9835;</p><p>No lyrics available</p><p class="sub">Lyrics are fetched automatically during AI tagging</p></div>';
-  }
   html += '</div>';
 
+  lyricsLines = parseLRC(currentSong.syncedLyrics);
+  var hasLyrics = lyricsLines.length > 0 || (currentSong.lyrics && currentSong.lyrics.trim());
+
+  html += '<div class="lyrics-fullscreen hidden" id="lyricsFullscreen">';
+  html += '<div class="lyrics-fs-header">'
+    + '<button id="lyricsBack">&#8744;</button>'
+    + '<div class="lyrics-fs-song">' + escHtml(currentSong.title) + '</div>'
+    + '<div class="lyrics-fs-artist">' + escHtml(currentSong.artist) + '</div>'
+    + '</div>';
+
+  if (lyricsLines.length > 0) {
+    html += buildSyncedLyricsHTML();
+  } else if (currentSong.lyrics && currentSong.lyrics.trim()) {
+    html += '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
+      + escHtml(currentSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
+      + '</div></div>';
+  } else {
+    html += '<div class="lyrics-empty-fs"><div class="lyrics-empty-icon">&#9835;</div>'
+      + '<p>No lyrics available</p>'
+      + '<p class="sub">Lyrics are fetched automatically during AI tagging</p></div>';
+  }
+
+  html += '<div class="lyrics-fs-controls">'
+    + '<div class="lyrics-fs-mini-art">' + imgOrArt(currentSong.art, currentSong.album || currentSong.title, 40) + '</div>'
+    + '<div class="lyrics-fs-info"><div class="lyrics-fs-title">' + escHtml(currentSong.title) + '</div>'
+    + '<div class="lyrics-fs-meta">' + escHtml(currentSong.artist) + '</div></div>'
+    + '<button class="lyrics-fs-play" id="lyricsFsPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
+    + '</div>';
   html += '</div>';
 
   np.innerHTML = html;
@@ -712,17 +802,33 @@ function renderNowPlaying() {
   document.getElementById('npVolume').oninput = function(e) { volume = parseFloat(e.target.value); isMuted = false; audio.volume = volume; };
   document.getElementById('npMute').onclick = function() { isMuted = !isMuted; audio.volume = isMuted ? 0 : volume; renderNowPlaying(); };
   document.getElementById('npLyricsToggle').onclick = function() {
-    var panel = document.getElementById('lyricsPanel');
-    var btn = document.getElementById('npLyricsToggle');
-    var artContainer = document.querySelector('.np-art-container');
-    panel.classList.toggle('hidden');
-    btn.classList.toggle('active');
-    if (!panel.classList.contains('hidden')) {
-      artContainer.classList.add('lyrics-mode');
-    } else {
-      artContainer.classList.remove('lyrics-mode');
-    }
+    var fs = document.getElementById('lyricsFullscreen');
+    fs.classList.remove('hidden');
+    lyricsVisible = true;
+    currentLyricIdx = -1;
+    updateSyncedLyrics(currentTime);
   };
+  document.getElementById('lyricsBack').onclick = function() {
+    document.getElementById('lyricsFullscreen').classList.add('hidden');
+    lyricsVisible = false;
+  };
+  document.getElementById('lyricsFsPlay').onclick = function(e) {
+    e.stopPropagation();
+    togglePlay();
+    document.getElementById('lyricsFsPlay').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+  };
+  var syncContainer = document.getElementById('syncedLyricsContainer');
+  if (syncContainer) {
+    syncContainer.querySelectorAll('.lyric-line').forEach(function(line) {
+      line.onclick = function() {
+        var t = parseFloat(line.dataset.time);
+        if (!isNaN(t) && currentSong && currentSong.url) {
+          audio.currentTime = t;
+          if (!isPlaying) { audio.play().then(function() { isPlaying = true; }).catch(function(){}); }
+        }
+      };
+    });
+  }
 
   // Swipe down to close
   var startY = 0;
@@ -785,6 +891,9 @@ audio.addEventListener('timeupdate', function() {
     if (seek) { seek.value = currentTime; seek.max = duration || 0; }
     var times = document.querySelectorAll('.np-times span');
     if (times[0]) times[0].textContent = fmtTime(currentTime);
+    updateSyncedLyrics(currentTime);
+    var fsPlay = document.getElementById('lyricsFsPlay');
+    if (fsPlay) fsPlay.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
   }
   updateMiniPlayer();
 });
@@ -884,6 +993,7 @@ function tagNextSong(songList, idx) {
     if (meta.releaseType) song.type = meta.releaseType;
     if (meta.featuredArtists) song.feat = meta.featuredArtists;
     if (meta.albumArtUrl) song.art = meta.albumArtUrl;
+    if (meta.syncedLyrics) song.syncedLyrics = meta.syncedLyrics;
     if (meta.lyrics) song.lyrics = meta.lyrics;
     song.tagging = false;
     if (idx % 10 === 0) { saveLibrary(); render(); }
@@ -911,14 +1021,14 @@ function callGeminiTag(fileName) {
   var prompt = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture.\n\n'
     + 'You know underground and mainstream artists including: Stack Bundles, Max B, Chinx, Lloyd Banks (Cold Corner 1-3, Halloween Havoc), Styles P (Ghost stories), Jadakiss (Champ Is Here 1-3), Fabolous (Soul Tape, No Competition), Dave East (Kairi Chanel, Paranoia), Griselda (Westside Gunn, Conway, Benny), Roc Marciano, Chief Keef (Back From The Dead, Finally Rich), King Von, Pop Smoke, Lil Wayne (Da Drought 3, No Ceilings, Dedication), Future (Monster, 56 Nights, Beast Mode), Young Thug, Gucci Mane, Jeezy, T.I., Nipsey Hussle (Crenshaw, Victory Lap), Curren$y (Pilot Talk, Jet Files), Wiz Khalifa (Kush & OJ, Taylor Allderdice), Mac Miller (K.I.D.S., Faces), Kevin Gates (Luca Brasi), J. Cole (Friday Night Lights, Truly Yours), Drake (So Far Gone, Room for Improvement), Chance the Rapper (Acid Rap, 10 Day), and all major label releases.\n\n'
     + 'Given this music file name, identify the song and return ONLY a JSON object:\n'
-    + '{"title":"","artist":"","album":"","trackNumber":0,"albumArtUrl":"","year":"","genre":"","releaseType":"","featuredArtists":"","lyrics":""}\n\n'
+    + '{"title":"","artist":"","album":"","trackNumber":0,"albumArtUrl":"","year":"","genre":"","releaseType":"","featuredArtists":"","syncedLyrics":""}\n\n'
     + 'Rules:\n'
     + '- releaseType must be one of: Album, Mixtape, EP, Single\n'
     + '- For loosies/SoundCloud tracks not on any project, use "Single"\n'
     + '- For DJ-hosted tapes (Gangsta Grillz, Drama, etc), use "Mixtape"\n'
     + '- albumArtUrl should be a real working image URL for the album cover if possible\n'
     + '- genre should be specific: Hip-Hop, Trap, Drill, Boom-Bap, G-Funk, R&B, Cloud Rap, etc\n'
-    + '- lyrics: provide the FULL song lyrics if you know them. Use \\n for line breaks. If unsure, leave empty.\n'
+    + '- syncedLyrics: provide the FULL song lyrics in LRC timed format. Each line must have a timestamp like [mm:ss.xx]. Example: "[00:12.50]First line\\n[00:16.20]Second line\\n[00:20.00]Third line". Estimate timestamps based on typical song structure and tempo. Use \\n between lines. If you do not know the lyrics, leave empty.\n'
     + '- Return ONLY the JSON object, no markdown, no explanation\n\n'
     + 'File: ' + fileName;
 
