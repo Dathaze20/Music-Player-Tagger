@@ -396,13 +396,9 @@ function renderWelcome(el) {
     + '<button class="welcome-btn-alt" id="welcomeFilesBtn">&#127926; Or Pick Individual Files</button>';
 
   if (!apiKey) {
-    html += '<div class="welcome-hint">'
-      + '<p>&#9881; Set your Gemini API key in the menu for AI auto-tagging of artist, album, year, genre, and album art.</p>'
-      + '</div>';
+    html += '<p class="welcome-api-note" id="welcomeApiLink">&#9881; Tap here to set your Gemini API key for auto-tagging</p>';
   } else {
-    html += '<div class="welcome-hint active">'
-      + '<p>&#10003; Gemini API key set! Songs will be auto-tagged on import.</p>'
-      + '</div>';
+    html += '<p class="welcome-api-set">&#10003; AI auto-tagging enabled</p>';
   }
 
   html += '</div>';
@@ -412,6 +408,10 @@ function renderWelcome(el) {
     if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
   };
   document.getElementById('welcomeFilesBtn').onclick = function() { document.getElementById('fileInput').click(); };
+  var apiLink = document.getElementById('welcomeApiLink');
+  if (apiLink) {
+    apiLink.onclick = function() { openSettings(); };
+  }
 }
 
 function renderReconnectBanner() {

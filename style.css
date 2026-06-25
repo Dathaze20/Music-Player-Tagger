@@ -774,23 +774,21 @@ body {
   margin-bottom: 24px;
 }
 .welcome-btn-alt:active { transform: scale(0.96); }
-.welcome-hint {
-  background: rgba(0,168,158,0.08);
-  border: 1px solid rgba(0,168,158,0.2);
-  border-radius: 12px;
-  padding: 12px 16px;
-  max-width: 320px;
-}
-.welcome-hint p {
+.welcome-api-note {
   font-size: 12px;
-  color: #8899aa;
-  line-height: 1.5;
+  color: var(--text-faint);
+  margin-top: 8px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(255,255,255,0.15);
+  text-underline-offset: 3px;
 }
-.welcome-hint.active {
-  background: rgba(16,185,129,0.08);
-  border-color: rgba(16,185,129,0.2);
+.welcome-api-note:active { color: var(--primary); }
+.welcome-api-set {
+  font-size: 12px;
+  color: var(--emerald);
+  margin-top: 8px;
 }
-.welcome-hint.active p { color: var(--emerald); }
 
 /* Toast notifications */
 .toast-msg {
