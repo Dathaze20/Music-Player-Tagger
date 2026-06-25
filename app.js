@@ -266,6 +266,7 @@ function render() {
   }
 
   updateMiniPlayer();
+  if (typeof saveUIState === 'function') saveUIState();
 }
 
 // ─── Welcome Screen ───
@@ -1160,8 +1161,12 @@ document.getElementById('clearLibBtn').onclick = function() {
   if (confirm('Clear your entire library? This cannot be undone.')) {
     songs = [];
     currentSong = null;
+    selectedArtist = null;
+    selectedAlbum = null;
+    currentTab = 'artists';
     localStorage.removeItem('muzio_library');
     localStorage.removeItem('muzio_library_count');
+    localStorage.removeItem('muzio_ui_state');
     render();
     showToast('Library cleared');
   }
@@ -1174,9 +1179,86 @@ appEl.addEventListener('drop', function(e) {
   if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handleFileImport(e.dataTransfer.files);
 });
 
+// ─── State Persistence (survives app-switch page reloads) ───
+
+function saveUIState() {
+  try {
+    var state = {
+      tab: currentTab,
+      artist: selectedArtist,
+      album: selectedAlbum,
+      songFn: currentSong ? currentSong.fn : null,
+      nowPlaying: showNowPlaying,
+      albumFilter: albumFilter,
+      sortMode: sortMode,
+      scroll: document.getElementById('mainContent').scrollTop,
+      time: currentTime,
+      shuffled: isShuffled,
+      repeat: repeatMode,
+      vol: volume,
+      muted: isMuted
+    };
+    localStorage.setItem('muzio_ui_state', JSON.stringify(state));
+  } catch (e) {}
+}
+
+function restoreUIState() {
+  try {
+    var raw = localStorage.getItem('muzio_ui_state');
+    if (!raw) return;
+    var state = JSON.parse(raw);
+    if (state.tab) currentTab = state.tab;
+    if (state.artist) selectedArtist = state.artist;
+    if (state.album) selectedAlbum = state.album;
+    if (state.albumFilter) albumFilter = state.albumFilter;
+    if (state.sortMode) sortMode = state.sortMode;
+    if (state.shuffled) isShuffled = state.shuffled;
+    if (state.repeat) repeatMode = state.repeat;
+    if (typeof state.vol === 'number') volume = state.vol;
+    if (state.muted) isMuted = state.muted;
+
+    if (state.songFn) {
+      var match = songs.find(function(s) { return s.fn === state.songFn; });
+      if (match) {
+        currentSong = match;
+        currentTime = state.time || 0;
+        duration = match.dur || 0;
+      }
+    }
+
+    if (state.tab && state.tab !== 'artists') {
+      document.querySelectorAll('.tabs button').forEach(function(b) { b.classList.remove('active'); });
+      var tabBtn = document.querySelector('.tabs button[data-tab="' + state.tab + '"]');
+      if (tabBtn) tabBtn.classList.add('active');
+    }
+
+    render();
+
+    if (state.scroll) {
+      setTimeout(function() {
+        document.getElementById('mainContent').scrollTop = state.scroll;
+      }, 50);
+    }
+
+    if (state.nowPlaying && currentSong) {
+      setTimeout(function() { renderNowPlaying(); }, 100);
+    }
+  } catch (e) {}
+}
+
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) saveUIState();
+});
+window.addEventListener('beforeunload', saveUIState);
+window.addEventListener('pagehide', saveUIState);
+
 // ─── Init ───
 
-render();
+restoreUIState();
+
+if (songs.length === 0 || (currentTab === 'artists' && !selectedArtist && !selectedAlbum)) {
+  render();
+}
 
 if (songs.length > 0 && !songs[0].url) {
   showToast('Select your music folder to enable playback', 4000);
