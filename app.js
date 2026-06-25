@@ -220,7 +220,12 @@ function autoScanFromHandle() {
   }).catch(function() { return false; });
 }
 
+function isMobile() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
 function pickFolderWithHandle() {
+  if (isMobile()) return false;
   if (!window.showDirectoryPicker) return false;
   try {
     window.showDirectoryPicker({ mode: 'read' }).then(function(handle) {
@@ -395,11 +400,11 @@ function render() {
 
 function renderWelcome(el) {
   var html = '<div class="welcome-screen">'
-    + '<div class="welcome-perm-icon">&#128274;</div>'
-    + '<h2 class="welcome-title">Music Access</h2>'
-    + '<p class="welcome-text">Muzio AI needs access to find music on your device. Select your storage and all songs will appear automatically.</p>'
-    + '<button class="welcome-btn" id="welcomeGrantBtn">&#10003; Allow Access</button>'
-    + '<p class="welcome-hint">Select Internal Storage or SD Card — all music files are found automatically</p>';
+    + '<div class="welcome-perm-icon">&#127925;</div>'
+    + '<h2 class="welcome-title">Muzio AI</h2>'
+    + '<p class="welcome-text">Select your Music folder to start playing. Songs play directly from your storage — nothing is copied.</p>'
+    + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Open Music Folder</button>'
+    + '<p class="welcome-hint">Choose your Music folder on Internal Storage or SD Card</p>';
 
   if (!apiKey) {
     html += '<p class="welcome-api-note" id="welcomeApiLink">&#9881; Set up AI auto-tagging</p>';
@@ -1103,9 +1108,10 @@ function handleFileImport(files) {
   });
 
   var msg = '';
-  if (added > 0 && matched > 0) msg = added + ' new, ' + matched + ' reconnected';
-  else if (added > 0) msg = added + ' songs imported!';
-  else if (matched > 0) msg = matched + ' songs reconnected!';
+  if (added > 0 && matched > 0) msg = added + ' new + ' + matched + ' reconnected';
+  else if (added > 0) msg = 'Found ' + added + ' songs!';
+  else if (matched > 0) msg = matched + ' songs ready to play!';
+  else if (files.length > 0) msg = 'No audio files found (' + files.length + ' files checked)';
   if (msg) showToast(msg, 3000);
 
   saveLibrary();
@@ -1430,7 +1436,15 @@ document.getElementById('importFolderBtn').onclick = function() {
   if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
 };
 document.getElementById('fileInput').onchange = function(e) { if (e.target.files) handleFileImport(e.target.files); e.target.value = ''; };
-document.getElementById('folderInput').onchange = function(e) { if (e.target.files) handleFileImport(e.target.files); e.target.value = ''; };
+document.getElementById('folderInput').onchange = function(e) {
+  if (e.target.files && e.target.files.length > 0) {
+    showToast('Found ' + e.target.files.length + ' files, loading...', 3000);
+    handleFileImport(e.target.files);
+  } else {
+    showToast('No files found — try selecting your Music folder directly', 4000);
+  }
+  e.target.value = '';
+};
 
 document.getElementById('reconnectBanner').onclick = function() {
   if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
@@ -1564,7 +1578,7 @@ if (songs.length === 0 || (currentTab === 'artists' && !selectedArtist && !selec
 }
 
 if (songs.length > 0 && !songs[0].url) {
-  if (window.showDirectoryPicker) {
+  if (window.showDirectoryPicker && !isMobile()) {
     autoScanFromHandle().then(function(ok) {
       if (!ok) render();
     });
