@@ -755,25 +755,6 @@ body {
   margin-bottom: 12px;
 }
 .welcome-btn:active { transform: scale(0.96); }
-.welcome-btn-alt {
-  width: 100%;
-  max-width: 280px;
-  padding: 12px 24px;
-  border-radius: 16px;
-  background: var(--bg-secondary);
-  color: #d0d8e8;
-  border: 1px solid var(--border);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  transition: transform 0.15s;
-  margin-bottom: 24px;
-}
-.welcome-btn-alt:active { transform: scale(0.96); }
 .welcome-api-note {
   font-size: 12px;
   color: var(--text-faint);

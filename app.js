@@ -390,13 +390,12 @@ function render() {
 function renderWelcome(el) {
   var html = '<div class="welcome-screen">'
     + '<div class="welcome-icon">&#127925;</div>'
-    + '<h2 class="welcome-title">Welcome to Muzio AI</h2>'
-    + '<p class="welcome-text">Import your music to get started. Select your music folder and Muzio AI will scan all your songs.</p>'
-    + '<button class="welcome-btn" id="welcomeFolderBtn">&#128193; Select Music Folder</button>'
-    + '<button class="welcome-btn-alt" id="welcomeFilesBtn">&#127926; Or Pick Individual Files</button>';
+    + '<h2 class="welcome-title">Muzio AI</h2>'
+    + '<p class="welcome-text">Tap below to grant access to your music. Muzio AI will find all songs on your phone and SD card automatically.</p>'
+    + '<button class="welcome-btn" id="welcomeScanBtn">&#127925; Scan My Music</button>';
 
   if (!apiKey) {
-    html += '<p class="welcome-api-note" id="welcomeApiLink">&#9881; Tap here to set your Gemini API key for auto-tagging</p>';
+    html += '<p class="welcome-api-note" id="welcomeApiLink">&#9881; Set up AI auto-tagging</p>';
   } else {
     html += '<p class="welcome-api-set">&#10003; AI auto-tagging enabled</p>';
   }
@@ -404,10 +403,9 @@ function renderWelcome(el) {
   html += '</div>';
   el.innerHTML = html;
 
-  document.getElementById('welcomeFolderBtn').onclick = function() {
+  document.getElementById('welcomeScanBtn').onclick = function() {
     if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
   };
-  document.getElementById('welcomeFilesBtn').onclick = function() { document.getElementById('fileInput').click(); };
   var apiLink = document.getElementById('welcomeApiLink');
   if (apiLink) {
     apiLink.onclick = function() { openSettings(); };
