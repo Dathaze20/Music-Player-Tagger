@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Muzio AI - Smart Music Player</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- Header -->
+  <header class="header" id="header">
+    <button id="menuBtn">&#9776;</button>
+    <h1 id="headerTitle">Muzio AI</h1>
+    <div style="display:flex;gap:4px;">
+      <button id="searchBtn">&#128269;</button>
+      <button>&#8942;</button>
+    </div>
+  </header>
+
+  <!-- Tab Bar -->
+  <div class="tabs" id="tabBar">
+    <button class="active" data-tab="artists">Artists</button>
+    <button data-tab="songs">Songs</button>
+    <button data-tab="albums">Albums</button>
+    <button data-tab="playlists">Playlists</button>
+  </div>
+
+  <!-- Search bar (hidden by default) -->
+  <div id="searchBar" class="hidden" style="padding:12px 16px;">
+    <div style="position:relative;">
+      <input type="text" id="searchInput" placeholder="Search songs, artists, albums..."
+        style="width:100%;padding:10px 16px 10px 40px;background:var(--bg-secondary);border:none;border-radius:12px;color:var(--text);font-size:14px;outline:none;">
+      <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--text-faint);">&#128269;</span>
+    </div>
+  </div>
+
+  <!-- Main content area -->
+  <main class="main" id="mainContent"></main>
+
+  <!-- Tagging progress banner -->
+  <div id="taggingBanner" class="tagging-banner hidden">
+    <div class="tagging-content">
+      <div class="tagging-spinner"></div>
+      <div class="tagging-text">
+        <p>Auto-tagging music...</p>
+        <p id="taggingCurrent"></p>
+      </div>
+      <span class="tagging-count" id="taggingCount"></span>
+    </div>
+    <div class="tagging-progress">
+      <div class="tagging-progress-bar" id="taggingBar"></div>
+    </div>
+  </div>
+
+  <!-- Mini player -->
+  <div id="miniPlayer" class="mini-player hidden">
+    <div class="mini-player-content" id="miniPlayerContent">
+      <div id="miniArt"></div>
+      <div class="song-info">
+        <div class="song-title" id="miniTitle"></div>
+        <div class="song-meta" id="miniArtist"></div>
+      </div>
+      <div class="mini-player-controls">
+        <button id="miniPlayBtn">&#9654;</button>
+        <button id="miniNextBtn">&#9197;</button>
+      </div>
+    </div>
+    <div class="mini-progress">
+      <div class="mini-progress-bar" id="miniProgressBar"></div>
+    </div>
+  </div>
+
+  <!-- Now Playing overlay -->
+  <div id="nowPlaying" class="now-playing hidden"></div>
+
+  <!-- Side drawer -->
+  <div id="drawerOverlay" class="drawer-overlay hidden"></div>
+  <div id="drawer" class="drawer hidden">
+    <div class="drawer-header">
+      <h2>Muzio AI</h2>
+      <p>Smart Music Player</p>
+    </div>
+    <nav class="drawer-nav">
+      <button class="drawer-item" id="importFilesBtn">
+        <span class="icon">&#128228;</span> Import Files
+      </button>
+      <button class="drawer-item" id="importFolderBtn">
+        <span class="icon">&#128193;</span> Import Folder
+      </button>
+      <button class="drawer-item" id="settingsBtn">
+        <span class="icon">&#9881;</span> AI Settings
+      </button>
+      <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
+      <button class="drawer-item">
+        <span style="color:var(--text-faint);font-size:20px;">&#10084;</span> Favorites
+      </button>
+    </nav>
+    <div class="drawer-footer">Muzio AI v1.0 &bull; AI-Powered Music Tagging</div>
+  </div>
+
+  <!-- Edit modal -->
+  <div id="editOverlay" class="modal-overlay hidden"></div>
+  <div id="editModal" class="edit-modal hidden"></div>
+
+  <!-- FAB -->
+  <button class="fab" id="fabBtn">+</button>
+
+  <!-- Hidden file inputs -->
+  <input type="file" id="fileInput" accept="audio/*" multiple style="display:none">
+  <input type="file" id="folderInput" accept="audio/*" multiple webkitdirectory directory style="display:none">
+
+  <!-- Audio element -->
+  <audio id="audioEl" preload="metadata"></audio>
+
+  <!-- AI Settings Modal -->
+  <div id="settingsOverlay" class="modal-overlay hidden"></div>
+  <div id="settingsModal" class="edit-modal hidden">
+    <div class="edit-modal-header">
+      <div>
+        <h3>AI Settings</h3>
+        <p>Enter your Gemini API key for auto-tagging</p>
+      </div>
+      <button id="settingsClose">&times;</button>
+    </div>
+    <div class="edit-modal-body">
+      <div class="edit-field">
+        <label>Google Gemini API Key</label>
+        <input type="password" id="apiKeyInput" placeholder="AIzaSy...">
+      </div>
+      <p style="font-size:11px;color:var(--text-faint);margin-top:-8px;">
+        Get a free key at <a href="https://aistudio.google.com/apikey" style="color:var(--primary);" target="_blank">aistudio.google.com/apikey</a>
+      </p>
+    </div>
+    <div class="edit-modal-footer">
+      <button class="btn-cancel" id="settingsCancelBtn">Cancel</button>
+      <button class="btn-save" id="settingsSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
