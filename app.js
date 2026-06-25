@@ -73,46 +73,9 @@ function imgOrArt(url, text, size, round, cls) {
   return artHTML(text, size, round, cls);
 }
 
-// ─── Demo Data ───
+// ─── Song Library (starts empty - import your music) ───
 
-var songs = [
-  // Albums
-  {id:'d1',fn:'2Pac - California Love.mp3',url:'',title:'California Love',artist:'2Pac',album:'All Eyez on Me',year:'1996',genre:'Hip-Hop',track:1,art:'',lyrics:'',dur:265,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d2',fn:'',url:'',title:'Dear Mama',artist:'2Pac',album:'Me Against the World',year:'1995',genre:'Hip-Hop',track:9,art:'',lyrics:'',dur:285,tagging:false,fav:true,type:'Album',feat:''},
-  {id:'d3',fn:'',url:'',title:'Changes',artist:'2Pac',album:'Greatest Hits',year:'1998',genre:'Hip-Hop',track:1,art:'',lyrics:'',dur:269,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d4',fn:'',url:'',title:"Hit 'Em Up",artist:'2Pac',album:'All Eyez on Me',year:'1996',genre:'Hip-Hop',track:2,art:'',lyrics:'',dur:312,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d5',fn:'',url:'',title:'Ambitionz Az a Ridah',artist:'2Pac',album:'All Eyez on Me',year:'1996',genre:'Hip-Hop',track:3,art:'',lyrics:'',dur:279,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d6',fn:'',url:'',title:'So Many Tears',artist:'2Pac',album:'Me Against the World',year:'1995',genre:'Hip-Hop',track:5,art:'',lyrics:'',dur:254,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d7',fn:'',url:'',title:'Hail Mary',artist:'2Pac',album:'The Don Killuminati',year:'1996',genre:'Hip-Hop',track:1,art:'',lyrics:'',dur:313,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d10',fn:'',url:'',title:'In Da Club',artist:'50 Cent',album:"Get Rich or Die Tryin'",year:'2003',genre:'Hip-Hop',track:5,art:'',lyrics:'',dur:193,tagging:false,fav:true,type:'Album',feat:''},
-  {id:'d11',fn:'',url:'',title:'21 Questions',artist:'50 Cent',album:"Get Rich or Die Tryin'",year:'2003',genre:'Hip-Hop',track:6,art:'',lyrics:'',dur:263,tagging:false,fav:false,type:'Album',feat:'Nate Dogg'},
-  {id:'d12',fn:'',url:'',title:'Candy Shop',artist:'50 Cent',album:'The Massacre',year:'2005',genre:'Hip-Hop',track:3,art:'',lyrics:'',dur:215,tagging:false,fav:false,type:'Album',feat:'Olivia'},
-  {id:'d20',fn:'',url:'',title:'Lose Yourself',artist:'Eminem',album:'8 Mile Soundtrack',year:'2002',genre:'Hip-Hop',track:1,art:'',lyrics:'',dur:326,tagging:false,fav:true,type:'Album',feat:''},
-  {id:'d21',fn:'',url:'',title:'Stan',artist:'Eminem',album:'The Marshall Mathers LP',year:'2000',genre:'Hip-Hop',track:3,art:'',lyrics:'',dur:404,tagging:false,fav:true,type:'Album',feat:'Dido'},
-  {id:'d22',fn:'',url:'',title:'Without Me',artist:'Eminem',album:'The Eminem Show',year:'2002',genre:'Hip-Hop',track:6,art:'',lyrics:'',dur:290,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d30',fn:'',url:'',title:'HUMBLE.',artist:'Kendrick Lamar',album:'DAMN.',year:'2017',genre:'Hip-Hop',track:8,art:'',lyrics:'',dur:177,tagging:false,fav:true,type:'Album',feat:''},
-  {id:'d31',fn:'',url:'',title:'Swimming Pools (Drank)',artist:'Kendrick Lamar',album:'good kid, m.A.A.d city',year:'2012',genre:'Hip-Hop',track:8,art:'',lyrics:'',dur:313,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d40',fn:'',url:'',title:'N.Y. State of Mind',artist:'Nas',album:'Illmatic',year:'1994',genre:'Hip-Hop',track:2,art:'',lyrics:'',dur:293,tagging:false,fav:true,type:'Album',feat:''},
-  {id:'d41',fn:'',url:'',title:'If I Ruled the World',artist:'Nas',album:'It Was Written',year:'1996',genre:'Hip-Hop',track:5,art:'',lyrics:'',dur:280,tagging:false,fav:false,type:'Album',feat:'Lauryn Hill'},
-  {id:'d50',fn:'',url:'',title:'Still D.R.E.',artist:'Dr. Dre',album:'2001',year:'1999',genre:'Hip-Hop',track:2,art:'',lyrics:'',dur:271,tagging:false,fav:true,type:'Album',feat:'Snoop Dogg'},
-  {id:'d60',fn:'',url:'',title:'No Role Modelz',artist:'J. Cole',album:'2014 Forest Hills Drive',year:'2014',genre:'Hip-Hop',track:12,art:'',lyrics:'',dur:293,tagging:false,fav:true,type:'Album',feat:''},
-  {id:'d70',fn:'',url:'',title:'Peaches & Cream',artist:'112',album:'Part III',year:'2001',genre:'R&B',track:3,art:'',lyrics:'',dur:245,tagging:false,fav:false,type:'Album',feat:''},
-  {id:'d80',fn:'',url:'',title:'Suburban',artist:'22Gz',album:'The Blixky Tape',year:'2019',genre:'Drill',track:1,art:'',lyrics:'',dur:198,tagging:false,fav:false,type:'Mixtape',feat:''},
-  {id:'d90',fn:'',url:'',title:'6 Summers',artist:'38 Spesh',album:'6 Shots',year:'2020',genre:'Hip-Hop',track:1,art:'',lyrics:'',dur:210,tagging:false,fav:false,type:'EP',feat:''},
-  // Mixtapes
-  {id:'m1',fn:'',url:'',title:'A Milli',artist:'Lil Wayne',album:'Da Drought 3',year:'2007',genre:'Hip-Hop',track:1,art:'',lyrics:'',dur:228,tagging:false,fav:true,type:'Mixtape',feat:''},
-  {id:'m2',fn:'',url:'',title:'Sportscenter',artist:'Lil Wayne',album:'Da Drought 3',year:'2007',genre:'Hip-Hop',track:8,art:'',lyrics:'',dur:210,tagging:false,fav:false,type:'Mixtape',feat:''},
-  {id:'m3',fn:'',url:'',title:'Watch My Shoes',artist:'Lil Wayne',album:'No Ceilings',year:'2009',genre:'Hip-Hop',track:6,art:'',lyrics:'',dur:262,tagging:false,fav:true,type:'Mixtape',feat:''},
-  {id:'m10',fn:'',url:'',title:'Codeine Crazy',artist:'Future',album:'Monster',year:'2014',genre:'Trap',track:1,art:'',lyrics:'',dur:290,tagging:false,fav:true,type:'Mixtape',feat:''},
-  {id:'m11',fn:'',url:'',title:'March Madness',artist:'Future',album:'56 Nights',year:'2015',genre:'Trap',track:5,art:'',lyrics:'',dur:246,tagging:false,fav:true,type:'Mixtape',feat:''},
-  {id:'m20',fn:'',url:'',title:'Mezmorized',artist:'Wiz Khalifa',album:'Kush & OJ',year:'2010',genre:'Hip-Hop',track:2,art:'',lyrics:'',dur:189,tagging:false,fav:false,type:'Mixtape',feat:''},
-  {id:'m30',fn:'',url:'',title:'Cocoa Butter Kisses',artist:'Chance the Rapper',album:'Acid Rap',year:'2013',genre:'Hip-Hop',track:6,art:'',lyrics:'',dur:275,tagging:false,fav:true,type:'Mixtape',feat:'Vic Mensa, Twista'},
-  {id:'m40',fn:'',url:'',title:'Nikes on My Feet',artist:'Mac Miller',album:'K.I.D.S.',year:'2010',genre:'Hip-Hop',track:3,art:'',lyrics:'',dur:230,tagging:false,fav:false,type:'Mixtape',feat:''},
-  {id:'m50',fn:'',url:'',title:'Paper Chasers',artist:'Kevin Gates',album:'Luca Brasi Story',year:'2013',genre:'Hip-Hop',track:2,art:'',lyrics:'',dur:248,tagging:false,fav:false,type:'Mixtape',feat:''},
-  {id:'m60',fn:'',url:'',title:"Before I'm Gone",artist:'J. Cole',album:'Friday Night Lights',year:'2010',genre:'Hip-Hop',track:1,art:'',lyrics:'',dur:260,tagging:false,fav:false,type:'Mixtape',feat:''},
-  {id:'m70',fn:'',url:'',title:'Successful',artist:'Drake',album:'So Far Gone',year:'2009',genre:'Hip-Hop',track:4,art:'',lyrics:'',dur:247,tagging:false,fav:true,type:'Mixtape',feat:'Trey Songz, Lil Wayne'},
-  {id:'m80',fn:'',url:'',title:'Hussle in the House',artist:'Nipsey Hussle',album:'Crenshaw',year:'2013',genre:'Hip-Hop',track:1,art:'',lyrics:'',dur:218,tagging:false,fav:false,type:'Mixtape',feat:''},
-];
+var songs = [];
 
 // ─── State ───
 
@@ -234,8 +197,28 @@ function render() {
   updateMiniPlayer();
 }
 
+function renderWelcome(el) {
+  el.innerHTML = '<div class="welcome-screen">'
+    + '<div class="welcome-icon">&#127925;</div>'
+    + '<h2 class="welcome-title">Welcome to Muzio AI</h2>'
+    + '<p class="welcome-text">Import your music to get started. Tap below to select your music folder and Muzio AI will scan all your songs.</p>'
+    + '<button class="welcome-btn" id="welcomeFolderBtn">&#128193; Select Music Folder</button>'
+    + '<button class="welcome-btn-alt" id="welcomeFilesBtn">&#127926; Or Pick Individual Files</button>'
+    + '<div class="welcome-hint">'
+    + '<p>&#9881; Tip: Set your Gemini API key in the menu for automatic AI tagging of artist, album, year, genre, and album art.</p>'
+    + '</div>'
+    + '</div>';
+  document.getElementById('welcomeFolderBtn').onclick = function() {
+    document.getElementById('folderInput').click();
+  };
+  document.getElementById('welcomeFilesBtn').onclick = function() {
+    document.getElementById('fileInput').click();
+  };
+}
+
 function renderArtists(el) {
   var artists = getArtists();
+  if (artists.length === 0) { renderWelcome(el); return; }
   var html = '';
   artists.forEach(function(a) {
     var artEl = a.arts.length > 0
@@ -257,6 +240,7 @@ function renderArtists(el) {
 }
 
 function renderSongs(el) {
+  if (songs.length === 0) { renderWelcome(el); return; }
   var sorted = songs.slice().sort(function(a, b) { return a.title.localeCompare(b.title); });
   var html = '';
   sorted.forEach(function(s) {
@@ -274,6 +258,7 @@ function renderSongs(el) {
       + (s.tagging ? '<div class="tagging-spinner"></div>' : '')
       + '<span class="song-duration">' + fmtTime(s.dur) + '</span>'
       + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + (s.fav ? '&#10084;' : '&#9825;') + '</button>'
+      + '<button class="song-edit" data-edit="' + s.id + '" style="background:none;border:none;color:var(--text-faint);padding:4px 8px;cursor:pointer;font-size:16px;">&#8942;</button>'
       + '</div>';
   });
   el.innerHTML = html;
@@ -281,6 +266,7 @@ function renderSongs(el) {
 }
 
 function renderAlbums(el) {
+  if (songs.length === 0) { renderWelcome(el); return; }
   var allAlbums = getAlbums('all');
   var filtered = getAlbums(albumFilter);
   var counts = {
@@ -441,6 +427,7 @@ function bindSongRows(el, songList) {
   el.querySelectorAll('.song-row').forEach(function(row) {
     row.onclick = function(e) {
       if (e.target.closest('.song-fav')) return;
+      if (e.target.closest('.song-edit')) return;
       var s = songs.find(function(x) { return x.id === row.dataset.id; });
       if (s) playSong(s, songList);
     };
@@ -450,6 +437,12 @@ function bindSongRows(el, songList) {
       e.stopPropagation();
       var s = songs.find(function(x) { return x.id === btn.dataset.fav; });
       if (s) { s.fav = !s.fav; render(); }
+    };
+  });
+  el.querySelectorAll('.song-edit').forEach(function(btn) {
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      openSongEditModal(btn.dataset.edit);
     };
   });
 }
@@ -616,27 +609,35 @@ function handleFileImport(files) {
   var newSongs = [];
   for (var i = 0; i < files.length; i++) {
     var file = files[i];
-    if (!file.type.startsWith('audio/')) continue;
+    if (!file.type || !file.type.startsWith('audio/')) {
+      var ext = file.name.split('.').pop().toLowerCase();
+      if (['mp3','m4a','flac','ogg','wav','aac','wma','opus'].indexOf(ext) === -1) continue;
+    }
     var url = URL.createObjectURL(file);
     var parsed = parseFileName(file.name);
     newSongs.push({
       id: genId(), fn: file.name, url: url,
       title: parsed.title, artist: parsed.artist, album: 'Unknown Album',
       year: '', genre: '', track: 0, art: '', lyrics: '', dur: 0,
-      tagging: true, fav: false, type: '', feat: parsed.feat
+      tagging: false, fav: false, type: '', feat: parsed.feat
     });
   }
   if (newSongs.length === 0) return;
+
+  // Show import count
+  var toast = document.createElement('div');
+  toast.className = 'import-count';
+  toast.textContent = newSongs.length + ' songs imported!';
+  document.body.appendChild(toast);
+  setTimeout(function() { toast.remove(); }, 2500);
+
   songs = songs.concat(newSongs);
   render();
 
-  if (!apiKey) {
-    // No API key — just import without AI tagging
-    newSongs.forEach(function(s) { s.tagging = false; });
-    render();
-    return;
-  }
+  if (!apiKey) return;
 
+  // Start AI tagging
+  newSongs.forEach(function(s) { s.tagging = true; });
   tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true };
   updateTaggingBanner();
   tagNextSong(newSongs, 0);
@@ -770,6 +771,70 @@ function openEditModal(albumName, artistName) {
     if (selectedAlbum) {
       selectedAlbum = { name: newAlbum || albumName, artist: newArtist || artistName };
     }
+    closeEditModal();
+    render();
+  };
+}
+
+function openSongEditModal(songId) {
+  var song = songs.find(function(s) { return s.id === songId; });
+  if (!song) return;
+  var modal = document.getElementById('editModal');
+  var overlay = document.getElementById('editOverlay');
+
+  modal.innerHTML = '<div class="edit-modal-header"><div><h3>Edit Song</h3>'
+    + '<p>' + song.title + '</p></div>'
+    + '<button id="editClose">&times;</button></div>'
+    + '<div class="edit-modal-body">'
+    + '<div class="edit-field"><label>Title</label><input id="editTitle" value="' + (song.title || '') + '"></div>'
+    + '<div class="edit-field"><label>Artist</label><input id="editArtist" value="' + (song.artist || '') + '"></div>'
+    + '<div class="edit-field"><label>Album / Mixtape</label><input id="editAlbum" value="' + (song.album || '') + '"></div>'
+    + '<div class="edit-row">'
+    + '<div class="edit-field"><label>Year</label><input id="editYear" value="' + (song.year || '') + '" placeholder="2024"></div>'
+    + '<div class="edit-field"><label>Genre</label><input id="editGenre" value="' + (song.genre || '') + '" placeholder="Hip-Hop"></div>'
+    + '</div>'
+    + '<div class="edit-row">'
+    + '<div class="edit-field"><label>Track #</label><input id="editTrack" type="number" value="' + (song.track || '') + '" placeholder="1"></div>'
+    + '<div class="edit-field"><label>Featured</label><input id="editFeat" value="' + (song.feat || '') + '" placeholder="ft. Artist"></div>'
+    + '</div>'
+    + '<div class="edit-field"><label>Release Type</label><div class="type-buttons">'
+    + ['Album','Mixtape','EP','Single'].map(function(t) {
+        var cls = (song.type || 'Album') === t ? ' active-' + t.toLowerCase() : '';
+        return '<button class="type-btn' + cls + '" data-type="' + t + '">' + t + '</button>';
+      }).join('')
+    + '</div></div>'
+    + '</div>'
+    + '<div class="edit-modal-footer">'
+    + '<button class="btn-cancel" id="editCancelBtn">Cancel</button>'
+    + '<button class="btn-save" id="editSaveBtn">&#10003; Save</button>'
+    + '</div>';
+
+  modal.classList.remove('hidden');
+  overlay.classList.remove('hidden');
+
+  var selectedType = song.type || 'Album';
+
+  modal.querySelectorAll('.type-btn').forEach(function(btn) {
+    btn.onclick = function() {
+      selectedType = btn.dataset.type;
+      modal.querySelectorAll('.type-btn').forEach(function(b) { b.className = 'type-btn'; });
+      btn.className = 'type-btn active-' + selectedType.toLowerCase();
+    };
+  });
+
+  document.getElementById('editClose').onclick = closeEditModal;
+  document.getElementById('editCancelBtn').onclick = closeEditModal;
+  overlay.onclick = closeEditModal;
+
+  document.getElementById('editSaveBtn').onclick = function() {
+    song.title = document.getElementById('editTitle').value.trim() || song.title;
+    song.artist = document.getElementById('editArtist').value.trim() || song.artist;
+    song.album = document.getElementById('editAlbum').value.trim() || song.album;
+    song.year = document.getElementById('editYear').value.trim();
+    song.genre = document.getElementById('editGenre').value.trim();
+    song.track = parseInt(document.getElementById('editTrack').value) || 0;
+    song.feat = document.getElementById('editFeat').value.trim();
+    song.type = selectedType;
     closeEditModal();
     render();
   };
