@@ -765,21 +765,124 @@ body {
   color: #8899aa;
   line-height: 1.5;
 }
+.welcome-hint.active {
+  background: rgba(16,185,129,0.08);
+  border-color: rgba(16,185,129,0.2);
+}
+.welcome-hint.active p { color: var(--emerald); }
 
-/* Song count badge on import */
-.import-count {
+/* Toast notifications */
+.toast-msg {
   position: fixed;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
+  bottom: 120px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  color: var(--text);
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 200;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  border: 1px solid var(--border);
+  animation: slideUp 0.3s ease;
+  white-space: nowrap;
+}
+.toast-msg.fade-out { opacity: 0; transition: opacity 0.3s; }
+
+/* Sort bar */
+.sort-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.sort-label { font-size: 12px; color: var(--text-faint); }
+.sort-btns { display: flex; gap: 4px; }
+.sort-btn {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.sort-btn.active {
   background: var(--primary);
   color: var(--primary-fg);
-  padding: 16px 32px;
-  border-radius: 16px;
+  border-color: var(--primary);
+}
+
+/* Tab counts */
+.tab-count {
+  display: inline-block;
+  font-size: 10px;
+  margin-left: 4px;
+  opacity: 0.5;
+}
+
+/* Song edit button */
+.song-edit {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  padding: 6px 8px;
+  cursor: pointer;
   font-size: 18px;
-  font-weight: 600;
-  z-index: 100;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
-  animation: fadeIn 0.3s;
+  flex-shrink: 0;
+}
+.song-edit:active { color: var(--text); }
+
+/* Playlist item */
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.playlist-item:active { opacity: 0.8; }
+.playlist-icon {
+  width: 48px; height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+.fav-icon { background: rgba(239,68,68,0.15); }
+
+/* Section headers */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+}
+.section-header h3 { font-size: 16px; font-weight: 600; }
+.section-count { font-size: 12px; color: var(--text-faint); }
+
+/* NP improvements */
+.np-ctrl {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 8px;
+  position: relative;
+}
+.np-ctrl.active { color: var(--primary); }
+.np-ctrl.fav-active { color: var(--red); }
+.np-ctrl sub { font-size: 10px; }
+
+/* Tagging song row indicator */
+.song-row.tagging {
+  background: rgba(0,168,158,0.04);
 }
 
 /* Hidden */
