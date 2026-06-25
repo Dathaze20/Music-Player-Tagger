@@ -222,17 +222,23 @@ function autoScanFromHandle() {
 
 function pickFolderWithHandle() {
   if (!window.showDirectoryPicker) return false;
-  window.showDirectoryPicker({ mode: 'read' }).then(function(handle) {
-    saveDirHandle(handle);
-    showToast('Scanning music folder...', 3000);
-    scanDirectoryHandle(handle).then(function(files) {
-      if (files.length > 0) handleFileImport(files);
-      else showToast('No audio files found in that folder');
+  try {
+    window.showDirectoryPicker({ mode: 'read' }).then(function(handle) {
+      saveDirHandle(handle);
+      showToast('Finding your music...', 3000);
+      scanDirectoryHandle(handle).then(function(files) {
+        if (files.length > 0) handleFileImport(files);
+        else showToast('No audio files found in that folder');
+      });
+    }).catch(function(e) {
+      if (e.name !== 'AbortError') {
+        document.getElementById('folderInput').click();
+      }
     });
-  }).catch(function(e) {
-    if (e.name !== 'AbortError') showToast('Could not access folder');
-  });
-  return true;
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // ─── Song Library ───
