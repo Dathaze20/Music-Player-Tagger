@@ -389,10 +389,11 @@ function render() {
 
 function renderWelcome(el) {
   var html = '<div class="welcome-screen">'
-    + '<div class="welcome-icon">&#127925;</div>'
-    + '<h2 class="welcome-title">Muzio AI</h2>'
-    + '<p class="welcome-text">Tap below to grant access to your music. Muzio AI will find all songs on your phone and SD card automatically.</p>'
-    + '<button class="welcome-btn" id="welcomeScanBtn">&#127925; Scan My Music</button>';
+    + '<div class="welcome-perm-icon">&#128274;</div>'
+    + '<h2 class="welcome-title">Music Access</h2>'
+    + '<p class="welcome-text">Muzio AI needs access to find music on your device. Select your storage and all songs will appear automatically.</p>'
+    + '<button class="welcome-btn" id="welcomeGrantBtn">&#10003; Allow Access</button>'
+    + '<p class="welcome-hint">Select Internal Storage or SD Card — all music files are found automatically</p>';
 
   if (!apiKey) {
     html += '<p class="welcome-api-note" id="welcomeApiLink">&#9881; Set up AI auto-tagging</p>';
@@ -403,13 +404,40 @@ function renderWelcome(el) {
   html += '</div>';
   el.innerHTML = html;
 
-  document.getElementById('welcomeScanBtn').onclick = function() {
+  document.getElementById('welcomeGrantBtn').onclick = function() {
     if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
   };
   var apiLink = document.getElementById('welcomeApiLink');
   if (apiLink) {
     apiLink.onclick = function() { openSettings(); };
   }
+}
+
+function showScanMorePrompt(count) {
+  var existing = document.querySelector('.scan-more-prompt');
+  if (existing) existing.remove();
+  var el = document.createElement('div');
+  el.className = 'scan-more-prompt';
+  el.innerHTML = '<div class="scan-more-body">'
+    + '<p class="scan-more-title">&#10003; Found ' + count + ' songs!</p>'
+    + '<p class="scan-more-sub">Have music in another location?<br>Scan your SD card or other folders too.</p>'
+    + '<div class="scan-more-actions">'
+    + '<button class="scan-more-btn" id="scanMoreBtn">Scan Another Location</button>'
+    + '<button class="scan-more-dismiss" id="scanDoneBtn">I\'m Done</button>'
+    + '</div>'
+    + '</div>';
+  document.getElementById('app').appendChild(el);
+  requestAnimationFrame(function() { el.classList.add('visible'); });
+
+  document.getElementById('scanMoreBtn').onclick = function() {
+    el.classList.remove('visible');
+    setTimeout(function() { el.remove(); }, 300);
+    if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
+  };
+  document.getElementById('scanDoneBtn').onclick = function() {
+    el.classList.remove('visible');
+    setTimeout(function() { el.remove(); }, 300);
+  };
 }
 
 function renderReconnectBanner() {
@@ -1028,6 +1056,7 @@ audio.addEventListener('ended', handleNext);
 // ─── File Import ───
 
 function handleFileImport(files) {
+  var hadSongsBefore = songs.length > 0;
   var newSongs = [];
   var matched = 0;
   var added = 0;
@@ -1057,7 +1086,6 @@ function handleFileImport(files) {
 
   if (newSongs.length > 0) songs = songs.concat(newSongs);
 
-  // Get durations for new songs
   newSongs.forEach(function(s) {
     var tempAudio = new Audio();
     tempAudio.preload = 'metadata';
@@ -1077,6 +1105,10 @@ function handleFileImport(files) {
   saveLibrary();
   render();
   renderReconnectBanner();
+
+  if (added > 0 && !hadSongsBefore) {
+    setTimeout(function() { showScanMorePrompt(songs.length); }, 1500);
+  }
 
   if (newSongs.length > 0 && apiKey) {
     newSongs.forEach(function(s) { s.tagging = true; });
