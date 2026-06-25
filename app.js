@@ -121,6 +121,120 @@ function loadLibrary() {
   } catch (e) { return []; }
 }
 
+// ─── Persistent Folder Access (IndexedDB + File System Access API) ───
+
+var savedDirHandle = null;
+var DB_NAME = 'muzio_db';
+var STORE_NAME = 'handles';
+
+function openDB() {
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = function() { req.result.createObjectStore(STORE_NAME); };
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror = function() { reject(req.error); };
+  });
+}
+
+function saveDirHandle(handle) {
+  savedDirHandle = handle;
+  return openDB().then(function(db) {
+    return new Promise(function(resolve) {
+      var tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(handle, 'musicDir');
+      tx.oncomplete = function() { resolve(); };
+      tx.onerror = function() { resolve(); };
+    });
+  }).catch(function() {});
+}
+
+function loadDirHandle() {
+  return openDB().then(function(db) {
+    return new Promise(function(resolve) {
+      var tx = db.transaction(STORE_NAME, 'readonly');
+      var req = tx.objectStore(STORE_NAME).get('musicDir');
+      req.onsuccess = function() { resolve(req.result || null); };
+      req.onerror = function() { resolve(null); };
+    });
+  }).catch(function() { return null; });
+}
+
+function clearDirHandle() {
+  savedDirHandle = null;
+  return openDB().then(function(db) {
+    return new Promise(function(resolve) {
+      var tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete('musicDir');
+      tx.oncomplete = function() { resolve(); };
+      tx.onerror = function() { resolve(); };
+    });
+  }).catch(function() {});
+}
+
+var AUDIO_EXTS = ['mp3','m4a','flac','ogg','wav','aac','wma','opus','mp4','webm'];
+
+function scanDirectoryHandle(dirHandle) {
+  var files = [];
+  return (function walk(handle, path) {
+    return new Promise(function(resolve) {
+      var entries = handle.values();
+      var promises = [];
+      function next() {
+        entries.next().then(function(result) {
+          if (result.done) {
+            Promise.all(promises).then(function() { resolve(); });
+            return;
+          }
+          var entry = result.value;
+          if (entry.kind === 'file') {
+            var ext = entry.name.split('.').pop().toLowerCase();
+            if (AUDIO_EXTS.indexOf(ext) !== -1) {
+              promises.push(entry.getFile().then(function(f) { files.push(f); }));
+            }
+          } else if (entry.kind === 'directory') {
+            promises.push(walk(entry, path + entry.name + '/'));
+          }
+          next();
+        }).catch(function() { next(); });
+      }
+      next();
+    });
+  })(dirHandle, '').then(function() { return files; });
+}
+
+function autoScanFromHandle() {
+  return loadDirHandle().then(function(handle) {
+    if (!handle) return false;
+    savedDirHandle = handle;
+    return handle.requestPermission({ mode: 'read' }).then(function(perm) {
+      if (perm !== 'granted') return false;
+      showToast('Scanning music folder...', 3000);
+      return scanDirectoryHandle(handle).then(function(files) {
+        if (files.length > 0) {
+          handleFileImport(files);
+          return true;
+        }
+        return false;
+      });
+    });
+  }).catch(function() { return false; });
+}
+
+function pickFolderWithHandle() {
+  if (!window.showDirectoryPicker) return false;
+  window.showDirectoryPicker({ mode: 'read' }).then(function(handle) {
+    saveDirHandle(handle);
+    showToast('Scanning music folder...', 3000);
+    scanDirectoryHandle(handle).then(function(files) {
+      if (files.length > 0) handleFileImport(files);
+      else showToast('No audio files found in that folder');
+    });
+  }).catch(function(e) {
+    if (e.name !== 'AbortError') showToast('Could not access folder');
+  });
+  return true;
+}
+
 // ─── Song Library ───
 
 var songs = loadLibrary();
@@ -267,23 +381,17 @@ function render() {
   }
 
   updateMiniPlayer();
+  if (typeof renderReconnectBanner === 'function') renderReconnectBanner();
   if (typeof saveUIState === 'function') saveUIState();
 }
 
 // ─── Welcome Screen ───
 
 function renderWelcome(el) {
-  var saved = parseInt(localStorage.getItem('muzio_library_count') || '0');
-  var reconnect = saved > 0 && songs.length > 0 && !songs[0].url;
-
   var html = '<div class="welcome-screen">'
     + '<div class="welcome-icon">&#127925;</div>'
-    + '<h2 class="welcome-title">' + (reconnect ? 'Reconnect Your Music' : 'Welcome to Muzio AI') + '</h2>'
-    + '<p class="welcome-text">'
-    + (reconnect
-      ? 'You have ' + songs.length + ' songs saved. Select your music folder again to enable playback.'
-      : 'Import your music to get started. Select your music folder and Muzio AI will scan all your songs.')
-    + '</p>'
+    + '<h2 class="welcome-title">Welcome to Muzio AI</h2>'
+    + '<p class="welcome-text">Import your music to get started. Select your music folder and Muzio AI will scan all your songs.</p>'
     + '<button class="welcome-btn" id="welcomeFolderBtn">&#128193; Select Music Folder</button>'
     + '<button class="welcome-btn-alt" id="welcomeFilesBtn">&#127926; Or Pick Individual Files</button>';
 
@@ -300,15 +408,28 @@ function renderWelcome(el) {
   html += '</div>';
   el.innerHTML = html;
 
-  document.getElementById('welcomeFolderBtn').onclick = function() { document.getElementById('folderInput').click(); };
+  document.getElementById('welcomeFolderBtn').onclick = function() {
+    if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
+  };
   document.getElementById('welcomeFilesBtn').onclick = function() { document.getElementById('fileInput').click(); };
+}
+
+function renderReconnectBanner() {
+  var banner = document.getElementById('reconnectBanner');
+  if (!banner) return;
+  var needsReconnect = songs.length > 0 && !songs.some(function(s) { return !!s.url; });
+  if (needsReconnect) {
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
 }
 
 // ─── Tab Renderers ───
 
 function renderArtists(el) {
   var artists = getArtists();
-  if (artists.length === 0) { renderWelcome(el); return; }
+  if (artists.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
   var html = '';
   artists.forEach(function(a) {
     var artEl = a.arts.length > 0
@@ -330,7 +451,7 @@ function renderArtists(el) {
 }
 
 function renderSongs(el) {
-  if (songs.length === 0) { renderWelcome(el); return; }
+  if (songs.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
   var sorted = songs.slice();
   if (sortMode === 'title') sorted.sort(function(a, b) { return a.title.localeCompare(b.title); });
   else if (sortMode === 'artist') sorted.sort(function(a, b) { return a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title); });
@@ -357,7 +478,7 @@ function renderSongs(el) {
 }
 
 function renderAlbums(el) {
-  if (songs.length === 0) { renderWelcome(el); return; }
+  if (songs.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
   var allAlbums = getAlbums('all');
   var filtered = getAlbums(albumFilter);
   var counts = {
@@ -929,7 +1050,7 @@ function handleFileImport(files) {
       newSongs.push({
         id: genId(), fn: file.name, url: url,
         title: parsed.title, artist: parsed.artist, album: 'Unknown Album',
-        year: '', genre: '', track: 0, art: '', lyrics: '', dur: 0,
+        year: '', genre: '', track: 0, art: '', lyrics: '', syncedLyrics: '', dur: 0,
         tagging: false, fav: false, type: '', feat: parsed.feat
       });
       added++;
@@ -957,6 +1078,7 @@ function handleFileImport(files) {
 
   saveLibrary();
   render();
+  renderReconnectBanner();
 
   if (newSongs.length > 0 && apiKey) {
     newSongs.forEach(function(s) { s.tagging = true; });
@@ -1263,12 +1385,20 @@ document.getElementById('miniPlayerContent').onclick = function() { renderNowPla
 document.getElementById('miniPlayBtn').onclick = function(e) { e.stopPropagation(); togglePlay(); };
 document.getElementById('miniNextBtn').onclick = function(e) { e.stopPropagation(); handleNext(); };
 
-document.getElementById('fabBtn').onclick = function() { document.getElementById('folderInput').click(); };
+document.getElementById('fabBtn').onclick = function() {
+  if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
+};
 document.getElementById('importFilesBtn').onclick = function() { toggleDrawer(false); document.getElementById('fileInput').click(); };
-document.getElementById('importFolderBtn').onclick = function() { toggleDrawer(false); document.getElementById('folderInput').click(); };
+document.getElementById('importFolderBtn').onclick = function() {
+  toggleDrawer(false);
+  if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
+};
 document.getElementById('fileInput').onchange = function(e) { if (e.target.files) handleFileImport(e.target.files); e.target.value = ''; };
 document.getElementById('folderInput').onchange = function(e) { if (e.target.files) handleFileImport(e.target.files); e.target.value = ''; };
 
+document.getElementById('reconnectBanner').onclick = function() {
+  if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
+};
 document.getElementById('menuBtn').onclick = function() { toggleDrawer(true); };
 document.getElementById('drawerOverlay').onclick = function() { toggleDrawer(false); };
 
@@ -1303,6 +1433,7 @@ document.getElementById('clearLibBtn').onclick = function() {
     localStorage.removeItem('muzio_library');
     localStorage.removeItem('muzio_library_count');
     localStorage.removeItem('muzio_ui_state');
+    clearDirHandle();
     render();
     showToast('Library cleared');
   }
@@ -1397,5 +1528,9 @@ if (songs.length === 0 || (currentTab === 'artists' && !selectedArtist && !selec
 }
 
 if (songs.length > 0 && !songs[0].url) {
-  showToast('Select your music folder to enable playback', 4000);
+  if (window.showDirectoryPicker) {
+    autoScanFromHandle().then(function(ok) {
+      if (!ok) render();
+    });
+  }
 }
