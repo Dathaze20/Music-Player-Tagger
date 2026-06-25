@@ -680,6 +680,16 @@ function renderNowPlaying() {
     if (currentSong.type && currentSong.type !== 'Album') html += '<span class="np-badge ' + typeClass + '">' + currentSong.type + '</span>';
     html += '</div>';
   }
+
+  html += '<button class="lyrics-toggle" id="npLyricsToggle">&#9835; Lyrics</button>';
+  html += '<div class="lyrics-panel hidden" id="lyricsPanel">';
+  if (currentSong.lyrics) {
+    html += '<div class="lyrics-text">' + escHtml(currentSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>') + '</div>';
+  } else {
+    html += '<div class="lyrics-empty"><p>&#9835;</p><p>No lyrics available</p><p class="sub">Lyrics are fetched automatically during AI tagging</p></div>';
+  }
+  html += '</div>';
+
   html += '</div>';
 
   np.innerHTML = html;
@@ -701,6 +711,18 @@ function renderNowPlaying() {
   document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };
   document.getElementById('npVolume').oninput = function(e) { volume = parseFloat(e.target.value); isMuted = false; audio.volume = volume; };
   document.getElementById('npMute').onclick = function() { isMuted = !isMuted; audio.volume = isMuted ? 0 : volume; renderNowPlaying(); };
+  document.getElementById('npLyricsToggle').onclick = function() {
+    var panel = document.getElementById('lyricsPanel');
+    var btn = document.getElementById('npLyricsToggle');
+    var artContainer = document.querySelector('.np-art-container');
+    panel.classList.toggle('hidden');
+    btn.classList.toggle('active');
+    if (!panel.classList.contains('hidden')) {
+      artContainer.classList.add('lyrics-mode');
+    } else {
+      artContainer.classList.remove('lyrics-mode');
+    }
+  };
 
   // Swipe down to close
   var startY = 0;
@@ -862,6 +884,7 @@ function tagNextSong(songList, idx) {
     if (meta.releaseType) song.type = meta.releaseType;
     if (meta.featuredArtists) song.feat = meta.featuredArtists;
     if (meta.albumArtUrl) song.art = meta.albumArtUrl;
+    if (meta.lyrics) song.lyrics = meta.lyrics;
     song.tagging = false;
     if (idx % 10 === 0) { saveLibrary(); render(); }
     setTimeout(function() { tagNextSong(songList, idx + 1); }, 200);
@@ -888,13 +911,14 @@ function callGeminiTag(fileName) {
   var prompt = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture.\n\n'
     + 'You know underground and mainstream artists including: Stack Bundles, Max B, Chinx, Lloyd Banks (Cold Corner 1-3, Halloween Havoc), Styles P (Ghost stories), Jadakiss (Champ Is Here 1-3), Fabolous (Soul Tape, No Competition), Dave East (Kairi Chanel, Paranoia), Griselda (Westside Gunn, Conway, Benny), Roc Marciano, Chief Keef (Back From The Dead, Finally Rich), King Von, Pop Smoke, Lil Wayne (Da Drought 3, No Ceilings, Dedication), Future (Monster, 56 Nights, Beast Mode), Young Thug, Gucci Mane, Jeezy, T.I., Nipsey Hussle (Crenshaw, Victory Lap), Curren$y (Pilot Talk, Jet Files), Wiz Khalifa (Kush & OJ, Taylor Allderdice), Mac Miller (K.I.D.S., Faces), Kevin Gates (Luca Brasi), J. Cole (Friday Night Lights, Truly Yours), Drake (So Far Gone, Room for Improvement), Chance the Rapper (Acid Rap, 10 Day), and all major label releases.\n\n'
     + 'Given this music file name, identify the song and return ONLY a JSON object:\n'
-    + '{"title":"","artist":"","album":"","trackNumber":0,"albumArtUrl":"","year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
+    + '{"title":"","artist":"","album":"","trackNumber":0,"albumArtUrl":"","year":"","genre":"","releaseType":"","featuredArtists":"","lyrics":""}\n\n'
     + 'Rules:\n'
     + '- releaseType must be one of: Album, Mixtape, EP, Single\n'
     + '- For loosies/SoundCloud tracks not on any project, use "Single"\n'
     + '- For DJ-hosted tapes (Gangsta Grillz, Drama, etc), use "Mixtape"\n'
     + '- albumArtUrl should be a real working image URL for the album cover if possible\n'
     + '- genre should be specific: Hip-Hop, Trap, Drill, Boom-Bap, G-Funk, R&B, Cloud Rap, etc\n'
+    + '- lyrics: provide the FULL song lyrics if you know them. Use \\n for line breaks. If unsure, leave empty.\n'
     + '- Return ONLY the JSON object, no markdown, no explanation\n\n'
     + 'File: ' + fileName;
 
@@ -940,6 +964,7 @@ function openSongEditModal(songId) {
         return '<button class="type-btn' + cls + '" data-type="' + t + '">' + t + '</button>';
       }).join('')
     + '</div></div>'
+    + '<div class="edit-field"><label>Lyrics</label><textarea id="editLyrics" rows="4" placeholder="Paste lyrics here..." style="width:100%;padding:10px 12px;background:var(--bg-secondary);border:none;border-radius:12px;color:var(--text);font-size:13px;outline:none;resize:vertical;font-family:inherit;">' + escHtml(song.lyrics || '') + '</textarea></div>'
     + '</div>'
     + '<div class="edit-modal-footer">'
     + '<button class="btn-cancel" id="editCancelBtn">Cancel</button>'
@@ -971,6 +996,7 @@ function openSongEditModal(songId) {
     song.track = parseInt(document.getElementById('editTrack').value) || 0;
     song.feat = document.getElementById('editFeat').value.trim();
     song.type = selectedType;
+    song.lyrics = document.getElementById('editLyrics').value.trim();
     closeEditModal();
     saveLibrary();
     render();

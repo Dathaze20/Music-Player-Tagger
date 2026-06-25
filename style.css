@@ -885,6 +885,59 @@ body {
   background: rgba(0,168,158,0.04);
 }
 
+/* Lyrics */
+.lyrics-toggle {
+  display: block;
+  margin: 16px auto 0;
+  padding: 8px 24px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-secondary);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.lyrics-toggle.active {
+  background: rgba(0,168,158,0.15);
+  color: var(--primary);
+  border-color: rgba(0,168,158,0.3);
+}
+.lyrics-panel {
+  margin-top: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  padding: 16px 20px;
+  animation: fadeIn 0.3s;
+}
+.lyrics-panel::-webkit-scrollbar { width: 4px; }
+.lyrics-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.lyrics-text {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text);
+  white-space: pre-wrap;
+  text-align: center;
+}
+.lyrics-empty {
+  text-align: center;
+  padding: 16px 0;
+}
+.lyrics-empty p:first-child { font-size: 28px; color: var(--text-faint); margin-bottom: 8px; }
+.lyrics-empty p:nth-child(2) { font-size: 13px; color: var(--text-dim); }
+.lyrics-empty .sub { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+.np-art-container.lyrics-mode .np-art {
+  width: 120px;
+  height: 120px;
+  margin-bottom: 12px;
+}
+.np-art-container.lyrics-mode .np-song-title { font-size: 16px; }
+.np-art-container.lyrics-mode .np-song-artist { font-size: 12px; }
+.np-art-container.lyrics-mode .np-song-album { font-size: 11px; }
+
 /* Hidden */
 .hidden { display: none !important; }
 
