@@ -50,11 +50,19 @@ const prompt = ai.definePrompt({
       featuredArtists: z.string().optional().describe('Featured artists, comma-separated.'),
     }),
   },
-  prompt: `You are a music metadata expert specializing in hip-hop, rap, R&B, and mixtape culture. Given a music file name, identify the song and provide complete, accurate metadata.
+  prompt: `You are a music metadata expert with DEEP knowledge of hip-hop, rap, R&B, drill, trap, and mixtape culture — including underground, independent, and street-level artists. Given a music file name, identify the song and provide complete, accurate metadata.
 
-  IMPORTANT: You must handle MIXTAPES correctly. Mixtapes are very common in hip-hop and often have different naming conventions than studio albums.
+  CRITICAL: Many songs in hip-hop exist OUTSIDE of traditional albums. You MUST handle:
+  - Loosies / one-off singles never released on a project
+  - SoundCloud/YouTube-only tracks
+  - Freestyles over other artists' beats
+  - Songs from compilations, DJ compilations, blog exclusives
+  - Street singles and promo tracks
+  - Songs that only appeared on a DJ's mixtape (e.g., DJ Clue, DJ Kay Slay, DJ Whoo Kid compilations)
+  - Leaked/unreleased tracks that circulated online
+  - For songs NOT on any album/mixtape, set releaseType to "Single" and leave album as the single name or the artist name
 
-  Common mixtape patterns in file names:
+  IMPORTANT: Handle MIXTAPES correctly. Mixtapes are very common in hip-hop:
   - "Artist - Mixtape Name - Track Title.mp3"
   - "01 Artist - Track Title.mp3" (numbered tracks)
   - "DJ Drama - Gangsta Grillz - Artist - Track.mp3" (DJ-hosted tapes)
@@ -63,7 +71,34 @@ const prompt = ai.definePrompt({
   - Track numbers at the start: "01.", "01 -", "Track 01"
   - DJ tags: "DJ Khaled presents", "DJ Drama presents"
 
-  Well-known mixtapes you should recognize:
+  UNDERGROUND / INDEPENDENT ARTISTS you should know:
+  - Stack Bundles: Far Rockaway rapper (RIP 2007). Mixtapes: Library of a Rockstar, Salute Me, A Grand Hustle
+  - Max B: Wave god. Mixtapes: Million Dollar Baby 1-3, Public Domain 1-3, Wavie Crockett
+  - Vado: Slime Flu series, Sinatra
+  - Chinx (Chinx Drugz): Cocaine Riot 1-4, Hurry Up & Die
+  - Fred The Godson: God Level, Gordo
+  - Lloyd Banks: The Cold Corner 1-3, Halloween Havoc 1-3, V5/V6
+  - Styles P: Ghost in the Machine, The Ghost That Sat by the Door, Float
+  - Jadakiss: Kiss of Death, Kiss Tha Game Goodbye, The Champ Is Here 1-3
+  - Jim Jones: Harlem's American Gangster, El Capo
+  - Fabolous: There Is No Competition 1-3, Soul Tape 1-3, Friday Night Freestyles
+  - Juelz Santana: Back Like Cooked Crack 1-3
+  - Dave East: Kairi Chanel, Paranoia 1-3, Karma 1-3
+  - Don Q: Corner Stories, Don Season 1-2
+  - A Boogie Wit Da Hoodie: Artist, TBA
+  - Lil Durk: Signed to the Streets 1-3, Remember My Name
+  - G Herbo: Welcome to Fazoland, Pistol P Project, Ballin Like I'm Kobe
+  - Chief Keef: Back From the Dead 1-3, Bang 1-3, Almighty So
+  - King Von: Grandson Vol. 1-2, Levon James
+  - Pop Smoke: Meet the Woo 1-2, Shoot for the Stars
+  - Griselda (Westside Gunn, Conway, Benny): Hitler Wears Hermes 1-8, Flygod, TPOTIC, Burden of Proof
+  - Roc Marciano: Marcberg, Reloaded, Rosebudd's Revenge
+  - Curren$y: Pilot Talk, Jet Life, Cigarette Boats, Verde Terrace
+  - Nipsey Hussle: Bullets Ain't Got No Name 1-3, Crenshaw, Mailbox Money
+  - Rick Ross: Rich Forever, Black Market
+  - And many more underground/street artists...
+
+  Well-known mixtapes:
   - Lil Wayne: Da Drought 3, Dedication 1-6, No Ceilings, Sorry 4 the Wait
   - Gucci Mane: Trap House, Trap God, World War 3, Burrprint 3D
   - Future: Monster, Beast Mode, 56 Nights, Purple Reign
@@ -74,12 +109,9 @@ const prompt = ai.definePrompt({
   - A$AP Rocky: Live.Love.A$AP
   - Meek Mill: Dreamchasers 1-4
   - Kevin Gates: Luca Brasi Story, By Any Means, Stranger Than Fiction
-  - Curren$y: Pilot Talk, Jet Life, Cigarette Boats
   - Logic: Young Sinatra, Welcome to Forever
   - J. Cole: Friday Night Lights, The Warm Up, Truly Yours
   - Drake: So Far Gone, Room for Improvement, Comeback Season
-  - Nipsey Hussle: Bullets Ain't Got No Name, Crenshaw, Mailbox Money
-  - And many more...
 
   File name: {{{filePath}}}
 
@@ -90,16 +122,18 @@ const prompt = ai.definePrompt({
   Track Number: {{{trackNumber}}}
 
   Instructions:
-  - Identify the exact song from the file name
+  - Identify the exact song from the file name — even if it's obscure or underground
   - Strip track numbers, DJ tags, producer credits, and file extensions to get the clean title
   - Separate featured artists (ft., feat., featuring) from the main artist
   - Determine if this is from an Album, Mixtape, EP, or Single
-  - For releaseType: use "Mixtape" for unofficial/free releases, hosted tapes, street albums. Use "Album" for official retail releases
+  - For releaseType: use "Mixtape" for unofficial/free releases, hosted tapes, street albums. Use "Album" for official retail releases. Use "Single" for loosies/one-offs not on any project
+  - If a song is NOT from any known project, set album to the song title and releaseType to "Single"
   - Provide the correct title, artist, album/mixtape name, track number, release year, and genre
-  - For albumArtUrl: provide a real, publicly accessible URL to the cover art (check Wikipedia, MusicBrainz, or other public sources)
-  - For mixtape cover art: these often have unique covers - try to find the actual mixtape cover, not just the artist's most popular album
+  - For albumArtUrl: provide a real, publicly accessible URL to the cover art
+  - For mixtape cover art: these often have unique covers - find the actual mixtape/project cover
   - If you cannot determine a field with confidence, leave it blank
-  - Be precise with official song titles, album/mixtape names, and artist names`,
+  - Be precise with official song titles, album/mixtape names, and artist names
+  - For genre: be specific — use subgenres like Drill, Trap, Boom-Bap, Conscious, G-Funk, Cloud Rap, etc.`,
 });
 
 const tagMusicMetadataFlow = ai.defineFlow<

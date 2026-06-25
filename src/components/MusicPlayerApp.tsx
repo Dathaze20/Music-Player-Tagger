@@ -6,7 +6,7 @@ import {
   Repeat, Shuffle, Volume2, VolumeX, ChevronLeft, ChevronDown,
   Music, Disc3, Users, ListMusic, Heart, Plus, FileAudio, X,
   Loader2, Mic2, FolderOpen, Clock, Library, Settings,
-  Import, Upload
+  Import, Upload, Edit3, Save, Check
 } from 'lucide-react';
 import { tagMusicMetadata } from '@/ai/flows/tag-music-metadata';
 import { generateAlbumArt } from '@/ai/flows/generate-album-art';
@@ -246,6 +246,8 @@ export default function MusicPlayerApp() {
   const [queue, setQueue] = useState<Song[]>([]);
   const [albumFilter, setAlbumFilter] = useState<AlbumFilter>('all');
   const [isDragging, setIsDragging] = useState(false);
+  const [editingAlbum, setEditingAlbum] = useState<{ name: string; artist: string } | null>(null);
+  const [editForm, setEditForm] = useState({ artist: '', album: '', year: '', genre: '', releaseType: '' });
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -518,6 +520,41 @@ export default function MusicPlayerApp() {
       }
     } catch {}
   }, [currentSong]);
+
+  // ─── Batch album editing ───
+
+  const startAlbumEdit = useCallback((albumName: string, artistName: string) => {
+    const firstSong = songs.find(s => s.album === albumName && s.artist === artistName);
+    setEditForm({
+      artist: artistName,
+      album: albumName,
+      year: firstSong?.year || '',
+      genre: firstSong?.genre || '',
+      releaseType: firstSong?.releaseType || 'Album',
+    });
+    setEditingAlbum({ name: albumName, artist: artistName });
+  }, [songs]);
+
+  const saveAlbumEdit = useCallback(() => {
+    if (!editingAlbum) return;
+    setSongs(prev => prev.map(s => {
+      if (s.album === editingAlbum.name && s.artist === editingAlbum.artist) {
+        return {
+          ...s,
+          artist: editForm.artist || s.artist,
+          album: editForm.album || s.album,
+          year: editForm.year || s.year,
+          genre: editForm.genre || s.genre,
+          releaseType: editForm.releaseType || s.releaseType,
+        };
+      }
+      return s;
+    }));
+    if (selectedAlbum?.name === editingAlbum.name && selectedAlbum?.artist === editingAlbum.artist) {
+      setSelectedAlbum({ name: editForm.album || editingAlbum.name, artist: editForm.artist || editingAlbum.artist });
+    }
+    setEditingAlbum(null);
+  }, [editingAlbum, editForm, selectedAlbum]);
 
   // ─── Navigation ───
 
@@ -933,12 +970,18 @@ export default function MusicPlayerApp() {
               <div className="flex gap-3 mt-4">
                 <button
                   onClick={() => { if (albumSongs.length > 0) playSong(albumSongs[0], albumSongs); }}
-                  className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-full text-sm font-medium"
+                  className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-medium"
                 >
                   <Play size={16} fill="currentColor" /> Play
                 </button>
-                <button className="flex items-center gap-2 px-6 py-2 bg-secondary text-foreground rounded-full text-sm font-medium">
+                <button className="flex items-center gap-2 px-5 py-2 bg-secondary text-foreground rounded-full text-sm font-medium">
                   <Shuffle size={16} /> Shuffle
+                </button>
+                <button
+                  onClick={() => startAlbumEdit(selectedAlbum.name, selectedAlbum.artist)}
+                  className="flex items-center gap-2 px-5 py-2 bg-secondary text-foreground rounded-full text-sm font-medium"
+                >
+                  <Edit3 size={16} /> Edit
                 </button>
               </div>
             </div>
@@ -1284,6 +1327,98 @@ export default function MusicPlayerApp() {
         >
           <Plus size={24} />
         </button>
+      )}
+
+      {/* ─── Batch Album Edit Modal ─── */}
+      {editingAlbum && (
+        <>
+          <div className="absolute inset-0 bg-black/70 z-[55] animate-fade-in" onClick={() => setEditingAlbum(null)} />
+          <div className="absolute inset-x-4 top-[15%] z-[56] bg-card rounded-2xl shadow-2xl overflow-hidden animate-slide-up">
+            <div className="p-5 border-b border-border/30">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-base font-bold">Edit Album</h3>
+                <button onClick={() => setEditingAlbum(null)} className="p-1 text-foreground/40 hover:text-foreground">
+                  <X size={20} />
+                </button>
+              </div>
+              <p className="text-xs text-foreground/50">
+                Changes apply to all {songs.filter(s => s.album === editingAlbum.name && s.artist === editingAlbum.artist).length} songs
+              </p>
+            </div>
+            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
+              <div>
+                <label className="text-[11px] text-foreground/50 uppercase tracking-wider block mb-1.5">Artist</label>
+                <input
+                  value={editForm.artist}
+                  onChange={e => setEditForm(f => ({ ...f, artist: e.target.value }))}
+                  className="w-full px-3 py-2.5 bg-secondary rounded-xl text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-foreground/50 uppercase tracking-wider block mb-1.5">Album / Mixtape Name</label>
+                <input
+                  value={editForm.album}
+                  onChange={e => setEditForm(f => ({ ...f, album: e.target.value }))}
+                  className="w-full px-3 py-2.5 bg-secondary rounded-xl text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-foreground/50 uppercase tracking-wider block mb-1.5">Year</label>
+                  <input
+                    value={editForm.year}
+                    onChange={e => setEditForm(f => ({ ...f, year: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-secondary rounded-xl text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/50"
+                    placeholder="2024"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-foreground/50 uppercase tracking-wider block mb-1.5">Genre</label>
+                  <input
+                    value={editForm.genre}
+                    onChange={e => setEditForm(f => ({ ...f, genre: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-secondary rounded-xl text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/50"
+                    placeholder="Hip-Hop"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] text-foreground/50 uppercase tracking-wider block mb-1.5">Release Type</label>
+                <div className="flex gap-2">
+                  {['Album', 'Mixtape', 'EP', 'Single'].map(type => (
+                    <button
+                      key={type}
+                      onClick={() => setEditForm(f => ({ ...f, releaseType: type }))}
+                      className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${
+                        editForm.releaseType === type
+                          ? type === 'Mixtape' ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/40'
+                          : type === 'EP' ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/40'
+                          : 'bg-primary/20 text-primary ring-1 ring-primary/40'
+                          : 'bg-secondary text-foreground/50'
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t border-border/30 flex gap-3">
+              <button
+                onClick={() => setEditingAlbum(null)}
+                className="flex-1 py-2.5 bg-secondary rounded-xl text-sm font-medium text-foreground/70"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveAlbumEdit}
+                className="flex-1 py-2.5 bg-primary rounded-xl text-sm font-medium text-primary-foreground flex items-center justify-center gap-2"
+              >
+                <Check size={16} /> Save All
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Drag & Drop Overlay */}
