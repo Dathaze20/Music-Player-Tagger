@@ -101,22 +101,27 @@ function applyArt(el, dataUrls) {
   }
 }
 
+function fetchThumbnail(uri) {
+  if (artCache[uri]) return Promise.resolve(artCache[uri]);
+  if (artInFlight[uri]) return artInFlight[uri];
+  var p = NativeBridge.readAlbumArt(uri).then(function(data) {
+    delete artInFlight[uri];
+    if (data) artCache[uri] = data;
+    return data || '';
+  }).catch(function() { delete artInFlight[uri]; return ''; });
+  artInFlight[uri] = p;
+  return p;
+}
+
 function loadLazyEl(el) {
   var urisStr = el.dataset.lazyUri || '';
   var uris = urisStr.split('|').filter(Boolean);
   if (!uris.length) return;
-  // Apply from cache synchronously if all present
   if (uris.every(function(u) { return artCache[u]; })) {
     applyArt(el, uris.map(function(u) { return artCache[u]; }));
     return;
   }
-  Promise.all(uris.map(function(uri) {
-    if (artCache[uri]) return Promise.resolve(artCache[uri]);
-    return NativeBridge.readAlbumArt(uri).then(function(data) {
-      if (data) artCache[uri] = data;
-      return data || '';
-    }).catch(function() { return ''; });
-  })).then(function(dataUrls) { applyArt(el, dataUrls); });
+  Promise.all(uris.map(fetchThumbnail)).then(function(dataUrls) { applyArt(el, dataUrls); });
 }
 
 function initLazyArt(container) {
@@ -142,6 +147,31 @@ function initLazyArt(container) {
       obs.observe(el);
     }
   });
+}
+
+function loadCurrentSongArt(song) {
+  if (!song || !song.albumArtUri) return;
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  var uri = song.albumArtUri;
+  // 192px thumbnail → mini player
+  fetchThumbnail(uri).then(function(data) {
+    if (!data || !currentSong || currentSong.albumArtUri !== uri) return;
+    if (!showNowPlaying) {
+      var el = document.getElementById('miniArt');
+      if (el) el.innerHTML = '<img src="' + data + '" style="width:48px;height:48px;object-fit:cover;border-radius:6px;flex-shrink:0;">';
+    }
+  });
+  // 600px HD → Now Playing hero
+  if (!artCacheHD[uri]) {
+    NativeBridge.readAlbumArt(uri, 600).then(function(data) {
+      if (!data) return;
+      artCacheHD[uri] = data;
+      if (showNowPlaying && currentSong && currentSong.albumArtUri === uri) {
+        var el = document.getElementById('npArtImg');
+        if (el) el.innerHTML = '<img src="' + data + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+      }
+    }).catch(function() {});
+  }
 }
 
 function imgOrArt(url, text, size, round, cls) {
@@ -330,7 +360,9 @@ var songs = loadLibrary();
 
 // ─── State ───
 
-var artCache = {};   // keyed by content:// URI → base64 data URL
+var artCache = {};     // content:// URI → 192px base64 thumbnail
+var artCacheHD = {};   // content:// URI → 600px base64 for Now Playing
+var artInFlight = {};  // content:// URI → Promise (deduplicates concurrent requests)
 
 var currentTab = 'artists';
 var currentSong = null;
@@ -967,10 +999,15 @@ function renderAlbumDetail(el) {
   var first = albumSongs[0] || {};
   var typeClass = (first.type || 'Album').toLowerCase();
   var totalDur = albumSongs.reduce(function(sum, s) { return sum + (s.dur || 0); }, 0);
+  var albumArtUri = first.albumArtUri || '';
+
+  var heroArt = albumArtUri
+    ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-fill="1" style="width:100%;height:100%;">' + artHTML(selectedAlbum.name, 200) + '</div>'
+    : artHTML(selectedAlbum.name, 200, false, 'xl');
 
   var html = '<div class="detail-header">'
     + '<div style="width:200px;height:200px;border-radius:16px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.5);">'
-    + (first.art ? '<img src="' + first.art + '" style="width:100%;height:100%;object-fit:cover;">' : artHTML(selectedAlbum.name, 200, false, 'xl'))
+    + heroArt
     + '</div>'
     + '<div class="detail-title">' + escHtml(selectedAlbum.name) + '</div>'
     + '<div class="detail-artist">' + escHtml(selectedAlbum.artist) + '</div>'
@@ -989,20 +1026,25 @@ function renderAlbumDetail(el) {
 
   albumSongs.forEach(function(s, i) {
     var playing = currentSong && currentSong.id === s.id;
+    var rowArt = albumArtUri
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-size="48" style="width:48px;height:48px;flex-shrink:0;border-radius:6px;overflow:hidden;">' + artHTML(selectedAlbum.name, 48) + '</div>'
+      : '';
     html += '<div class="song-row' + (playing ? ' playing' : '') + '" data-id="' + s.id + '">'
       + '<span class="track-num">' + (s.track || i + 1) + '</span>'
+      + rowArt
       + '<div class="song-info">'
       + '<div class="song-title' + (playing ? ' playing' : '') + '">' + escHtml(s.title)
       + (s.feat ? '<span class="feat"> ft. ' + escHtml(s.feat) + '</span>' : '') + '</div>'
+      + '<div class="song-meta">' + escHtml(s.artist) + ' &bull; ' + fmtTime(s.dur) + '</div>'
       + '</div>'
       + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
-      + '<span class="song-duration">' + fmtTime(s.dur) + '</span>'
       + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + (s.fav ? '&#10084;' : '&#9825;') + '</button>'
       + '<button class="song-edit" data-edit="' + s.id + '">&#8942;</button>'
       + '</div>';
   });
 
   el.innerHTML = html;
+  initLazyArt(el);
 
   document.getElementById('playAlbumBtn').onclick = function() {
     if (albumSongs.length > 0) playSong(albumSongs[0], albumSongs);
@@ -1055,7 +1097,12 @@ function updateMiniPlayer() {
   if (!currentSong) { mp.classList.add('hidden'); return; }
   if (showNowPlaying) { mp.classList.add('hidden'); return; }
   mp.classList.remove('hidden');
-  document.getElementById('miniArt').innerHTML = imgOrArt(currentSong.art, currentSong.album || currentSong.title, 48);
+  var uri = currentSong.albumArtUri;
+  var cached = uri && artCache[uri];
+  document.getElementById('miniArt').innerHTML = cached
+    ? '<img src="' + cached + '" style="width:48px;height:48px;object-fit:cover;border-radius:6px;flex-shrink:0;">'
+    : artHTML(currentSong.album || currentSong.title, 48);
+  if (uri && !cached) loadCurrentSongArt(currentSong);
   document.getElementById('miniTitle').textContent = currentSong.title;
   document.getElementById('miniArtist').textContent = currentSong.artist;
   document.getElementById('miniPlayBtn').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
@@ -1143,19 +1190,30 @@ function renderNowPlaying() {
   currentLyricIdx = -1;
   lyricsVisible = lyricsLines.length > 0;
 
+  var artUri = currentSong.albumArtUri || '';
+  var artData = (artUri && artCacheHD[artUri]) ? artCacheHD[artUri]
+              : (artUri && artCache[artUri]) ? artCache[artUri]
+              : '';
+  var artContent = artData
+    ? '<img src="' + artData + '" style="width:100%;height:100%;object-fit:cover;display:block;">'
+    : artHTML(currentSong.album || currentSong.title, 300, false, 'xxl');
+
   var html = '<div class="np-header">'
     + '<button id="npClose">&#8744;</button>'
-    + '<div class="np-label">Now Playing</div>'
+    + '<div class="np-header-center"><div class="np-label">Playing From</div>'
+    + '<div class="np-header-album">' + escHtml(currentSong.album && currentSong.album !== 'Unknown Album' ? currentSong.album : currentSong.artist) + '</div></div>'
     + '<button id="npEditBtn">&#9998;</button>'
     + '</div>'
-    + '<div class="np-art-container">'
-    + '<div class="np-art' + (isPlaying ? ' spinning' : '') + '">'
-    + (safeArtUrl(currentSong.art) ? '<img src="' + safeArtUrl(currentSong.art) + '">' : artHTML(currentSong.album || currentSong.title, 170, false, 'xxl'))
-    + '</div>'
+    + '<div class="np-art-full" id="npArtImg">' + artContent + '</div>'
+    + '<div class="np-info-row">'
+    + '<button id="npFav" class="' + (currentSong.fav ? 'fav-active' : '') + '">' + (currentSong.fav ? '&#10084;' : '&#9825;') + '</button>'
+    + '<div class="np-info-text">'
     + '<div class="np-song-title">' + escHtml(currentSong.title)
     + (currentSong.feat ? '<span class="feat"> ft. ' + escHtml(currentSong.feat) + '</span>' : '')
     + '</div>'
     + '<div class="np-song-artist">' + escHtml(currentSong.artist) + '</div>'
+    + '</div>'
+    + '<button id="npQueueBtn" title="Queue">&#9776;&#9835;</button>'
     + '</div>'
     + '<div class="np-controls">'
     + '<div class="np-progress">'
@@ -1170,7 +1228,6 @@ function renderNowPlaying() {
     + '<button id="npRepeat" class="np-ctrl' + (repeatMode !== 'off' ? ' active' : '') + '">&#128257;' + (repeatMode === 'one' ? '<sub>1</sub>' : '') + '</button>'
     + '</div>'
     + '<div class="np-bottom">'
-    + '<button id="npFav" class="np-ctrl' + (currentSong.fav ? ' fav-active' : '') + '">' + (currentSong.fav ? '&#10084;' : '&#9825;') + '</button>'
     + '<div class="volume-control">'
     + '<button id="npMute" class="np-ctrl">' + (isMuted ? '&#128263;' : '&#128266;') + '</button>'
     + '<input type="range" id="npVolume" min="0" max="1" step="0.01" value="' + (isMuted ? 0 : volume) + '">'
@@ -1212,6 +1269,18 @@ function renderNowPlaying() {
 
   np.innerHTML = html;
 
+  // Load HD art in-place if not yet cached
+  if (artUri && !artCacheHD[artUri] && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+    NativeBridge.readAlbumArt(artUri, 600).then(function(data) {
+      if (!data) return;
+      artCacheHD[artUri] = data;
+      if (showNowPlaying && currentSong && currentSong.albumArtUri === artUri) {
+        var el = document.getElementById('npArtImg');
+        if (el) el.innerHTML = '<img src="' + data + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+      }
+    }).catch(function() {});
+  }
+
   document.getElementById('npClose').onclick = function() { showNowPlaying = false; np.classList.add('hidden'); updateMiniPlayer(); };
   document.getElementById('npPlay').onclick = togglePlay;
   document.getElementById('npPrev').onclick = handlePrev;
@@ -1226,6 +1295,7 @@ function renderNowPlaying() {
     var s = songs.find(function(x) { return x.id === currentSong.id; });
     if (s) { s.fav = !s.fav; currentSong.fav = s.fav; saveLibrary(); renderNowPlaying(); }
   };
+  document.getElementById('npQueueBtn').onclick = function() { /* future: show queue */ };
   document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };
   document.getElementById('npVolume').oninput = function(e) { volume = parseFloat(e.target.value); isMuted = false; audio.volume = volume; };
   document.getElementById('npMute').onclick = function() { isMuted = !isMuted; audio.volume = isMuted ? 0 : volume; renderNowPlaying(); };
@@ -1307,6 +1377,7 @@ function renderNowPlaying() {
 
 function playSong(song, songList) {
   currentSong = song;
+  loadCurrentSongArt(song);
   queue = songList || songs;
   currentTime = 0;
   duration = song.dur || 0;

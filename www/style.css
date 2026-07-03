@@ -338,41 +338,60 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
+  flex-shrink: 0;
 }
 .np-header button {
   background: none; border: none; color: var(--text-dim);
-  padding: 8px; cursor: pointer; font-size: 22px;
+  padding: 8px; cursor: pointer; font-size: 22px; flex-shrink: 0;
 }
-.np-label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; }
-.np-art-container {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 6px 32px 0;
+.np-header-center { flex: 1; text-align: center; min-width: 0; padding: 0 4px; }
+.np-header-album {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.np-art {
-  width: 170px;
-  height: 170px;
-  border-radius: 14px;
+.np-label { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; }
+
+/* Full-width album art (Muzio style) */
+.np-art-full {
+  width: 100%;
+  aspect-ratio: 1;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-  margin-bottom: 14px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
 }
-.np-art img { width: 100%; height: 100%; object-fit: cover; }
+.np-art-full img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.np-art-full .art-placeholder { width: 100% !important; height: 100% !important; font-size: 80px !important; border-radius: 0 !important; }
+
+/* Info row: heart | title+artist | queue */
+.np-info-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 12px 4px;
+  flex-shrink: 0;
+}
+.np-info-row button {
+  background: none; border: none; color: var(--text-faint);
+  padding: 8px; cursor: pointer; font-size: 22px; flex-shrink: 0;
+}
+.np-info-row button.fav-active { color: #f43f5e; }
+.np-info-text { flex: 1; min-width: 0; }
 .np-song-title {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
-  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
 }
-.np-song-title .feat { color: var(--text-faint); font-size: 16px; font-weight: 400; }
-.np-song-artist { font-size: 14px; color: var(--text-dim); margin-top: 4px; }
+.np-song-title .feat { color: var(--text-faint); font-size: 14px; font-weight: 400; }
+.np-song-artist { font-size: 13px; color: var(--text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-song-album { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
-.np-controls { padding: 0 24px 12px; }
+
+/* Keep old .np-art for any legacy references */
+.np-art { display: none; }
+.np-art-container { display: none; }
+
+.np-controls { padding: 0 20px 8px; }
 .np-progress { margin-bottom: 16px; }
 .np-progress input[type=range] {
   width: 100%;

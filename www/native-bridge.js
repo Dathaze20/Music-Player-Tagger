@@ -182,10 +182,12 @@ var NativeBridge = (function() {
     };
   }
 
-  function readAlbumArt(uri) {
+  function readAlbumArt(uri, size) {
     var plugin = getPlugin('MediaStore');
     if (!plugin || !uri) return Promise.resolve('');
-    return plugin.readAlbumArt({ uri: uri }).then(function(r) {
+    var params = { uri: uri };
+    if (size) params.size = size;
+    return plugin.readAlbumArt(params).then(function(r) {
       return (r && r.data) ? r.data : '';
     }).catch(function() { return ''; });
   }

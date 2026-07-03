@@ -76,20 +76,24 @@ public class MediaStorePlugin extends Plugin {
     @PluginMethod
     public void readAlbumArt(PluginCall call) {
         String uriStr = call.getString("uri", "");
+        int reqSize = call.getInt("size", 192);
+        if (reqSize < 48) reqSize = 48;
+        if (reqSize > 1200) reqSize = 1200;
         if (uriStr == null || uriStr.isEmpty()) { call.reject("No uri"); return; }
         try {
             Uri artUri = Uri.parse(uriStr);
             java.io.InputStream is = getContext().getContentResolver().openInputStream(artUri);
             if (is == null) { call.reject("null stream"); return; }
             android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
-            opts.inSampleSize = 2;
+            opts.inSampleSize = reqSize <= 256 ? 2 : 1;
             android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(is, null, opts);
             is.close();
             if (bmp == null) { call.reject("decode failed"); return; }
-            android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, 192, 192, true);
+            android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, reqSize, reqSize, true);
             if (scaled != bmp) bmp.recycle();
             java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, baos);
+            int quality = reqSize <= 256 ? 78 : 90;
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, baos);
             scaled.recycle();
             String b64 = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP);
             JSObject ret = new JSObject();
