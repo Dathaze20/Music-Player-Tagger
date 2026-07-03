@@ -71,10 +71,19 @@ function artHTML(text, size, round, cls) {
   return '<div class="art-placeholder' + (round ? ' round' : '') + extra + '" style="width:' + size + 'px;height:' + size + 'px;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');font-size:' + Math.floor(size * 0.35) + 'px;' + r + '">' + init + '</div>';
 }
 
+// External https:// URLs fail silently in the Capacitor Android WebView.
+// Return '' for those so callers fall back to gradient placeholder art.
+function safeArtUrl(url) {
+  if (!url) return '';
+  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative() && !url.startsWith('http://localhost')) return '';
+  return url;
+}
+
 function imgOrArt(url, text, size, round, cls) {
-  if (url) {
+  var safeUrl = safeArtUrl(url);
+  if (safeUrl) {
     var r = round ? 'border-radius:50%;' : 'border-radius:8px;';
-    return '<img src="' + url + '" class="song-art' + (cls ? ' ' + cls : '') + '" style="width:' + size + 'px;height:' + size + 'px;' + r + 'object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + escHtml(text).replace(/'/g,"\\'") + '\',' + size + ',' + round + ')">';
+    return '<img src="' + safeUrl + '" class="song-art' + (cls ? ' ' + cls : '') + '" style="width:' + size + 'px;height:' + size + 'px;' + r + 'object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + escHtml(text).replace(/'/g,"\\'") + '\',' + size + ',' + round + ')">';
   }
   return artHTML(text, size, round, cls);
 }
@@ -326,9 +335,10 @@ function getAlbums(filter) {
   var map = {};
   songs.forEach(function(s) {
     var key = s.album + '|||' + s.artist;
-    if (!map[key]) map[key] = { artist: s.artist, year: s.year, art: s.art, count: 0, type: s.type || 'Album' };
+    var art = safeArtUrl(s.art);
+    if (!map[key]) map[key] = { artist: s.artist, year: s.year, art: art, count: 0, type: s.type || 'Album' };
     map[key].count++;
-    if (s.art && !map[key].art) map[key].art = s.art;
+    if (art && !map[key].art) map[key].art = art;
   });
   var all = Object.keys(map).map(function(key) {
     var name = key.split('|||')[0];
@@ -357,9 +367,10 @@ function getArtistAlbums(name) {
   var map = {};
   songs.forEach(function(s) {
     if (s.artist !== name) return;
-    if (!map[s.album]) map[s.album] = { year: s.year, art: s.art, count: 0, type: s.type };
+    var art = safeArtUrl(s.art);
+    if (!map[s.album]) map[s.album] = { year: s.year, art: art, count: 0, type: s.type };
     map[s.album].count++;
-    if (s.art && !map[s.album].art) map[s.album].art = s.art;
+    if (art && !map[s.album].art) map[s.album].art = art;
   });
   return Object.keys(map).map(function(a) {
     return { name: a, artist: name, year: map[a].year, art: map[a].art, songCount: map[a].count, type: map[a].type };
@@ -733,7 +744,7 @@ function renderAlbums(el) {
 
     html += '<div class="album-card" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
       + '<div class="album-art-wrap">'
-      + (a.art ? '<img src="' + a.art + '" onerror="this.style.display=\'none\'">' : artHTML(a.name, 200))
+      + (a.art ? '<img src="' + a.art + '" class="album-art-img" data-name="' + escHtml(a.name) + '" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">' : artHTML(a.name, 200))
       + badge
       + '</div>'
       + '<div class="album-name">' + escHtml(a.name) + '</div>'
@@ -743,6 +754,11 @@ function renderAlbums(el) {
   html += '</div>';
   el.innerHTML = html;
 
+  el.querySelectorAll('.album-art-img').forEach(function(img) {
+    img.onerror = function() {
+      img.parentElement.innerHTML = artHTML(img.dataset.name || '', 200);
+    };
+  });
   el.querySelectorAll('.chip').forEach(function(btn) {
     btn.onclick = function() { albumFilter = btn.dataset.filter; render(); };
   });
@@ -835,7 +851,7 @@ function renderArtistDetail(el) {
       else if (a.type === 'EP') badge = '<span class="release-badge ep" style="font-size:8px;padding:1px 6px;">EP</span>';
       html += '<div class="album-scroll-item" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
         + '<div class="album-scroll-art">'
-        + (a.art ? '<img src="' + a.art + '">' : artHTML(a.name, 128))
+        + (a.art ? '<img src="' + a.art + '" class="album-art-img" data-name="' + escHtml(a.name) + '">' : artHTML(a.name, 128))
         + badge
         + '</div>'
         + '<div class="album-scroll-name">' + escHtml(a.name) + '</div>'
@@ -861,6 +877,12 @@ function renderArtistDetail(el) {
   });
 
   el.innerHTML = html;
+
+  el.querySelectorAll('.album-art-img').forEach(function(img) {
+    img.onerror = function() {
+      img.parentElement.innerHTML = artHTML(img.dataset.name || '', 128);
+    };
+  });
 
   document.getElementById('playAllBtn').onclick = function() {
     if (artistSongs.length > 0) playSong(artistSongs[0], artistSongs);
@@ -1069,7 +1091,7 @@ function renderNowPlaying() {
     + '</div>'
     + '<div class="np-art-container">'
     + '<div class="np-art' + (isPlaying ? ' spinning' : '') + '">'
-    + (currentSong.art ? '<img src="' + currentSong.art + '">' : artHTML(currentSong.album || currentSong.title, 170, false, 'xxl'))
+    + (safeArtUrl(currentSong.art) ? '<img src="' + safeArtUrl(currentSong.art) + '">' : artHTML(currentSong.album || currentSong.title, 170, false, 'xxl'))
     + '</div>'
     + '<div class="np-song-title">' + escHtml(currentSong.title)
     + (currentSong.feat ? '<span class="feat"> ft. ' + escHtml(currentSong.feat) + '</span>' : '')
@@ -1164,8 +1186,10 @@ function renderNowPlaying() {
     updateSyncedLyrics(currentTime);  // scroll to current position immediately
   }
 
-  // Auto-fetch lyrics from Gemini if song has none and API key is set
-  if (apiKey && !lyricsVisible && !currentSong.lyrics) {
+  // Auto-fetch lyrics from Gemini if song has none and API key is set.
+  // _lyricsFetched prevents re-firing on every renderNowPlaying() call (seek, volume, etc.)
+  if (apiKey && !lyricsVisible && !currentSong.lyrics && !currentSong._lyricsFetched) {
+    currentSong._lyricsFetched = true;
     var fetchSong = currentSong;
     callGeminiTag(fetchSong.fn).then(function(meta) {
       if (meta.syncedLyrics) fetchSong.syncedLyrics = meta.syncedLyrics;
