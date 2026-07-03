@@ -270,6 +270,8 @@ var queue = [];
 var tagging = { total: 0, done: 0, current: '', active: false, paused: false, queue: [] };
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var sortMode = 'title';
+var nativeScanning = false;
+var nativeScanCount = 0;
 
 var audio = document.getElementById('audioEl');
 
@@ -401,14 +403,26 @@ function render() {
 
 function renderWelcome(el) {
   var isNativeApp = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+
+  // Native scanning in progress — show live progress screen
+  if (isNativeApp && nativeScanning) {
+    el.innerHTML = '<div class="welcome-screen">'
+      + '<div class="welcome-scan-ring"><div class="welcome-scan-note">&#127925;</div></div>'
+      + '<h2 class="welcome-title">Finding Your Music</h2>'
+      + '<p class="welcome-text" id="scanStatusText">Scanning your phone and SD card...</p>'
+      + (nativeScanCount > 0 ? '<p class="welcome-api-set">Found ' + nativeScanCount + ' songs so far...</p>' : '')
+      + '</div>';
+    return;
+  }
+
   var html = '<div class="welcome-screen">'
     + '<div class="welcome-perm-icon">&#127925;</div>'
     + '<h2 class="welcome-title">Muzio AI</h2>';
 
   if (isNativeApp) {
-    html += '<p class="welcome-text">Allow Muzio AI to access your music. All songs on your phone and SD card will appear automatically.</p>'
-      + '<button class="welcome-btn" id="welcomeGrantBtn">&#10003; Allow Access</button>'
-      + '<p class="welcome-hint">One-time permission — your library loads automatically every time</p>';
+    html += '<p class="welcome-text">Tap below to give access to your music. Muzio AI will scan your entire phone and SD card — no manual selecting needed.</p>'
+      + '<button class="welcome-btn" id="welcomeGrantBtn">&#10003; Allow Access &amp; Scan</button>'
+      + '<p class="welcome-hint">One-time permission — your library loads instantly every time after</p>';
   } else {
     html += '<p class="welcome-text">Select your music files to start playing. Songs play directly from your storage — nothing is copied.</p>'
       + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Select Music Files</button>'
@@ -1600,35 +1614,59 @@ if (songs.length > 0 && !songs[0].url) {
 
 // ─── Native APK: auto-scan on first launch ───
 
+var _nativeScanRan = false;
+
 function nativeAutoScan() {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  if (_nativeScanRan) return;
+  _nativeScanRan = true;
 
-  // If we already have songs with native paths, reconnect their URLs
+  // Already have songs with native paths — just reconnect URLs, no re-scan needed
   if (songs.length > 0) {
     var reconnected = 0;
     songs.forEach(function(s) {
       if (s.nativePath && !s.url) {
-        s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
-        reconnected++;
+        try {
+          s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
+          reconnected++;
+        } catch(e) {}
       }
     });
-    if (reconnected > 0) { render(); renderReconnectBanner(); return; }
+    if (reconnected > 0) {
+      showToast('Library ready — ' + reconnected + ' songs reconnected', 2500);
+      render();
+      renderReconnectBanner();
+      return;
+    }
   }
 
-  // First launch — auto-scan all music
-  showToast('Finding your music...', 60000);
+  // First launch — show scanning screen and auto-scan everything
+  nativeScanning = true;
+  nativeScanCount = 0;
+  render(); // show scanning welcome screen
+
   NativeBridge.scanAllMusic(function(count) {
-    if (count % 100 === 0) showToast('Found ' + count + ' songs...', 3000);
+    nativeScanCount = count;
+    // Update the count display live without full re-render
+    var el = document.getElementById('scanStatusText');
+    if (el) el.textContent = 'Found ' + count + ' songs...';
+    var parentEl = el && el.parentNode;
+    if (parentEl) {
+      var countEl = parentEl.querySelector('.welcome-api-set');
+      if (countEl) countEl.textContent = 'Scanned ' + count + ' songs so far...';
+    }
   }).then(function(files) {
+    nativeScanning = false;
     if (!files || files.length === 0) {
-      showToast('No music found. Try adding songs to your Music folder.');
+      render(); // back to welcome screen
+      showToast('No music found — make sure your Music folder has songs', 4000);
       return;
     }
     var newSongs = files.map(function(f) { return NativeBridge.toSong(f); });
     songs = songs.concat(newSongs);
-    showToast('Found ' + newSongs.length + ' songs!', 3000);
     saveLibrary();
     render();
+    showToast('Found ' + newSongs.length + ' songs!', 3000);
     if (newSongs.length > 0 && apiKey) {
       newSongs.forEach(function(s) { s.tagging = true; });
       tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs };
@@ -1636,12 +1674,14 @@ function nativeAutoScan() {
       tagNextSong(newSongs, 0);
     }
   }).catch(function(e) {
-    showToast('Could not scan music: ' + (e.message || e));
+    nativeScanning = false;
+    render();
+    showToast('Could not scan: ' + (e.message || e));
   });
 }
 
-// Delay slightly so Capacitor plugins are fully ready
-if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
-  document.addEventListener('deviceready', nativeAutoScan, false);
-  setTimeout(nativeAutoScan, 500);
-}
+// Register always — nativeAutoScan() guards internally via isNative() check
+// Multiple fallbacks because Capacitor bridge load timing varies by device
+document.addEventListener('deviceready', nativeAutoScan, false);
+setTimeout(nativeAutoScan, 500);
+setTimeout(nativeAutoScan, 2000);

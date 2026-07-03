@@ -39,14 +39,6 @@ body {
 }
 
 /* Header */
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  z-index: 20;
-}
-.header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.5px; }
 .header button {
   background: none; border: none; color: var(--text-dim);
   padding: 8px; cursor: pointer; font-size: 20px;
@@ -59,20 +51,6 @@ body {
   border-bottom: 1px solid var(--border);
   padding: 0 8px;
 }
-.tabs button {
-  flex: 1;
-  padding: 12px 0;
-  font-size: 13px;
-  font-weight: 500;
-  text-transform: capitalize;
-  background: none;
-  border: none;
-  color: var(--text-faint);
-  cursor: pointer;
-  position: relative;
-  transition: color 0.2s;
-}
-.tabs button.active { color: var(--text); }
 .tabs button.active::after {
   content: '';
   position: absolute;
@@ -80,7 +58,7 @@ body {
   left: 8px;
   right: 8px;
   height: 3px;
-  background: var(--accent);
+  background: var(--primary);
   border-radius: 3px;
 }
 
@@ -1114,6 +1092,85 @@ body {
   flex-shrink: 0;
 }
 
+/* Scanning welcome state */
+.welcome-scan-ring {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.welcome-scan-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid rgba(0,168,158,0.15);
+  border-top-color: var(--primary);
+  animation: spin 1.2s linear infinite;
+}
+.welcome-scan-ring::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  border: 2px solid rgba(0,168,158,0.08);
+  border-bottom-color: rgba(0,168,158,0.4);
+  animation: spin 1.8s linear infinite reverse;
+}
+.welcome-scan-note {
+  font-size: 40px;
+  animation: pulse 2s ease-in-out infinite;
+  position: relative;
+  z-index: 1;
+}
+
+/* Now playing art spin when playing */
+.np-art.spinning {
+  animation: npRotate 25s linear infinite;
+}
+@keyframes npRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Tab bar improvements */
+.tabs button {
+  flex: 1;
+  padding: 11px 0;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: capitalize;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.2s;
+  letter-spacing: 0.2px;
+}
+.tabs button.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Header improvements */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  z-index: 20;
+}
+.header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: linear-gradient(90deg, var(--primary), #00d4c8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 /* Hidden */
 .hidden { display: none !important; }
 
@@ -1123,4 +1180,4 @@ body {
 @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes slideRight { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
