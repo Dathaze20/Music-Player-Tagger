@@ -79,25 +79,68 @@ function safeArtUrl(url) {
   return url;
 }
 
+function applyArt(el, dataUrls) {
+  var valid = dataUrls.filter(Boolean);
+  if (!valid.length || !el.parentNode) return;
+  var fill  = el.dataset.fill  === '1';
+  var round = el.dataset.round === '1';
+  var size  = parseInt(el.dataset.size) || 56;
+  var wStyle = (fill ? 'width:100%;height:100%;' : 'width:' + size + 'px;height:' + size + 'px;')
+             + (round ? 'border-radius:50%;' : 'border-radius:8px;')
+             + 'overflow:hidden;flex-shrink:0;';
+  if (valid.length >= 2 && round) {
+    // 2×2 collage inside circle — mirrors Muzio's multi-album bubble
+    var imgs = valid.slice(0, 4);
+    while (imgs.length < 4) imgs.push(imgs[imgs.length % valid.length]);
+    el.innerHTML = '<div style="' + wStyle + 'display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:0;">'
+      + imgs.map(function(u) {
+          return '<img src="' + u + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+        }).join('') + '</div>';
+  } else {
+    el.innerHTML = '<div style="' + wStyle + '"><img src="' + valid[0] + '" style="width:100%;height:100%;object-fit:cover;display:block;"></div>';
+  }
+}
+
+function loadLazyEl(el) {
+  var urisStr = el.dataset.lazyUri || '';
+  var uris = urisStr.split('|').filter(Boolean);
+  if (!uris.length) return;
+  // Apply from cache synchronously if all present
+  if (uris.every(function(u) { return artCache[u]; })) {
+    applyArt(el, uris.map(function(u) { return artCache[u]; }));
+    return;
+  }
+  Promise.all(uris.map(function(uri) {
+    if (artCache[uri]) return Promise.resolve(artCache[uri]);
+    return NativeBridge.readAlbumArt(uri).then(function(data) {
+      if (data) artCache[uri] = data;
+      return data || '';
+    }).catch(function() { return ''; });
+  })).then(function(dataUrls) { applyArt(el, dataUrls); });
+}
+
 function initLazyArt(container) {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
-  container.querySelectorAll('.art-lazy[data-lazy-uri]').forEach(function(el) {
-    var uri = el.dataset.lazyUri;
-    if (!uri) return;
-    NativeBridge.readAlbumArt(uri).then(function(dataUrl) {
-      if (dataUrl && el.parentNode) {
-        var fill = el.dataset.fill === '1';
-        var round = el.dataset.round === '1';
-        var imgStyle;
-        if (fill) {
-          imgStyle = 'width:100%;height:100%;object-fit:cover;display:block;';
-        } else {
-          var size = parseInt(el.dataset.size) || 56;
-          imgStyle = 'width:' + size + 'px;height:' + size + 'px;object-fit:cover;display:block;' + (round ? 'border-radius:50%;' : 'border-radius:8px;');
-        }
-        el.innerHTML = '<img src="' + dataUrl + '" style="' + imgStyle + '">';
-      }
-    }).catch(function() {});
+  var lazies = container.querySelectorAll('.art-lazy[data-lazy-uri]');
+  if (!lazies.length) return;
+
+  if (!window.IntersectionObserver) {
+    lazies.forEach(loadLazyEl);
+    return;
+  }
+  var obs = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) { obs.unobserve(entry.target); loadLazyEl(entry.target); }
+    });
+  }, { rootMargin: '300px' });
+
+  lazies.forEach(function(el) {
+    var uris = (el.dataset.lazyUri || '').split('|').filter(Boolean);
+    if (uris.length && uris.every(function(u) { return artCache[u]; })) {
+      applyArt(el, uris.map(function(u) { return artCache[u]; }));
+    } else {
+      obs.observe(el);
+    }
   });
 }
 
@@ -287,6 +330,8 @@ var songs = loadLibrary();
 
 // ─── State ───
 
+var artCache = {};   // keyed by content:// URI → base64 data URL
+
 var currentTab = 'artists';
 var currentSong = null;
 var isPlaying = false;
@@ -325,19 +370,21 @@ function getArtists() {
 
   songs.forEach(function(s) {
     var key = s.artist;
-    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '', albumArtUri: '' };
+    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '', albumArtUris: [] };
     map[key].albums[s.album] = true;
     map[key].count++;
     var artUrl = s.art || '';
     if (artUrl && artUrl.startsWith('http://localhost') && map[key].arts.indexOf(artUrl) === -1) {
       map[key].arts.push(artUrl);
     }
-    if (s.albumArtUri && !map[key].albumArtUri) map[key].albumArtUri = s.albumArtUri;
+    if (s.albumArtUri && map[key].albumArtUris.indexOf(s.albumArtUri) === -1 && map[key].albumArtUris.length < 4) {
+      map[key].albumArtUris.push(s.albumArtUri);
+    }
     if (!map[key].albumArtist && s.albumArtist) map[key].albumArtist = s.albumArtist;
   });
 
   var list = Object.keys(map).map(function(name) {
-    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist, albumArtUri: map[name].albumArtUri || '' };
+    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist, albumArtUris: map[name].albumArtUris };
   });
 
   // Album artists filter: only show artists that appear as an albumArtist on at least one song
@@ -594,8 +641,8 @@ function renderArtists(el) {
     var artSize = cols === 3 ? 60 : 80;
     var html = '<div class="artist-grid grid-' + cols + '">';
     artists.forEach(function(a) {
-      var artEl = a.albumArtUri
-        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-size="' + artSize + '" data-round="1">' + artHTML(a.name, artSize, true) + '</div>'
+      var artEl = a.albumArtUris.length > 0
+        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="' + artSize + '" data-round="1">' + artHTML(a.name, artSize, true) + '</div>'
         : artHTML(a.name, artSize, true);
       html += '<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'
         + artEl
@@ -614,8 +661,8 @@ function renderArtists(el) {
 
   var html = '';
   artists.forEach(function(a) {
-    var artEl = a.albumArtUri
-      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-size="56" data-round="1">' + artHTML(a.name, 56, true) + '</div>'
+    var artEl = a.albumArtUris.length > 0
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1">' + artHTML(a.name, 56, true) + '</div>'
       : artHTML(a.name, 56, true);
     html += '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
       + artEl
@@ -1867,12 +1914,6 @@ function nativeAutoScan() {
       }
     });
     if (reconnected > 0) {
-      // Reconvert album art URIs (content:// → localhost proxy)
-      songs.forEach(function(s) {
-        if (!s.art && s.albumArtUri) {
-          try { s.art = window.Capacitor.convertFileSrc(s.albumArtUri); } catch(e) {}
-        }
-      });
       render();
       renderReconnectBanner();
 
