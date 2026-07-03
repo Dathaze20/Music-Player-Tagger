@@ -297,7 +297,12 @@ function getArtists() {
     if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '' };
     map[key].albums[s.album] = true;
     map[key].count++;
-    if (s.art && map[key].arts.indexOf(s.art) === -1) map[key].arts.push(s.art);
+    // Only use localhost art (Capacitor-served content:// URIs) for thumbnails.
+    // External URLs from AI tagging fail silently in the Android WebView.
+    var artUrl = s.art || '';
+    if (artUrl && artUrl.startsWith('http://localhost') && map[key].arts.indexOf(artUrl) === -1) {
+      map[key].arts.push(artUrl);
+    }
     if (!map[key].albumArtist && s.albumArtist) map[key].albumArtist = s.albumArtist;
   });
 
@@ -555,9 +560,8 @@ function renderArtists(el) {
     var artSize = cols === 3 ? 60 : 80;
     var html = '<div class="artist-grid grid-' + cols + '">';
     artists.forEach(function(a) {
-      var safeN = escHtml(a.name).replace(/'/g, "\\'");
       var artEl = a.arts.length > 0
-        ? '<img src="' + a.arts[0] + '" style="width:' + artSize + 'px;height:' + artSize + 'px;border-radius:50%;object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + safeN + '\',' + artSize + ',true)">'
+        ? '<img src="' + a.arts[0] + '" class="artist-art-img" data-name="' + escHtml(a.name) + '" data-size="' + artSize + '" style="width:' + artSize + 'px;height:' + artSize + 'px;border-radius:50%;object-fit:cover;">'
         : artHTML(a.name, artSize, true);
       html += '<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'
         + artEl
@@ -567,6 +571,12 @@ function renderArtists(el) {
     });
     html += '</div>';
     el.innerHTML = html;
+    el.querySelectorAll('.artist-art-img').forEach(function(img) {
+      img.onerror = function() {
+        var sz = parseInt(img.dataset.size) || artSize;
+        img.outerHTML = artHTML(img.dataset.name || '', sz, true);
+      };
+    });
     el.querySelectorAll('.artist-grid-card').forEach(function(card) {
       card.onclick = function() { selectedArtist = card.dataset.artist; render(); };
     });
@@ -575,9 +585,8 @@ function renderArtists(el) {
 
   var html = '';
   artists.forEach(function(a) {
-    var safeN = escHtml(a.name).replace(/'/g, "\\'");
     var artEl = a.arts.length > 0
-      ? '<img src="' + a.arts[0] + '" style="width:56px;height:56px;border-radius:50%;object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + safeN + '\',56,true)">'
+      ? '<img src="' + a.arts[0] + '" class="artist-art-img" data-name="' + escHtml(a.name) + '" data-size="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">'
       : artHTML(a.name, 56, true);
     html += '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
       + artEl
@@ -589,6 +598,11 @@ function renderArtists(el) {
       + '</div>';
   });
   el.innerHTML = html;
+  el.querySelectorAll('.artist-art-img').forEach(function(img) {
+    img.onerror = function() {
+      img.outerHTML = artHTML(img.dataset.name || '', parseInt(img.dataset.size) || 56, true);
+    };
+  });
   el.querySelectorAll('.artist-row').forEach(function(row) {
     row.onclick = function() { selectedArtist = row.dataset.artist; render(); };
   });
@@ -1772,6 +1786,29 @@ function nativeAutoScan() {
       });
       render();
       renderReconnectBanner();
+
+      // If library is missing album art metadata (old scan), refresh silently in background
+      var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
+      if (needsArtRefresh) {
+        NativeBridge.scanAllMusic(null).then(function(files) {
+          var byUri = {};
+          var byFn = {};
+          songs.forEach(function(s) {
+            if (s.contentUri) byUri[s.contentUri] = s;
+            byFn[s.fn] = s;
+          });
+          var updated = 0;
+          files.forEach(function(f) {
+            var s = byUri[f.contentUri] || byFn[f.name];
+            if (!s) return;
+            if (f.art && !s.art) { s.art = f.art; updated++; }
+            if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
+            if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
+            if (f.genre && !s.genre) s.genre = f.genre;
+          });
+          if (updated > 0) { saveLibrary(); render(); }
+        }).catch(function() {});
+      }
       return;
     }
   }
