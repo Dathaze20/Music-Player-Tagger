@@ -402,9 +402,9 @@ function renderWelcome(el) {
   var html = '<div class="welcome-screen">'
     + '<div class="welcome-perm-icon">&#127925;</div>'
     + '<h2 class="welcome-title">Muzio AI</h2>'
-    + '<p class="welcome-text">Select your Music folder to start playing. Songs play directly from your storage — nothing is copied.</p>'
-    + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Open Music Folder</button>'
-    + '<p class="welcome-hint">Choose your Music folder on Internal Storage or SD Card</p>';
+    + '<p class="welcome-text">Select your music files to start playing. Songs play directly from your storage — nothing is copied.</p>'
+    + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Select Music Files</button>'
+    + '<p class="welcome-hint">Navigate to your Music folder → long press → Select All</p>';
 
   if (!apiKey) {
     html += '<p class="welcome-api-note" id="welcomeApiLink">&#9881; Set up AI auto-tagging</p>';
@@ -431,9 +431,9 @@ function showScanMorePrompt(count) {
   el.className = 'scan-more-prompt';
   el.innerHTML = '<div class="scan-more-body">'
     + '<p class="scan-more-title">&#10003; Found ' + count + ' songs!</p>'
-    + '<p class="scan-more-sub">Have music in another location?<br>Scan your SD card or other folders too.</p>'
+    + '<p class="scan-more-sub">Have music on your SD card or another folder?<br>Navigate there and Select All to add more.</p>'
     + '<div class="scan-more-actions">'
-    + '<button class="scan-more-btn" id="scanMoreBtn">Scan Another Location</button>'
+    + '<button class="scan-more-btn" id="scanMoreBtn">Add More Songs</button>'
     + '<button class="scan-more-dismiss" id="scanDoneBtn">I\'m Done</button>'
     + '</div>'
     + '</div>';
