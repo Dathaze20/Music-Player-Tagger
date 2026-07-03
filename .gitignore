@@ -12,6 +12,7 @@ docs/
 .modified
 *.ts
 *.json
+!manifest.json
 *.mjs
 *.tsbuildinfo
 *.pem
