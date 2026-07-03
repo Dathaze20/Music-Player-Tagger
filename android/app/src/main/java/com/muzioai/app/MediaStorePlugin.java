@@ -67,6 +67,12 @@ public class MediaStorePlugin extends Plugin {
         call.resolve();
     }
 
+    @PluginMethod
+    public void exitApp(PluginCall call) {
+        call.resolve();
+        getActivity().finishAffinity();
+    }
+
     private void doQuery(PluginCall call) {
         Context ctx = getContext();
         JSArray files = new JSArray();

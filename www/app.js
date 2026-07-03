@@ -1114,11 +1114,17 @@ function renderNowPlaying() {
     html += '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
       + escHtml(currentSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
       + '</div></div>';
+  } else if (apiKey) {
+    // Will auto-fetch lyrics after render
+    html += '<div class="lyrics-empty-np" id="lyricsFetchMsg">'
+      + '<div class="lyrics-empty-icon" style="animation:spin 1.5s linear infinite;display:inline-block;">&#9835;</div>'
+      + '<p>Fetching lyrics...</p>'
+      + '</div>';
   } else {
     html += '<div class="lyrics-empty-np">'
       + '<div class="lyrics-empty-icon">&#9835;</div>'
       + '<p>No lyrics available</p>'
-      + '<p class="sub">AI-tag this song to get synced lyrics</p>'
+      + '<p class="sub">Add a Gemini API key in Settings to auto-fetch lyrics</p>'
       + '</div>';
   }
   html += '</div>';
@@ -1156,6 +1162,53 @@ function renderNowPlaying() {
       };
     });
     updateSyncedLyrics(currentTime);  // scroll to current position immediately
+  }
+
+  // Auto-fetch lyrics from Gemini if song has none and API key is set
+  if (apiKey && !lyricsVisible && !currentSong.lyrics) {
+    var fetchSong = currentSong;
+    callGeminiTag(fetchSong.fn).then(function(meta) {
+      if (meta.syncedLyrics) fetchSong.syncedLyrics = meta.syncedLyrics;
+      if (meta.lyrics) fetchSong.lyrics = meta.lyrics;
+      if (meta.genre && !fetchSong.genre) fetchSong.genre = meta.genre;
+      if (meta.year && !fetchSong.year) fetchSong.year = String(meta.year);
+      if (meta.releaseType && !fetchSong.type) fetchSong.type = meta.releaseType;
+      saveLibrary();
+      // Update lyrics panel in-place if still on this song
+      if (showNowPlaying && currentSong && currentSong.id === fetchSong.id) {
+        var newLines = parseLRC(fetchSong.syncedLyrics);
+        lyricsLines = newLines;
+        currentLyricIdx = -1;
+        lyricsVisible = newLines.length > 0;
+        var panel = document.querySelector('.np-lyrics-panel');
+        if (panel) {
+          if (newLines.length > 0) {
+            panel.innerHTML = buildSyncedLyricsHTML();
+            var sc = document.getElementById('syncedLyricsContainer');
+            if (sc) {
+              sc.querySelectorAll('.lyric-line').forEach(function(line) {
+                line.onclick = function() {
+                  var t = parseFloat(line.dataset.time);
+                  if (!isNaN(t)) { audio.currentTime = t; if (!isPlaying) audio.play().catch(function(){}); }
+                };
+              });
+              updateSyncedLyrics(currentTime);
+            }
+          } else if (fetchSong.lyrics) {
+            panel.innerHTML = '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
+              + escHtml(fetchSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
+              + '</div></div>';
+          } else {
+            panel.innerHTML = '<div class="lyrics-empty-np"><div class="lyrics-empty-icon">&#9835;</div><p>No lyrics found</p></div>';
+          }
+        }
+      }
+    }).catch(function() {
+      var panel = document.querySelector('.np-lyrics-panel');
+      if (panel && showNowPlaying && currentSong && currentSong.id === fetchSong.id) {
+        panel.innerHTML = '<div class="lyrics-empty-np"><div class="lyrics-empty-icon">&#9835;</div><p>No lyrics found</p></div>';
+      }
+    });
   }
 
   // Swipe down to close
@@ -1856,3 +1909,65 @@ function nativeAutoScan() {
 document.addEventListener('deviceready', nativeAutoScan, false);
 setTimeout(nativeAutoScan, 500);
 setTimeout(nativeAutoScan, 2000);
+
+// ─── Hardware Back Button (Android) ───
+
+function handleHardwareBack() {
+  // 1. Close any overflow/context menu
+  var overflowMenu = document.getElementById('overflowMenu');
+  if (overflowMenu) { overflowMenu.remove(); return; }
+
+  // 2. Close settings modal
+  var settingsModal = document.getElementById('settingsModal');
+  if (settingsModal && !settingsModal.classList.contains('hidden')) {
+    settingsModal.classList.add('hidden');
+    document.getElementById('settingsOverlay').classList.add('hidden');
+    return;
+  }
+
+  // 3. Close edit modal
+  var editModal = document.getElementById('editModal');
+  if (editModal && !editModal.classList.contains('hidden')) {
+    editModal.classList.add('hidden');
+    document.getElementById('editOverlay').classList.add('hidden');
+    return;
+  }
+
+  // 4. Close side drawer
+  var drawer = document.getElementById('drawer');
+  if (drawer && !drawer.classList.contains('hidden')) {
+    toggleDrawer(false);
+    return;
+  }
+
+  // 5. Close Now Playing
+  if (showNowPlaying) {
+    showNowPlaying = false;
+    document.getElementById('nowPlaying').classList.add('hidden');
+    updateMiniPlayer();
+    return;
+  }
+
+  // 6. Close search bar
+  var searchBar = document.getElementById('searchBar');
+  if (searchBar && !searchBar.classList.contains('hidden')) {
+    searchBar.classList.add('hidden');
+    var si = document.getElementById('searchInput');
+    if (si) si.value = '';
+    render();
+    return;
+  }
+
+  // 7. Go up one navigation level
+  if (selectedAlbum) { selectedAlbum = null; render(); return; }
+  if (selectedArtist) { selectedArtist = null; render(); return; }
+
+  // 8. Nothing to dismiss — exit app
+  var plugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.MediaStore;
+  if (plugin && plugin.exitApp) {
+    plugin.exitApp();
+  }
+}
+
+// Fired by MainActivity.onBackPressed() via getBridge().triggerJSEvent()
+document.addEventListener('capacitorBackButton', handleHardwareBack);
