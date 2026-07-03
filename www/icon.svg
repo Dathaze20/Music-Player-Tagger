@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#00a89e"/>
+  <!-- Headphones shape -->
+  <path d="M256 120 C168 120 100 188 100 272 L100 320 C100 337 114 350 132 350 L164 350 C182 350 196 337 196 320 L196 272 C196 255 183 242 166 240 C170 186 210 148 256 148 C302 148 342 186 346 240 C329 242 316 255 316 272 L316 320 C316 337 330 350 348 350 L380 350 C398 350 412 337 412 320 L412 272 C412 188 344 120 256 120Z" fill="white" opacity="0.95"/>
+  <!-- Sound wave dots -->
+  <circle cx="256" cy="400" r="12" fill="white" opacity="0.7"/>
+  <circle cx="220" cy="410" r="8" fill="white" opacity="0.4"/>
+  <circle cx="292" cy="410" r="8" fill="white" opacity="0.4"/>
+</svg>
