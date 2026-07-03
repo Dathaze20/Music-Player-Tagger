@@ -125,6 +125,8 @@ body {
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background 0.15s;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 72px;
 }
 .song-row:active { background: var(--bg-secondary); }
 .song-row.playing { background: rgba(0,168,158,0.08); }
@@ -196,6 +198,8 @@ body {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 80px;
 }
 .artist-row:active { background: var(--bg-secondary); }
 .artist-name { font-size: 15px; font-weight: 500; }
