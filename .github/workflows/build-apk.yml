@@ -57,7 +57,18 @@ jobs:
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-35" "build-tools;35.0.0" 2>/dev/null || true
 
       - name: Build debug APK
-        run: cd android && ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tail -100
+        run: cd android && ./gradlew assembleDebug --no-daemon
+
+      - name: Verify APK exists
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          if [ -f "$APK" ]; then
+            echo "APK built successfully: $(du -sh $APK)"
+          else
+            echo "APK not found! Build may have failed silently."
+            find android/app/build -name "*.apk" 2>/dev/null || echo "No APKs found anywhere"
+            exit 1
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
