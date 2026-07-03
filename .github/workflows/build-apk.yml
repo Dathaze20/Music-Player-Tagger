@@ -27,8 +27,14 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Sync web assets to Android
-        run: npx cap copy android
+      - name: Copy web assets to Android
+        run: |
+          mkdir -p android/app/src/main/assets/public
+          cp -r www/. android/app/src/main/assets/public/
+          cp capacitor.config.json android/app/src/main/assets/capacitor.config.json
+          echo '{"plugins":{}}' > android/app/src/main/assets/capacitor.plugins.json
+          mkdir -p android/app/src/main/res/xml
+          printf "<?xml version='1.0' encoding='utf-8'?>\n<widget version=\"1.0.0\" xmlns=\"http://www.w3.org/ns/widgets\" xmlns:cdv=\"http://cordova.apache.org/ns/1.0\">\n  <access origin=\"*\" />\n</widget>\n" > android/app/src/main/res/xml/config.xml
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
