@@ -1044,7 +1044,10 @@ function renderNowPlaying() {
   np.classList.remove('hidden');
   document.getElementById('miniPlayer').classList.add('hidden');
 
-  var typeClass = (currentSong.type || '').toLowerCase();
+  lyricsLines = parseLRC(currentSong.syncedLyrics);
+  currentLyricIdx = -1;
+  lyricsVisible = lyricsLines.length > 0;
+
   var html = '<div class="np-header">'
     + '<button id="npClose">&#8744;</button>'
     + '<div class="np-label">Now Playing</div>'
@@ -1052,13 +1055,12 @@ function renderNowPlaying() {
     + '</div>'
     + '<div class="np-art-container">'
     + '<div class="np-art' + (isPlaying ? ' spinning' : '') + '">'
-    + (currentSong.art ? '<img src="' + currentSong.art + '">' : artHTML(currentSong.album || currentSong.title, 288, false, 'xxl'))
+    + (currentSong.art ? '<img src="' + currentSong.art + '">' : artHTML(currentSong.album || currentSong.title, 170, false, 'xxl'))
     + '</div>'
     + '<div class="np-song-title">' + escHtml(currentSong.title)
     + (currentSong.feat ? '<span class="feat"> ft. ' + escHtml(currentSong.feat) + '</span>' : '')
     + '</div>'
     + '<div class="np-song-artist">' + escHtml(currentSong.artist) + '</div>'
-    + (currentSong.album && currentSong.album !== 'Unknown Album' ? '<div class="np-song-album">' + escHtml(currentSong.album) + (currentSong.year ? ' (' + currentSong.year + ')' : '') + '</div>' : '')
     + '</div>'
     + '<div class="np-controls">'
     + '<div class="np-progress">'
@@ -1082,25 +1084,16 @@ function renderNowPlaying() {
 
   if (currentSong.genre || currentSong.year || currentSong.type) {
     html += '<div class="np-badges">';
-    if (currentSong.genre) html += '<span class="np-badge">' + currentSong.genre + '</span>';
+    if (currentSong.genre) html += '<span class="np-badge">' + escHtml(currentSong.genre) + '</span>';
     if (currentSong.year) html += '<span class="np-badge">' + currentSong.year + '</span>';
-    if (currentSong.type && currentSong.type !== 'Album') html += '<span class="np-badge ' + typeClass + '">' + currentSong.type + '</span>';
+    if (currentSong.type && currentSong.type !== 'Album') html += '<span class="np-badge ' + (currentSong.type || '').toLowerCase() + '">' + currentSong.type + '</span>';
     html += '</div>';
   }
 
-  html += '<button class="lyrics-toggle" id="npLyricsToggle">&#9835; Lyrics</button>';
-  html += '</div>';
+  html += '</div>';  // end np-controls
 
-  lyricsLines = parseLRC(currentSong.syncedLyrics);
-  var hasLyrics = lyricsLines.length > 0 || (currentSong.lyrics && currentSong.lyrics.trim());
-
-  html += '<div class="lyrics-fullscreen hidden" id="lyricsFullscreen">';
-  html += '<div class="lyrics-fs-header">'
-    + '<button id="lyricsBack">&#8744;</button>'
-    + '<div class="lyrics-fs-song">' + escHtml(currentSong.title) + '</div>'
-    + '<div class="lyrics-fs-artist">' + escHtml(currentSong.artist) + '</div>'
-    + '</div>';
-
+  // Inline lyrics panel — always visible, no button tap required
+  html += '<div class="np-lyrics-panel">';
   if (lyricsLines.length > 0) {
     html += buildSyncedLyricsHTML();
   } else if (currentSong.lyrics && currentSong.lyrics.trim()) {
@@ -1108,17 +1101,12 @@ function renderNowPlaying() {
       + escHtml(currentSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
       + '</div></div>';
   } else {
-    html += '<div class="lyrics-empty-fs"><div class="lyrics-empty-icon">&#9835;</div>'
+    html += '<div class="lyrics-empty-np">'
+      + '<div class="lyrics-empty-icon">&#9835;</div>'
       + '<p>No lyrics available</p>'
-      + '<p class="sub">Lyrics are fetched automatically during AI tagging</p></div>';
+      + '<p class="sub">AI-tag this song to get synced lyrics</p>'
+      + '</div>';
   }
-
-  html += '<div class="lyrics-fs-controls">'
-    + '<div class="lyrics-fs-mini-art">' + imgOrArt(currentSong.art, currentSong.album || currentSong.title, 40) + '</div>'
-    + '<div class="lyrics-fs-info"><div class="lyrics-fs-title">' + escHtml(currentSong.title) + '</div>'
-    + '<div class="lyrics-fs-meta">' + escHtml(currentSong.artist) + '</div></div>'
-    + '<button class="lyrics-fs-play" id="lyricsFsPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
-    + '</div>';
   html += '</div>';
 
   np.innerHTML = html;
@@ -1140,22 +1128,8 @@ function renderNowPlaying() {
   document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };
   document.getElementById('npVolume').oninput = function(e) { volume = parseFloat(e.target.value); isMuted = false; audio.volume = volume; };
   document.getElementById('npMute').onclick = function() { isMuted = !isMuted; audio.volume = isMuted ? 0 : volume; renderNowPlaying(); };
-  document.getElementById('npLyricsToggle').onclick = function() {
-    var fs = document.getElementById('lyricsFullscreen');
-    fs.classList.remove('hidden');
-    lyricsVisible = true;
-    currentLyricIdx = -1;
-    updateSyncedLyrics(currentTime);
-  };
-  document.getElementById('lyricsBack').onclick = function() {
-    document.getElementById('lyricsFullscreen').classList.add('hidden');
-    lyricsVisible = false;
-  };
-  document.getElementById('lyricsFsPlay').onclick = function(e) {
-    e.stopPropagation();
-    togglePlay();
-    document.getElementById('lyricsFsPlay').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
-  };
+
+  // Tap a lyric line to seek to that timestamp
   var syncContainer = document.getElementById('syncedLyricsContainer');
   if (syncContainer) {
     syncContainer.querySelectorAll('.lyric-line').forEach(function(line) {
@@ -1167,6 +1141,7 @@ function renderNowPlaying() {
         }
       };
     });
+    updateSyncedLyrics(currentTime);  // scroll to current position immediately
   }
 
   // Swipe down to close
@@ -1789,6 +1764,12 @@ function nativeAutoScan() {
       }
     });
     if (reconnected > 0) {
+      // Reconvert album art URIs (content:// → localhost proxy)
+      songs.forEach(function(s) {
+        if (!s.art && s.albumArtUri) {
+          try { s.art = window.Capacitor.convertFileSrc(s.albumArtUri); } catch(e) {}
+        }
+      });
       render();
       renderReconnectBanner();
       return;

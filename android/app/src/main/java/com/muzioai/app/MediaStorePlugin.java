@@ -83,6 +83,7 @@ public class MediaStorePlugin extends Plugin {
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.YEAR,
             "album_artist", // MediaStore.Audio.Media.ALBUM_ARTIST (API 30+)
+            "genre",        // MediaStore.Audio.Media.GENRE (API 30+)
         };
 
         String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
@@ -103,6 +104,7 @@ public class MediaStorePlugin extends Plugin {
                 int trkCol      = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK);
                 int yrCol       = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR);
                 int albArtCol   = cursor.getColumnIndex("album_artist");
+                int genreCol    = cursor.getColumnIndex("genre");
 
                 while (cursor.moveToNext()) {
                     long   id      = cursor.getLong(idCol);
@@ -116,6 +118,7 @@ public class MediaStorePlugin extends Plugin {
                     int    track   = cursor.getInt(trkCol);
                     int    year    = cursor.getInt(yrCol);
                     String albumArtist = (albArtCol >= 0) ? cursor.getString(albArtCol) : null;
+                    String genre       = (genreCol  >= 0) ? cursor.getString(genreCol)  : null;
 
                     // content:// URI — works on all Android versions, on internal + SD card
                     Uri contentUri = Uri.withAppendedPath(
@@ -127,6 +130,7 @@ public class MediaStorePlugin extends Plugin {
                     if (artist      == null || artist.equals("<unknown>")) artist  = "Unknown Artist";
                     if (album       == null || album.isEmpty())       album       = "Unknown Album";
                     if (albumArtist == null || albumArtist.equals("<unknown>")) albumArtist = "";
+                    if (genre       == null) genre = "";
 
                     String albumArtUri = albumId > 0
                         ? "content://media/external/audio/albumart/" + albumId : "";
@@ -146,6 +150,7 @@ public class MediaStorePlugin extends Plugin {
                     file.put("album",       album);
                     file.put("track",       trackNum);
                     file.put("year",        year > 0 ? String.valueOf(year) : "");
+                    file.put("genre",       genre);
                     files.put(file);
                 }
             }

@@ -48,6 +48,7 @@ var NativeBridge = (function() {
           album:       f.album  || 'Unknown Album',
           track:       f.track  || 0,
           year:        f.year   || '',
+          genre:       f.genre  || '',
           dur:         f.dur    || 0,
         };
       });

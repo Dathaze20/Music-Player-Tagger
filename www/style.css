@@ -341,20 +341,19 @@ body {
 }
 .np-label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; }
 .np-art-container {
-  flex: 1;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 0 32px;
+  padding: 6px 32px 0;
 }
 .np-art {
-  width: 288px;
-  height: 288px;
-  border-radius: 16px;
+  width: 170px;
+  height: 170px;
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
-  margin-bottom: 32px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  margin-bottom: 14px;
 }
 .np-art img { width: 100%; height: 100%; object-fit: cover; }
 .np-song-title {
@@ -369,7 +368,7 @@ body {
 .np-song-title .feat { color: var(--text-faint); font-size: 16px; font-weight: 400; }
 .np-song-artist { font-size: 14px; color: var(--text-dim); margin-top: 4px; }
 .np-song-album { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
-.np-controls { padding: 0 24px 32px; }
+.np-controls { padding: 0 24px 12px; }
 .np-progress { margin-bottom: 16px; }
 .np-progress input[type=range] {
   width: 100%;
@@ -992,7 +991,7 @@ body {
   mask-image: linear-gradient(transparent 0%, black 15%, black 85%, transparent 100%);
 }
 .synced-lyrics-scroll::-webkit-scrollbar { display: none; }
-.lyrics-spacer { height: 40vh; }
+.lyrics-spacer { height: 20vh; }
 
 /* Individual lyric lines */
 .lyric-line {
@@ -1191,6 +1190,27 @@ body {
 @keyframes slideRight { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+/* ─── Inline lyrics panel (Now Playing) ─── */
+.np-lyrics-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.lyrics-empty-np {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  gap: 8px;
+}
+.lyrics-empty-np .lyrics-empty-icon { font-size: 40px; opacity: 0.35; }
+.lyrics-empty-np p { font-size: 14px; color: var(--text-dim); text-align: center; }
+.lyrics-empty-np .sub { font-size: 12px; color: var(--text-faint); }
 
 /* ─── Overflow dropdown menu ─── */
 .overflow-menu {
