@@ -1,30 +1,7 @@
-// Native bridge — runs only when app is installed as APK via Capacitor
-// Gives real file system access: no picker needed, scans all music automatically
+// Native bridge — Capacitor APK only
+// Uses Android MediaStore (same database Muzio/Spotify use) for instant all-library scanning
 
 var NativeBridge = (function() {
-
-  var AUDIO_EXTS = ['mp3','m4a','flac','ogg','wav','aac','wma','opus'];
-
-  // Primary storage + common Samsung SD card mounts
-  var SCAN_ROOTS = [
-    'file:///storage/emulated/0/Music',
-    'file:///storage/emulated/0/Download',
-    'file:///storage/emulated/0/Downloads',
-    'file:///storage/emulated/0/',
-    'file:///sdcard/Music',
-    'file:///sdcard/',
-    'file:///storage/sdcard1/',
-    'file:///storage/sdcard1/Music',
-    'file:///storage/extSdCard/',
-    'file:///storage/extSdCard/Music',
-    'file:///storage/external_sd/',
-    'file:///storage/external_sd/Music',
-    'file:///mnt/sdcard/',
-    'file:///mnt/extSdCard/',
-    'file:///mnt/external_sd/',
-  ];
-
-  var Filesystem = null;
 
   function isNative() {
     try {
@@ -39,116 +16,145 @@ var NativeBridge = (function() {
     } catch(e) { return false; }
   }
 
-  function ensureFilesystem() {
-    if (!Filesystem && window.Capacitor && window.Capacitor.Plugins) {
-      try { Filesystem = window.Capacitor.Plugins.Filesystem; } catch(e) {}
-    }
-    return !!Filesystem;
+  function getPlugin(name) {
+    try { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[name]; }
+    catch(e) { return null; }
   }
 
-  function init() {
-    if (!isNative()) return;
-    ensureFilesystem();
-  }
+  // MediaStore: queries Android's music database directly
+  // Covers internal storage + SD card, uses real ID3 metadata, instant results
+  function scanWithMediaStore(onProgress) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin) return Promise.reject(new Error('MediaStore plugin not available'));
 
-  function isAudio(name) {
-    var ext = name.split('.').pop().toLowerCase();
-    return AUDIO_EXTS.indexOf(ext) !== -1;
-  }
-
-  // Try to find Samsung-style UUID SD card paths under /storage/
-  function discoverSdCard() {
-    if (!ensureFilesystem()) return Promise.resolve([]);
-    return Filesystem.readdir({ path: 'file:///storage' }).then(function(res) {
-      var extras = [];
-      (res.files || []).forEach(function(entry) {
-        var name = typeof entry === 'string' ? entry : (entry.name || '');
-        // Samsung SD cards show as XXXX-XXXX (hex UUID format)
-        if (name && name !== 'emulated' && name !== 'self' && /^[A-F0-9]{4}-[A-F0-9]{4}$/i.test(name)) {
-          extras.push('file:///storage/' + name + '/Music');
-          extras.push('file:///storage/' + name + '/Download');
-          extras.push('file:///storage/' + name + '/');
-        }
+    return plugin.getAllAudioFiles().then(function(result) {
+      var files = result.files || [];
+      if (onProgress) onProgress(files.length);
+      return files.map(function(f) {
+        return {
+          name:       f.name,
+          contentUri: f.contentUri,
+          nativePath: f.path ? 'file://' + f.path : '',
+          // Use real metadata from ID3 tags via MediaStore
+          title:      f.title  || '',
+          artist:     f.artist || 'Unknown Artist',
+          album:      f.album  || 'Unknown Album',
+          track:      f.track  || 0,
+          year:       f.year   || '',
+          dur:        f.dur    || 0,
+        };
       });
-      return extras;
-    }).catch(function() { return []; });
+    });
   }
 
-  function scanDir(uri, results, seen, progress) {
-    if (!ensureFilesystem()) return Promise.resolve();
-    return Filesystem.readdir({ path: uri }).then(function(res) {
-      var entries = res.files || [];
-      var promises = [];
-      entries.forEach(function(entry) {
-        var name = typeof entry === 'string' ? entry : (entry.name || entry.uri || '');
-        var fullUri = uri.replace(/\/$/, '') + '/' + name;
-        var type = typeof entry === 'object' ? (entry.type || '') : '';
+  // Fallback: Filesystem directory scan (works on older Android, limited on Android 13+)
+  function scanWithFilesystem(onProgress) {
+    var Filesystem = getPlugin('Filesystem');
+    if (!Filesystem) return Promise.reject(new Error('Filesystem plugin not available'));
 
-        if (type === 'directory' || (!type && !name.includes('.'))) {
-          promises.push(scanDir(fullUri, results, seen, progress).catch(function() {}));
-        } else if (isAudio(name)) {
-          if (!seen[fullUri]) {
-            seen[fullUri] = true;
-            var nativeUrl = window.Capacitor.convertFileSrc(fullUri.replace('file://', ''));
-            results.push({ name: name, uri: fullUri, nativeUrl: nativeUrl });
-            if (progress) progress(results.length);
+    var AUDIO_EXTS = ['mp3','m4a','flac','ogg','wav','aac','wma','opus'];
+    var SCAN_ROOTS = [
+      'file:///storage/emulated/0/Music',
+      'file:///storage/emulated/0/Download',
+      'file:///storage/emulated/0/',
+      'file:///sdcard/Music',
+      'file:///sdcard/',
+      'file:///storage/sdcard1/',
+      'file:///storage/extSdCard/',
+      'file:///storage/external_sd/',
+    ];
+
+    var results = [];
+    var seen = {};
+
+    function scanDir(uri) {
+      return Filesystem.readdir({ path: uri }).then(function(res) {
+        var entries = res.files || [];
+        var promises = [];
+        entries.forEach(function(entry) {
+          var name = typeof entry === 'string' ? entry : (entry.name || '');
+          var type = typeof entry === 'object' ? (entry.type || 'file') : 'file';
+          var fullUri = uri.replace(/\/$/, '') + '/' + name;
+          if (type === 'directory') {
+            promises.push(scanDir(fullUri).catch(function() {}));
+          } else {
+            var ext = name.split('.').pop().toLowerCase();
+            if (AUDIO_EXTS.indexOf(ext) !== -1 && !seen[fullUri]) {
+              seen[fullUri] = true;
+              results.push({ name: name, contentUri: '', nativePath: fullUri });
+              if (onProgress) onProgress(results.length);
+            }
           }
-        }
-      });
-      return Promise.all(promises);
-    }).catch(function() {});
+        });
+        return Promise.all(promises);
+      }).catch(function() {});
+    }
+
+    var chains = SCAN_ROOTS.map(function(root) { return scanDir(root).catch(function(){}); });
+    return Promise.all(chains).then(function() { return results; });
   }
 
   function requestPermissions() {
-    if (!isNative()) return Promise.resolve(false);
-    if (ensureFilesystem() && Filesystem.requestPermissions) {
-      return Filesystem.requestPermissions().then(function(res) {
-        return !res || res.publicStorage === 'granted' || res.publicStorage === 'prompt-with-rationale' || true;
-      }).catch(function() { return true; });
+    var Filesystem = getPlugin('Filesystem');
+    if (Filesystem && Filesystem.requestPermissions) {
+      return Filesystem.requestPermissions().catch(function() {});
     }
-    return Promise.resolve(true);
+    return Promise.resolve();
   }
 
   function scanAllMusic(onProgress) {
     if (!isNative()) return Promise.resolve([]);
-    if (!ensureFilesystem()) return Promise.resolve([]);
-
     return requestPermissions().then(function() {
-      return discoverSdCard();
-    }).then(function(sdRoots) {
-      var allRoots = SCAN_ROOTS.concat(sdRoots || []);
-      var results = [];
-      var seen = {};
-      var chains = allRoots.map(function(root) {
-        return scanDir(root, results, seen, onProgress).catch(function() {});
+      // Try MediaStore first (fast, works on all Android 10+ including SD card)
+      return scanWithMediaStore(onProgress).catch(function() {
+        // Fall back to filesystem scan
+        return scanWithFilesystem(onProgress);
       });
-      return Promise.all(chains).then(function() { return results; });
     });
   }
 
   function toSong(fileInfo) {
-    var parsed = typeof parseFileName === 'function'
-      ? parseFileName(fileInfo.name)
-      : { artist: 'Unknown Artist', title: fileInfo.name.replace(/\.[^/.]+$/, ''), feat: '' };
+    // If we have real metadata from MediaStore, use it directly
+    // Otherwise parse the filename
+    var title  = fileInfo.title;
+    var artist = fileInfo.artist;
+    var feat   = '';
+
+    if (!title) {
+      var parsed = typeof parseFileName === 'function'
+        ? parseFileName(fileInfo.name)
+        : { title: fileInfo.name.replace(/\.[^/.]+$/, ''), artist: 'Unknown Artist', feat: '' };
+      title  = parsed.title;
+      artist = parsed.artist || 'Unknown Artist';
+      feat   = parsed.feat   || '';
+    }
+
+    // playable URL: content:// URI converted to localhost HTTP via Capacitor bridge
+    var playUrl = '';
+    if (fileInfo.contentUri) {
+      try { playUrl = window.Capacitor.convertFileSrc(fileInfo.contentUri); } catch(e) {}
+    }
+    if (!playUrl && fileInfo.nativePath) {
+      try { playUrl = window.Capacitor.convertFileSrc(fileInfo.nativePath.replace('file://', '')); } catch(e) {}
+    }
+
     return {
-      id: (typeof genId === 'function') ? genId() : Date.now().toString(36) + Math.random().toString(36).slice(2),
-      fn: fileInfo.name,
-      url: fileInfo.nativeUrl,
-      nativePath: fileInfo.uri,
-      title: parsed.title,
-      artist: parsed.artist,
-      album: 'Unknown Album',
-      year: '', genre: '', track: 0, art: '', lyrics: '', syncedLyrics: '',
-      dur: 0, tagging: false, fav: false, type: '', feat: parsed.feat
+      id:         (typeof genId === 'function') ? genId() : Date.now().toString(36) + Math.random().toString(36).slice(2,8),
+      fn:         fileInfo.name,
+      url:        playUrl,
+      nativePath: fileInfo.nativePath || '',
+      contentUri: fileInfo.contentUri || '',
+      title:      title  || fileInfo.name.replace(/\.[^/.]+$/, ''),
+      artist:     artist || 'Unknown Artist',
+      album:      fileInfo.album || 'Unknown Album',
+      track:      fileInfo.track || 0,
+      year:       fileInfo.year  || '',
+      genre:      fileInfo.genre || '',
+      art:        '', lyrics: '', syncedLyrics: '',
+      dur:        fileInfo.dur || 0,
+      tagging:    false, fav: false, type: '', feat: feat,
     };
   }
 
-  init();
-
-  return {
-    isNative: isNative,
-    scanAllMusic: scanAllMusic,
-    toSong: toSong,
-    requestPermissions: requestPermissions
-  };
+  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong, requestPermissions: requestPermissions };
 })();

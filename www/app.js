@@ -99,7 +99,8 @@ function saveLibrary() {
         year: s.year, genre: s.genre, track: s.track, art: s.art,
         lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
         dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
-        nativePath: s.nativePath || ''
+        nativePath: s.nativePath || '',
+        contentUri: s.contentUri || ''
       };
     });
     localStorage.setItem('muzio_library', JSON.stringify(data));
@@ -1614,74 +1615,71 @@ if (songs.length > 0 && !songs[0].url) {
 
 // ─── Native APK: auto-scan on first launch ───
 
-var _nativeScanRan = false;
-
 function nativeAutoScan() {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
-  if (_nativeScanRan) return;
-  _nativeScanRan = true;
+  if (nativeScanning) return; // scan already in progress
 
-  // Already have songs with native paths — just reconnect URLs, no re-scan needed
+  // Already have songs — reconnect URLs using saved contentUri or nativePath
   if (songs.length > 0) {
     var reconnected = 0;
     songs.forEach(function(s) {
-      if (s.nativePath && !s.url) {
+      if (!s.url) {
         try {
-          s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
-          reconnected++;
+          if (s.contentUri) {
+            s.url = window.Capacitor.convertFileSrc(s.contentUri);
+            reconnected++;
+          } else if (s.nativePath) {
+            s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
+            reconnected++;
+          }
         } catch(e) {}
       }
     });
     if (reconnected > 0) {
-      showToast('Library ready — ' + reconnected + ' songs reconnected', 2500);
       render();
       renderReconnectBanner();
       return;
     }
   }
 
-  // First launch — show scanning screen and auto-scan everything
+  // First launch or rescan — show scanning screen and auto-scan
   nativeScanning = true;
   nativeScanCount = 0;
-  render(); // show scanning welcome screen
+  render();
 
   NativeBridge.scanAllMusic(function(count) {
     nativeScanCount = count;
-    // Update the count display live without full re-render
     var el = document.getElementById('scanStatusText');
     if (el) el.textContent = 'Found ' + count + ' songs...';
-    var parentEl = el && el.parentNode;
-    if (parentEl) {
-      var countEl = parentEl.querySelector('.welcome-api-set');
-      if (countEl) countEl.textContent = 'Scanned ' + count + ' songs so far...';
-    }
   }).then(function(files) {
     nativeScanning = false;
     if (!files || files.length === 0) {
-      render(); // back to welcome screen
-      showToast('No music found — make sure your Music folder has songs', 4000);
+      render();
+      showToast('No music found — grant storage permission and try again', 4000);
       return;
     }
     var newSongs = files.map(function(f) { return NativeBridge.toSong(f); });
-    songs = songs.concat(newSongs);
+    songs = newSongs;
     saveLibrary();
     render();
-    showToast('Found ' + newSongs.length + ' songs!', 3000);
+    showToast('Loaded ' + newSongs.length + ' songs!', 3000);
     if (newSongs.length > 0 && apiKey) {
-      newSongs.forEach(function(s) { s.tagging = true; });
-      tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs };
-      updateTaggingBanner();
-      tagNextSong(newSongs, 0);
+      var untagged = newSongs.filter(function(s) { return !s.genre && !s.art; });
+      if (untagged.length > 0) {
+        untagged.forEach(function(s) { s.tagging = true; });
+        tagging = { total: untagged.length, done: 0, current: untagged[0].title, active: true, paused: false, queue: untagged };
+        updateTaggingBanner();
+        tagNextSong(untagged, 0);
+      }
     }
   }).catch(function(e) {
     nativeScanning = false;
     render();
-    showToast('Could not scan: ' + (e.message || e));
+    showToast('Scan error: ' + (e.message || e), 4000);
   });
 }
 
-// Register always — nativeAutoScan() guards internally via isNative() check
-// Multiple fallbacks because Capacitor bridge load timing varies by device
+// Register on multiple events — Capacitor bridge load timing varies by device
 document.addEventListener('deviceready', nativeAutoScan, false);
 setTimeout(nativeAutoScan, 500);
 setTimeout(nativeAutoScan, 2000);
