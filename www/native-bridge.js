@@ -182,5 +182,13 @@ var NativeBridge = (function() {
     };
   }
 
-  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong, requestPermissions: requestPermissions, openAppSettings: openAppSettings };
+  function readAlbumArt(uri) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !uri) return Promise.resolve('');
+    return plugin.readAlbumArt({ uri: uri }).then(function(r) {
+      return (r && r.data) ? r.data : '';
+    }).catch(function() { return ''; });
+  }
+
+  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong, requestPermissions: requestPermissions, openAppSettings: openAppSettings, readAlbumArt: readAlbumArt };
 })();

@@ -79,6 +79,28 @@ function safeArtUrl(url) {
   return url;
 }
 
+function initLazyArt(container) {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  container.querySelectorAll('.art-lazy[data-lazy-uri]').forEach(function(el) {
+    var uri = el.dataset.lazyUri;
+    if (!uri) return;
+    NativeBridge.readAlbumArt(uri).then(function(dataUrl) {
+      if (dataUrl && el.parentNode) {
+        var fill = el.dataset.fill === '1';
+        var round = el.dataset.round === '1';
+        var imgStyle;
+        if (fill) {
+          imgStyle = 'width:100%;height:100%;object-fit:cover;display:block;';
+        } else {
+          var size = parseInt(el.dataset.size) || 56;
+          imgStyle = 'width:' + size + 'px;height:' + size + 'px;object-fit:cover;display:block;' + (round ? 'border-radius:50%;' : 'border-radius:8px;');
+        }
+        el.innerHTML = '<img src="' + dataUrl + '" style="' + imgStyle + '">';
+      }
+    }).catch(function() {});
+  });
+}
+
 function imgOrArt(url, text, size, round, cls) {
   var safeUrl = safeArtUrl(url);
   if (safeUrl) {
@@ -303,20 +325,19 @@ function getArtists() {
 
   songs.forEach(function(s) {
     var key = s.artist;
-    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '' };
+    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '', albumArtUri: '' };
     map[key].albums[s.album] = true;
     map[key].count++;
-    // Only use localhost art (Capacitor-served content:// URIs) for thumbnails.
-    // External URLs from AI tagging fail silently in the Android WebView.
     var artUrl = s.art || '';
     if (artUrl && artUrl.startsWith('http://localhost') && map[key].arts.indexOf(artUrl) === -1) {
       map[key].arts.push(artUrl);
     }
+    if (s.albumArtUri && !map[key].albumArtUri) map[key].albumArtUri = s.albumArtUri;
     if (!map[key].albumArtist && s.albumArtist) map[key].albumArtist = s.albumArtist;
   });
 
   var list = Object.keys(map).map(function(name) {
-    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist };
+    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist, albumArtUri: map[name].albumArtUri || '' };
   });
 
   // Album artists filter: only show artists that appear as an albumArtist on at least one song
@@ -336,14 +357,15 @@ function getAlbums(filter) {
   songs.forEach(function(s) {
     var key = s.album + '|||' + s.artist;
     var art = safeArtUrl(s.art);
-    if (!map[key]) map[key] = { artist: s.artist, year: s.year, art: art, count: 0, type: s.type || 'Album' };
+    if (!map[key]) map[key] = { artist: s.artist, year: s.year, art: art, count: 0, type: s.type || 'Album', albumArtUri: '' };
     map[key].count++;
     if (art && !map[key].art) map[key].art = art;
+    if (s.albumArtUri && !map[key].albumArtUri) map[key].albumArtUri = s.albumArtUri;
   });
   var all = Object.keys(map).map(function(key) {
     var name = key.split('|||')[0];
     var d = map[key];
-    return { name: name, artist: d.artist, year: d.year, art: d.art, songCount: d.count, type: d.type };
+    return { name: name, artist: d.artist, year: d.year, art: d.art, albumArtUri: d.albumArtUri || '', songCount: d.count, type: d.type };
   }).sort(function(a, b) { return a.name.localeCompare(b.name); });
 
   if (!filter || filter === 'all') return all;
@@ -368,12 +390,13 @@ function getArtistAlbums(name) {
   songs.forEach(function(s) {
     if (s.artist !== name) return;
     var art = safeArtUrl(s.art);
-    if (!map[s.album]) map[s.album] = { year: s.year, art: art, count: 0, type: s.type };
+    if (!map[s.album]) map[s.album] = { year: s.year, art: art, count: 0, type: s.type, albumArtUri: '' };
     map[s.album].count++;
     if (art && !map[s.album].art) map[s.album].art = art;
+    if (s.albumArtUri && !map[s.album].albumArtUri) map[s.album].albumArtUri = s.albumArtUri;
   });
   return Object.keys(map).map(function(a) {
-    return { name: a, artist: name, year: map[a].year, art: map[a].art, songCount: map[a].count, type: map[a].type };
+    return { name: a, artist: name, year: map[a].year, art: map[a].art, albumArtUri: map[a].albumArtUri || '', songCount: map[a].count, type: map[a].type };
   });
 }
 
@@ -571,8 +594,8 @@ function renderArtists(el) {
     var artSize = cols === 3 ? 60 : 80;
     var html = '<div class="artist-grid grid-' + cols + '">';
     artists.forEach(function(a) {
-      var artEl = a.arts.length > 0
-        ? '<img src="' + a.arts[0] + '" class="artist-art-img" data-name="' + escHtml(a.name) + '" data-size="' + artSize + '" style="width:' + artSize + 'px;height:' + artSize + 'px;border-radius:50%;object-fit:cover;">'
+      var artEl = a.albumArtUri
+        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-size="' + artSize + '" data-round="1">' + artHTML(a.name, artSize, true) + '</div>'
         : artHTML(a.name, artSize, true);
       html += '<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'
         + artEl
@@ -582,13 +605,7 @@ function renderArtists(el) {
     });
     html += '</div>';
     el.innerHTML = html;
-    el.querySelectorAll('.artist-art-img').forEach(function(img) {
-      img.onerror = function() {
-        var sz = parseInt(img.dataset.size) || artSize;
-        img.outerHTML = artHTML(img.dataset.name || '', sz, true);
-      };
-      if (img.complete && !img.naturalWidth) img.onerror();
-    });
+    initLazyArt(el);
     el.querySelectorAll('.artist-grid-card').forEach(function(card) {
       card.onclick = function() { selectedArtist = card.dataset.artist; render(); };
     });
@@ -597,8 +614,8 @@ function renderArtists(el) {
 
   var html = '';
   artists.forEach(function(a) {
-    var artEl = a.arts.length > 0
-      ? '<img src="' + a.arts[0] + '" class="artist-art-img" data-name="' + escHtml(a.name) + '" data-size="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">'
+    var artEl = a.albumArtUri
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-size="56" data-round="1">' + artHTML(a.name, 56, true) + '</div>'
       : artHTML(a.name, 56, true);
     html += '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
       + artEl
@@ -610,12 +627,7 @@ function renderArtists(el) {
       + '</div>';
   });
   el.innerHTML = html;
-  el.querySelectorAll('.artist-art-img').forEach(function(img) {
-    img.onerror = function() {
-      img.outerHTML = artHTML(img.dataset.name || '', parseInt(img.dataset.size) || 56, true);
-    };
-    if (img.complete && !img.naturalWidth) img.onerror();
-  });
+  initLazyArt(el);
   el.querySelectorAll('.artist-row').forEach(function(row) {
     row.onclick = function() { selectedArtist = row.dataset.artist; render(); };
   });
@@ -744,9 +756,12 @@ function renderAlbums(el) {
     else if (a.type === 'EP') badge = '<span class="release-badge ep">EP</span>';
     else if (a.type === 'Single') badge = '<span class="release-badge single">Single</span>';
 
+    var artEl = a.albumArtUri
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="width:100%;height:100%;">' + artHTML(a.name, 200) + '</div>'
+      : artHTML(a.name, 200);
     html += '<div class="album-card" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
       + '<div class="album-art-wrap">'
-      + (a.art ? '<img src="' + a.art + '" class="album-art-img" data-name="' + escHtml(a.name) + '" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">' : artHTML(a.name, 200))
+      + artEl
       + badge
       + '</div>'
       + '<div class="album-name">' + escHtml(a.name) + '</div>'
@@ -756,12 +771,7 @@ function renderAlbums(el) {
   html += '</div>';
   el.innerHTML = html;
 
-  el.querySelectorAll('.album-art-img').forEach(function(img) {
-    img.onerror = function() {
-      img.parentElement.innerHTML = artHTML(img.dataset.name || '', 200);
-    };
-    if (img.complete && !img.naturalWidth) img.onerror();
-  });
+  initLazyArt(el);
   el.querySelectorAll('.chip').forEach(function(btn) {
     btn.onclick = function() { albumFilter = btn.dataset.filter; render(); };
   });
@@ -852,9 +862,12 @@ function renderArtistDetail(el) {
       var badge = '';
       if (a.type === 'Mixtape') badge = '<span class="release-badge mixtape" style="font-size:8px;padding:1px 6px;">Mixtape</span>';
       else if (a.type === 'EP') badge = '<span class="release-badge ep" style="font-size:8px;padding:1px 6px;">EP</span>';
+      var artEl = a.albumArtUri
+        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="width:100%;height:100%;">' + artHTML(a.name, 128) + '</div>'
+        : artHTML(a.name, 128);
       html += '<div class="album-scroll-item" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
         + '<div class="album-scroll-art">'
-        + (a.art ? '<img src="' + a.art + '" class="album-art-img" data-name="' + escHtml(a.name) + '">' : artHTML(a.name, 128))
+        + artEl
         + badge
         + '</div>'
         + '<div class="album-scroll-name">' + escHtml(a.name) + '</div>'
@@ -881,12 +894,7 @@ function renderArtistDetail(el) {
 
   el.innerHTML = html;
 
-  el.querySelectorAll('.album-art-img').forEach(function(img) {
-    img.onerror = function() {
-      img.parentElement.innerHTML = artHTML(img.dataset.name || '', 128);
-    };
-    if (img.complete && !img.naturalWidth) img.onerror();
-  });
+  initLazyArt(el);
 
   document.getElementById('playAllBtn').onclick = function() {
     if (artistSongs.length > 0) playSong(artistSongs[0], artistSongs);

@@ -73,6 +73,33 @@ public class MediaStorePlugin extends Plugin {
         getActivity().finishAffinity();
     }
 
+    @PluginMethod
+    public void readAlbumArt(PluginCall call) {
+        String uriStr = call.getString("uri", "");
+        if (uriStr == null || uriStr.isEmpty()) { call.reject("No uri"); return; }
+        try {
+            Uri artUri = Uri.parse(uriStr);
+            java.io.InputStream is = getContext().getContentResolver().openInputStream(artUri);
+            if (is == null) { call.reject("null stream"); return; }
+            android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+            opts.inSampleSize = 2;
+            android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(is, null, opts);
+            is.close();
+            if (bmp == null) { call.reject("decode failed"); return; }
+            android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, 192, 192, true);
+            if (scaled != bmp) bmp.recycle();
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, baos);
+            scaled.recycle();
+            String b64 = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP);
+            JSObject ret = new JSObject();
+            ret.put("data", "data:image/jpeg;base64," + b64);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("readAlbumArt: " + e.getMessage());
+        }
+    }
+
     private void doQuery(PluginCall call) {
         Context ctx = getContext();
         JSArray files = new JSArray();
