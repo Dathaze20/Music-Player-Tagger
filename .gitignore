@@ -2,9 +2,14 @@ node_modules/
 .next/
 out/
 build/
-android/
-src/
-docs/
+!android/
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+/src/
+/docs/
+!android/app/src/
 .idx/
 .vscode/
 .env
@@ -13,6 +18,9 @@ docs/
 *.ts
 *.json
 !manifest.json
+!capacitor.config.json
+!package.json
+!package-lock.json
 *.mjs
 *.tsbuildinfo
 *.pem

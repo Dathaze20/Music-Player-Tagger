@@ -1,0 +1,50 @@
+{
+  "name": "music-player-tagger",
+  "version": "1.0.0",
+  "description": "A pure HTML/CSS/JavaScript music player with AI-powered auto-tagging.",
+  "main": "app.js",
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "astral-regex": "^2.0.0",
+    "big-integer": "^1.6.52",
+    "bplist-parser": "^0.3.2",
+    "browser-id3-writer": "^6.3.1",
+    "chownr": "^3.0.0",
+    "cross-spawn": "^7.0.6",
+    "define-lazy-prop": "^2.0.0",
+    "elementtree": "^0.1.7",
+    "env-paths": "^2.2.1",
+    "ini": "^4.1.3",
+    "jsmediatags": "^3.9.7",
+    "kleur": "^4.1.5",
+    "minizlib": "^3.1.0",
+    "native-run": "^2.0.3",
+    "plist": "^3.1.1",
+    "prompts": "^2.4.2",
+    "sax": "^1.1.4",
+    "sisteransi": "^1.0.5",
+    "slice-ansi": "^4.0.0",
+    "split2": "^4.2.0",
+    "tar": "^7.5.16",
+    "through2": "^4.0.2",
+    "tree-kill": "^1.2.2",
+    "untildify": "^4.0.0",
+    "xhr2": "^0.1.4",
+    "xml2js": "^0.6.2",
+    "xmlbuilder": "^15.1.1",
+    "yallist": "^5.0.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:41729/git/Dathaze20/Music-Player-Tagger"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

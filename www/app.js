@@ -71,10 +71,19 @@ function artHTML(text, size, round, cls) {
   return '<div class="art-placeholder' + (round ? ' round' : '') + extra + '" style="width:' + size + 'px;height:' + size + 'px;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');font-size:' + Math.floor(size * 0.35) + 'px;' + r + '">' + init + '</div>';
 }
 
+// External https:// URLs fail silently in the Capacitor Android WebView.
+// Return '' for those so callers fall back to gradient placeholder art.
+function safeArtUrl(url) {
+  if (!url) return '';
+  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative() && !url.startsWith('http://localhost')) return '';
+  return url;
+}
+
 function imgOrArt(url, text, size, round, cls) {
-  if (url) {
+  var safeUrl = safeArtUrl(url);
+  if (safeUrl) {
     var r = round ? 'border-radius:50%;' : 'border-radius:8px;';
-    return '<img src="' + url + '" class="song-art' + (cls ? ' ' + cls : '') + '" style="width:' + size + 'px;height:' + size + 'px;' + r + 'object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + escHtml(text).replace(/'/g,"\\'") + '\',' + size + ',' + round + ')">';
+    return '<img src="' + safeUrl + '" class="song-art' + (cls ? ' ' + cls : '') + '" style="width:' + size + 'px;height:' + size + 'px;' + r + 'object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + escHtml(text).replace(/'/g,"\\'") + '\',' + size + ',' + round + ')">';
   }
   return artHTML(text, size, round, cls);
 }
@@ -98,7 +107,11 @@ function saveLibrary() {
         fn: s.fn, title: s.title, artist: s.artist, album: s.album,
         year: s.year, genre: s.genre, track: s.track, art: s.art,
         lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
-        dur: s.dur, fav: s.fav, type: s.type, feat: s.feat
+        dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
+        nativePath:  s.nativePath  || '',
+        contentUri:  s.contentUri  || '',
+        albumArtUri: s.albumArtUri || '',
+        albumArtist: s.albumArtist || ''
       };
     });
     localStorage.setItem('muzio_library', JSON.stringify(data));
@@ -269,6 +282,12 @@ var queue = [];
 var tagging = { total: 0, done: 0, current: '', active: false, paused: false, queue: [] };
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var sortMode = 'title';
+var artistSortMode = 'az';
+var artistViewMode = 'list';   // 'list' | 'grid2' | 'grid3'
+var albumArtistsOnly = false;
+var nativeScanning = false;
+var nativeScanCount = 0;
+var nativeScanError = '';
 
 var audio = document.getElementById('audioEl');
 
@@ -276,24 +295,50 @@ var audio = document.getElementById('audioEl');
 
 function getArtists() {
   var map = {};
+  // Build a set of known album artists for filtering
+  var albumArtistSet = {};
   songs.forEach(function(s) {
-    if (!map[s.artist]) map[s.artist] = { albums: {}, count: 0, arts: [] };
-    map[s.artist].albums[s.album] = true;
-    map[s.artist].count++;
-    if (s.art && map[s.artist].arts.indexOf(s.art) === -1) map[s.artist].arts.push(s.art);
+    if (s.albumArtist) albumArtistSet[s.albumArtist] = true;
   });
-  return Object.keys(map).sort().map(function(name) {
-    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts };
+
+  songs.forEach(function(s) {
+    var key = s.artist;
+    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '' };
+    map[key].albums[s.album] = true;
+    map[key].count++;
+    // Only use localhost art (Capacitor-served content:// URIs) for thumbnails.
+    // External URLs from AI tagging fail silently in the Android WebView.
+    var artUrl = s.art || '';
+    if (artUrl && artUrl.startsWith('http://localhost') && map[key].arts.indexOf(artUrl) === -1) {
+      map[key].arts.push(artUrl);
+    }
+    if (!map[key].albumArtist && s.albumArtist) map[key].albumArtist = s.albumArtist;
   });
+
+  var list = Object.keys(map).map(function(name) {
+    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist };
+  });
+
+  // Album artists filter: only show artists that appear as an albumArtist on at least one song
+  if (albumArtistsOnly && Object.keys(albumArtistSet).length > 0) {
+    list = list.filter(function(a) { return albumArtistSet[a.name]; });
+  }
+
+  if (artistSortMode === 'za') list.sort(function(a, b) { return b.name.localeCompare(a.name); });
+  else if (artistSortMode === 'songs') list.sort(function(a, b) { return b.songCount - a.songCount; });
+  else list.sort(function(a, b) { return a.name.localeCompare(b.name); }); // 'az' default
+
+  return list;
 }
 
 function getAlbums(filter) {
   var map = {};
   songs.forEach(function(s) {
     var key = s.album + '|||' + s.artist;
-    if (!map[key]) map[key] = { artist: s.artist, year: s.year, art: s.art, count: 0, type: s.type || 'Album' };
+    var art = safeArtUrl(s.art);
+    if (!map[key]) map[key] = { artist: s.artist, year: s.year, art: art, count: 0, type: s.type || 'Album' };
     map[key].count++;
-    if (s.art && !map[key].art) map[key].art = s.art;
+    if (art && !map[key].art) map[key].art = art;
   });
   var all = Object.keys(map).map(function(key) {
     var name = key.split('|||')[0];
@@ -322,9 +367,10 @@ function getArtistAlbums(name) {
   var map = {};
   songs.forEach(function(s) {
     if (s.artist !== name) return;
-    if (!map[s.album]) map[s.album] = { year: s.year, art: s.art, count: 0, type: s.type };
+    var art = safeArtUrl(s.art);
+    if (!map[s.album]) map[s.album] = { year: s.year, art: art, count: 0, type: s.type };
     map[s.album].count++;
-    if (s.art && !map[s.album].art) map[s.album].art = s.art;
+    if (art && !map[s.album].art) map[s.album].art = art;
   });
   return Object.keys(map).map(function(a) {
     return { name: a, artist: name, year: map[a].year, art: map[a].art, songCount: map[a].count, type: map[a].type };
@@ -355,11 +401,23 @@ function render() {
   var menuBtn = document.getElementById('menuBtn');
   var searchBar = document.getElementById('searchBar');
 
+  // Close any open overflow menu on navigation
+  var openMenu = document.getElementById('overflowMenu');
+  if (openMenu) openMenu.remove();
+
   searchBar.classList.add('hidden');
   tabBar.classList.remove('hidden');
   menuBtn.innerHTML = '&#9776;';
   menuBtn.onclick = function() { toggleDrawer(true); };
   fab.classList.remove('hidden');
+
+  // Wire overflow button — only active on main tab views
+  var overflowBtn = document.getElementById('overflowBtn');
+  if (overflowBtn) {
+    overflowBtn.onclick = (selectedArtist || selectedAlbum)
+      ? null
+      : function(e) { e.stopPropagation(); showOverflowMenu(); };
+  }
 
   var counts = getSongCounts();
   var tabs = tabBar.querySelectorAll('button');
@@ -400,19 +458,49 @@ function render() {
 
 function renderWelcome(el) {
   var isNativeApp = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+
+  // Native app: show scanning UI — auto-starts on open
+  if (isNativeApp) {
+    if (nativeScanError) {
+      el.innerHTML = '<div class="welcome-screen welcome-screen--compact">'
+        + '<div class="welcome-perm-icon" style="font-size:36px;width:72px;height:72px;margin-bottom:16px">&#128683;</div>'
+        + '<h2 class="welcome-title" style="font-size:18px;margin-bottom:8px">Permission Needed</h2>'
+        + '<p class="welcome-text" style="margin-bottom:16px">' + nativeScanError + '</p>'
+        + '<button class="welcome-btn" id="welcomeRetryBtn" style="max-width:240px;margin-bottom:10px">&#8635; Try Again</button>'
+        + '<button class="welcome-btn" id="welcomeSettingsBtn" style="max-width:240px;background:rgba(255,255,255,0.08);box-shadow:none;border:1px solid rgba(255,255,255,0.15)">&#9881; Open App Settings</button>'
+        + '<p class="welcome-hint" style="margin-top:12px">In Settings: Permissions → Music and audio → Allow</p>'
+        + '</div>';
+      document.getElementById('welcomeRetryBtn').onclick = function() {
+        nativeScanError = '';
+        nativeAutoScan();
+      };
+      document.getElementById('welcomeSettingsBtn').onclick = function() {
+        if (typeof NativeBridge !== 'undefined' && NativeBridge.openAppSettings) {
+          NativeBridge.openAppSettings();
+        }
+      };
+      return;
+    }
+    var countLine = nativeScanCount > 0
+      ? '<p class="scan-count-badge">&#127925; ' + nativeScanCount.toLocaleString() + ' songs found...</p>'
+      : '';
+    var statusMsg = nativeScanning ? 'Scanning phone &amp; SD card...' : 'Starting scan...';
+    el.innerHTML = '<div class="welcome-screen welcome-screen--compact">'
+      + '<div class="welcome-scan-ring"><div class="welcome-scan-note">&#9835;</div></div>'
+      + '<h2 class="welcome-title" style="font-size:18px;margin-bottom:6px">Finding Your Music</h2>'
+      + '<p class="welcome-text" id="scanStatusText" style="margin-bottom:8px">' + statusMsg + '</p>'
+      + countLine
+      + '</div>';
+    return;
+  }
+
+  // Web browser: show file picker button
   var html = '<div class="welcome-screen">'
     + '<div class="welcome-perm-icon">&#127925;</div>'
-    + '<h2 class="welcome-title">Muzio AI</h2>';
-
-  if (isNativeApp) {
-    html += '<p class="welcome-text">Allow Muzio AI to access your music. All songs on your phone and SD card will appear automatically.</p>'
-      + '<button class="welcome-btn" id="welcomeGrantBtn">&#10003; Allow Access</button>'
-      + '<p class="welcome-hint">One-time permission — your library loads automatically every time</p>';
-  } else {
-    html += '<p class="welcome-text">Select your music files to start playing. Songs play directly from your storage — nothing is copied.</p>'
-      + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Select Music Files</button>'
-      + '<p class="welcome-hint">Navigate to your Music folder → long press → Select All</p>';
-  }
+    + '<h2 class="welcome-title">Muzio AI</h2>'
+    + '<p class="welcome-text">Select your music files to start playing. Songs play directly from your storage — nothing is copied.</p>'
+    + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Select Music Files</button>'
+    + '<p class="welcome-hint">Navigate to your Music folder → long press → Select All</p>';
 
   if (!apiKey) {
     html += '<p class="welcome-api-note" id="welcomeApiLink">&#9881; Set up AI auto-tagging</p>';
@@ -424,9 +512,7 @@ function renderWelcome(el) {
   el.innerHTML = html;
 
   document.getElementById('welcomeGrantBtn').onclick = function() {
-    if (isNativeApp) {
-      nativeAutoScan();
-    } else if (!pickFolderWithHandle()) {
+    if (!pickFolderWithHandle()) {
       document.getElementById('folderInput').click();
     }
   };
@@ -479,10 +565,39 @@ function renderReconnectBanner() {
 function renderArtists(el) {
   var artists = getArtists();
   if (artists.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
+
+  if (artistViewMode !== 'list') {
+    var cols = artistViewMode === 'grid3' ? 3 : 2;
+    var artSize = cols === 3 ? 60 : 80;
+    var html = '<div class="artist-grid grid-' + cols + '">';
+    artists.forEach(function(a) {
+      var artEl = a.arts.length > 0
+        ? '<img src="' + a.arts[0] + '" class="artist-art-img" data-name="' + escHtml(a.name) + '" data-size="' + artSize + '" style="width:' + artSize + 'px;height:' + artSize + 'px;border-radius:50%;object-fit:cover;">'
+        : artHTML(a.name, artSize, true);
+      html += '<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'
+        + artEl
+        + '<div class="artist-grid-name">' + escHtml(a.name) + '</div>'
+        + '<div class="artist-grid-meta">' + a.songCount + ' songs</div>'
+        + '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+    el.querySelectorAll('.artist-art-img').forEach(function(img) {
+      img.onerror = function() {
+        var sz = parseInt(img.dataset.size) || artSize;
+        img.outerHTML = artHTML(img.dataset.name || '', sz, true);
+      };
+    });
+    el.querySelectorAll('.artist-grid-card').forEach(function(card) {
+      card.onclick = function() { selectedArtist = card.dataset.artist; render(); };
+    });
+    return;
+  }
+
   var html = '';
   artists.forEach(function(a) {
     var artEl = a.arts.length > 0
-      ? '<img src="' + a.arts[0] + '" style="width:56px;height:56px;border-radius:50%;object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + escHtml(a.name).replace(/'/g,"\\'") + '\',56,true)">'
+      ? '<img src="' + a.arts[0] + '" class="artist-art-img" data-name="' + escHtml(a.name) + '" data-size="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">'
       : artHTML(a.name, 56, true);
     html += '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
       + artEl
@@ -494,9 +609,88 @@ function renderArtists(el) {
       + '</div>';
   });
   el.innerHTML = html;
+  el.querySelectorAll('.artist-art-img').forEach(function(img) {
+    img.onerror = function() {
+      img.outerHTML = artHTML(img.dataset.name || '', parseInt(img.dataset.size) || 56, true);
+    };
+  });
   el.querySelectorAll('.artist-row').forEach(function(row) {
     row.onclick = function() { selectedArtist = row.dataset.artist; render(); };
   });
+}
+
+function showOverflowMenu() {
+  var existing = document.getElementById('overflowMenu');
+  if (existing) { existing.remove(); return; }
+
+  var menu = document.createElement('div');
+  menu.id = 'overflowMenu';
+  menu.className = 'overflow-menu';
+
+  var items = '';
+
+  if (currentTab === 'artists') {
+    items += '<div class="overflow-item" id="omShuffleAll">&#127925; Shuffle All</div>'
+      + '<div class="overflow-divider"></div>'
+      + '<div class="overflow-section-label">Sort order</div>'
+      + '<div class="overflow-item' + (artistSortMode === 'az' ? ' active' : '') + '" data-sort="az">A &#8594; Z' + (artistSortMode === 'az' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (artistSortMode === 'za' ? ' active' : '') + '" data-sort="za">Z &#8594; A' + (artistSortMode === 'za' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (artistSortMode === 'songs' ? ' active' : '') + '" data-sort="songs">Most Songs' + (artistSortMode === 'songs' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-divider"></div>'
+      + '<div class="overflow-section-label">Grid style</div>'
+      + '<div class="overflow-item' + (artistViewMode === 'list' ? ' active' : '') + '" data-view="list">&#8801; List' + (artistViewMode === 'list' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (artistViewMode === 'grid2' ? ' active' : '') + '" data-view="grid2">&#9638; 2 Columns' + (artistViewMode === 'grid2' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (artistViewMode === 'grid3' ? ' active' : '') + '" data-view="grid3">&#9638; 3 Columns' + (artistViewMode === 'grid3' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-divider"></div>'
+      + '<div class="overflow-item' + (albumArtistsOnly ? ' active' : '') + '" id="omAlbumArtists">'
+      + (albumArtistsOnly ? '&#10004; Album artists only' : '&#9744; Album artists only')
+      + '</div>';
+  } else if (currentTab === 'songs') {
+    items += '<div class="overflow-section-label">Sort order</div>'
+      + '<div class="overflow-item' + (sortMode === 'title' ? ' active' : '') + '" data-song-sort="title">A &#8594; Z (title)' + (sortMode === 'title' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (sortMode === 'artist' ? ' active' : '') + '" data-song-sort="artist">Artist' + (sortMode === 'artist' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (sortMode === 'recent' ? ' active' : '') + '" data-song-sort="recent">Recently added' + (sortMode === 'recent' ? ' &#10003;' : '') + '</div>';
+  }
+
+  if (!items) return;
+
+  menu.innerHTML = items;
+  document.getElementById('app').appendChild(menu);
+
+  // Auto-remove on outside click
+  function closeMenu(e) {
+    if (!menu.contains(e.target) && e.target.id !== 'overflowBtn') {
+      menu.remove();
+      document.removeEventListener('click', closeMenu);
+    }
+  }
+  setTimeout(function() { document.addEventListener('click', closeMenu); }, 0);
+
+  if (currentTab === 'artists') {
+    var shuffleBtn = menu.querySelector('#omShuffleAll');
+    if (shuffleBtn) shuffleBtn.onclick = function() {
+      menu.remove();
+      var allS = [];
+      getArtists().forEach(function(a) { allS = allS.concat(getArtistSongs(a.name)); });
+      if (allS.length > 0) {
+        isShuffled = true;
+        var sh = allS.slice().sort(function() { return Math.random() - 0.5; });
+        playSong(sh[0], sh);
+      }
+    };
+    menu.querySelectorAll('[data-sort]').forEach(function(item) {
+      item.onclick = function() { artistSortMode = item.dataset.sort; menu.remove(); render(); };
+    });
+    menu.querySelectorAll('[data-view]').forEach(function(item) {
+      item.onclick = function() { artistViewMode = item.dataset.view; menu.remove(); render(); };
+    });
+    var aaBtn = menu.querySelector('#omAlbumArtists');
+    if (aaBtn) aaBtn.onclick = function() { albumArtistsOnly = !albumArtistsOnly; menu.remove(); render(); };
+  } else if (currentTab === 'songs') {
+    menu.querySelectorAll('[data-song-sort]').forEach(function(item) {
+      item.onclick = function() { sortMode = item.dataset.songSort; menu.remove(); render(); };
+    });
+  }
 }
 
 function renderSongs(el) {
@@ -550,7 +744,7 @@ function renderAlbums(el) {
 
     html += '<div class="album-card" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
       + '<div class="album-art-wrap">'
-      + (a.art ? '<img src="' + a.art + '" onerror="this.style.display=\'none\'">' : artHTML(a.name, 200))
+      + (a.art ? '<img src="' + a.art + '" class="album-art-img" data-name="' + escHtml(a.name) + '" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">' : artHTML(a.name, 200))
       + badge
       + '</div>'
       + '<div class="album-name">' + escHtml(a.name) + '</div>'
@@ -560,6 +754,11 @@ function renderAlbums(el) {
   html += '</div>';
   el.innerHTML = html;
 
+  el.querySelectorAll('.album-art-img').forEach(function(img) {
+    img.onerror = function() {
+      img.parentElement.innerHTML = artHTML(img.dataset.name || '', 200);
+    };
+  });
   el.querySelectorAll('.chip').forEach(function(btn) {
     btn.onclick = function() { albumFilter = btn.dataset.filter; render(); };
   });
@@ -652,7 +851,7 @@ function renderArtistDetail(el) {
       else if (a.type === 'EP') badge = '<span class="release-badge ep" style="font-size:8px;padding:1px 6px;">EP</span>';
       html += '<div class="album-scroll-item" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
         + '<div class="album-scroll-art">'
-        + (a.art ? '<img src="' + a.art + '">' : artHTML(a.name, 128))
+        + (a.art ? '<img src="' + a.art + '" class="album-art-img" data-name="' + escHtml(a.name) + '">' : artHTML(a.name, 128))
         + badge
         + '</div>'
         + '<div class="album-scroll-name">' + escHtml(a.name) + '</div>'
@@ -678,6 +877,12 @@ function renderArtistDetail(el) {
   });
 
   el.innerHTML = html;
+
+  el.querySelectorAll('.album-art-img').forEach(function(img) {
+    img.onerror = function() {
+      img.parentElement.innerHTML = artHTML(img.dataset.name || '', 128);
+    };
+  });
 
   document.getElementById('playAllBtn').onclick = function() {
     if (artistSongs.length > 0) playSong(artistSongs[0], artistSongs);
@@ -875,7 +1080,10 @@ function renderNowPlaying() {
   np.classList.remove('hidden');
   document.getElementById('miniPlayer').classList.add('hidden');
 
-  var typeClass = (currentSong.type || '').toLowerCase();
+  lyricsLines = parseLRC(currentSong.syncedLyrics);
+  currentLyricIdx = -1;
+  lyricsVisible = lyricsLines.length > 0;
+
   var html = '<div class="np-header">'
     + '<button id="npClose">&#8744;</button>'
     + '<div class="np-label">Now Playing</div>'
@@ -883,13 +1091,12 @@ function renderNowPlaying() {
     + '</div>'
     + '<div class="np-art-container">'
     + '<div class="np-art' + (isPlaying ? ' spinning' : '') + '">'
-    + (currentSong.art ? '<img src="' + currentSong.art + '">' : artHTML(currentSong.album || currentSong.title, 288, false, 'xxl'))
+    + (safeArtUrl(currentSong.art) ? '<img src="' + safeArtUrl(currentSong.art) + '">' : artHTML(currentSong.album || currentSong.title, 170, false, 'xxl'))
     + '</div>'
     + '<div class="np-song-title">' + escHtml(currentSong.title)
     + (currentSong.feat ? '<span class="feat"> ft. ' + escHtml(currentSong.feat) + '</span>' : '')
     + '</div>'
     + '<div class="np-song-artist">' + escHtml(currentSong.artist) + '</div>'
-    + (currentSong.album && currentSong.album !== 'Unknown Album' ? '<div class="np-song-album">' + escHtml(currentSong.album) + (currentSong.year ? ' (' + currentSong.year + ')' : '') + '</div>' : '')
     + '</div>'
     + '<div class="np-controls">'
     + '<div class="np-progress">'
@@ -913,43 +1120,35 @@ function renderNowPlaying() {
 
   if (currentSong.genre || currentSong.year || currentSong.type) {
     html += '<div class="np-badges">';
-    if (currentSong.genre) html += '<span class="np-badge">' + currentSong.genre + '</span>';
+    if (currentSong.genre) html += '<span class="np-badge">' + escHtml(currentSong.genre) + '</span>';
     if (currentSong.year) html += '<span class="np-badge">' + currentSong.year + '</span>';
-    if (currentSong.type && currentSong.type !== 'Album') html += '<span class="np-badge ' + typeClass + '">' + currentSong.type + '</span>';
+    if (currentSong.type && currentSong.type !== 'Album') html += '<span class="np-badge ' + (currentSong.type || '').toLowerCase() + '">' + currentSong.type + '</span>';
     html += '</div>';
   }
 
-  html += '<button class="lyrics-toggle" id="npLyricsToggle">&#9835; Lyrics</button>';
-  html += '</div>';
+  html += '</div>';  // end np-controls
 
-  lyricsLines = parseLRC(currentSong.syncedLyrics);
-  var hasLyrics = lyricsLines.length > 0 || (currentSong.lyrics && currentSong.lyrics.trim());
-
-  html += '<div class="lyrics-fullscreen hidden" id="lyricsFullscreen">';
-  html += '<div class="lyrics-fs-header">'
-    + '<button id="lyricsBack">&#8744;</button>'
-    + '<div class="lyrics-fs-song">' + escHtml(currentSong.title) + '</div>'
-    + '<div class="lyrics-fs-artist">' + escHtml(currentSong.artist) + '</div>'
-    + '</div>';
-
+  // Inline lyrics panel — always visible, no button tap required
+  html += '<div class="np-lyrics-panel">';
   if (lyricsLines.length > 0) {
     html += buildSyncedLyricsHTML();
   } else if (currentSong.lyrics && currentSong.lyrics.trim()) {
     html += '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
       + escHtml(currentSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
       + '</div></div>';
+  } else if (apiKey) {
+    // Will auto-fetch lyrics after render
+    html += '<div class="lyrics-empty-np" id="lyricsFetchMsg">'
+      + '<div class="lyrics-empty-icon" style="animation:spin 1.5s linear infinite;display:inline-block;">&#9835;</div>'
+      + '<p>Fetching lyrics...</p>'
+      + '</div>';
   } else {
-    html += '<div class="lyrics-empty-fs"><div class="lyrics-empty-icon">&#9835;</div>'
+    html += '<div class="lyrics-empty-np">'
+      + '<div class="lyrics-empty-icon">&#9835;</div>'
       + '<p>No lyrics available</p>'
-      + '<p class="sub">Lyrics are fetched automatically during AI tagging</p></div>';
+      + '<p class="sub">Add a Gemini API key in Settings to auto-fetch lyrics</p>'
+      + '</div>';
   }
-
-  html += '<div class="lyrics-fs-controls">'
-    + '<div class="lyrics-fs-mini-art">' + imgOrArt(currentSong.art, currentSong.album || currentSong.title, 40) + '</div>'
-    + '<div class="lyrics-fs-info"><div class="lyrics-fs-title">' + escHtml(currentSong.title) + '</div>'
-    + '<div class="lyrics-fs-meta">' + escHtml(currentSong.artist) + '</div></div>'
-    + '<button class="lyrics-fs-play" id="lyricsFsPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
-    + '</div>';
   html += '</div>';
 
   np.innerHTML = html;
@@ -971,22 +1170,8 @@ function renderNowPlaying() {
   document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };
   document.getElementById('npVolume').oninput = function(e) { volume = parseFloat(e.target.value); isMuted = false; audio.volume = volume; };
   document.getElementById('npMute').onclick = function() { isMuted = !isMuted; audio.volume = isMuted ? 0 : volume; renderNowPlaying(); };
-  document.getElementById('npLyricsToggle').onclick = function() {
-    var fs = document.getElementById('lyricsFullscreen');
-    fs.classList.remove('hidden');
-    lyricsVisible = true;
-    currentLyricIdx = -1;
-    updateSyncedLyrics(currentTime);
-  };
-  document.getElementById('lyricsBack').onclick = function() {
-    document.getElementById('lyricsFullscreen').classList.add('hidden');
-    lyricsVisible = false;
-  };
-  document.getElementById('lyricsFsPlay').onclick = function(e) {
-    e.stopPropagation();
-    togglePlay();
-    document.getElementById('lyricsFsPlay').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
-  };
+
+  // Tap a lyric line to seek to that timestamp
   var syncContainer = document.getElementById('syncedLyricsContainer');
   if (syncContainer) {
     syncContainer.querySelectorAll('.lyric-line').forEach(function(line) {
@@ -997,6 +1182,56 @@ function renderNowPlaying() {
           if (!isPlaying) { audio.play().then(function() { isPlaying = true; }).catch(function(){}); }
         }
       };
+    });
+    updateSyncedLyrics(currentTime);  // scroll to current position immediately
+  }
+
+  // Auto-fetch lyrics from Gemini if song has none and API key is set.
+  // _lyricsFetched prevents re-firing on every renderNowPlaying() call (seek, volume, etc.)
+  if (apiKey && !lyricsVisible && !currentSong.lyrics && !currentSong._lyricsFetched) {
+    currentSong._lyricsFetched = true;
+    var fetchSong = currentSong;
+    callGeminiTag(fetchSong.fn).then(function(meta) {
+      if (meta.syncedLyrics) fetchSong.syncedLyrics = meta.syncedLyrics;
+      if (meta.lyrics) fetchSong.lyrics = meta.lyrics;
+      if (meta.genre && !fetchSong.genre) fetchSong.genre = meta.genre;
+      if (meta.year && !fetchSong.year) fetchSong.year = String(meta.year);
+      if (meta.releaseType && !fetchSong.type) fetchSong.type = meta.releaseType;
+      saveLibrary();
+      // Update lyrics panel in-place if still on this song
+      if (showNowPlaying && currentSong && currentSong.id === fetchSong.id) {
+        var newLines = parseLRC(fetchSong.syncedLyrics);
+        lyricsLines = newLines;
+        currentLyricIdx = -1;
+        lyricsVisible = newLines.length > 0;
+        var panel = document.querySelector('.np-lyrics-panel');
+        if (panel) {
+          if (newLines.length > 0) {
+            panel.innerHTML = buildSyncedLyricsHTML();
+            var sc = document.getElementById('syncedLyricsContainer');
+            if (sc) {
+              sc.querySelectorAll('.lyric-line').forEach(function(line) {
+                line.onclick = function() {
+                  var t = parseFloat(line.dataset.time);
+                  if (!isNaN(t)) { audio.currentTime = t; if (!isPlaying) audio.play().catch(function(){}); }
+                };
+              });
+              updateSyncedLyrics(currentTime);
+            }
+          } else if (fetchSong.lyrics) {
+            panel.innerHTML = '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
+              + escHtml(fetchSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
+              + '</div></div>';
+          } else {
+            panel.innerHTML = '<div class="lyrics-empty-np"><div class="lyrics-empty-icon">&#9835;</div><p>No lyrics found</p></div>';
+          }
+        }
+      }
+    }).catch(function() {
+      var panel = document.querySelector('.np-lyrics-panel');
+      if (panel && showNowPlaying && currentSong && currentSong.id === fetchSong.id) {
+        panel.innerHTML = '<div class="lyrics-empty-np"><div class="lyrics-empty-icon">&#9835;</div><p>No lyrics found</p></div>';
+      }
     });
   }
 
@@ -1601,46 +1836,162 @@ if (songs.length > 0 && !songs[0].url) {
 
 function nativeAutoScan() {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  if (nativeScanning) return;
 
-  // If we already have songs with native paths, reconnect their URLs
+  // Already have songs — reconnect URLs using saved contentUri or nativePath
   if (songs.length > 0) {
     var reconnected = 0;
     songs.forEach(function(s) {
-      if (s.nativePath && !s.url) {
-        s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
-        reconnected++;
+      if (!s.url) {
+        try {
+          if (s.contentUri) {
+            s.url = window.Capacitor.convertFileSrc(s.contentUri);
+            reconnected++;
+          } else if (s.nativePath) {
+            s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
+            reconnected++;
+          }
+        } catch(e) {}
       }
     });
-    if (reconnected > 0) { render(); renderReconnectBanner(); return; }
+    if (reconnected > 0) {
+      // Reconvert album art URIs (content:// → localhost proxy)
+      songs.forEach(function(s) {
+        if (!s.art && s.albumArtUri) {
+          try { s.art = window.Capacitor.convertFileSrc(s.albumArtUri); } catch(e) {}
+        }
+      });
+      render();
+      renderReconnectBanner();
+
+      // If library is missing album art metadata (old scan), refresh silently in background
+      var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
+      if (needsArtRefresh) {
+        NativeBridge.scanAllMusic(null).then(function(files) {
+          var byUri = {};
+          var byFn = {};
+          songs.forEach(function(s) {
+            if (s.contentUri) byUri[s.contentUri] = s;
+            byFn[s.fn] = s;
+          });
+          var updated = 0;
+          files.forEach(function(f) {
+            var s = byUri[f.contentUri] || byFn[f.name];
+            if (!s) return;
+            if (f.art && !s.art) { s.art = f.art; updated++; }
+            if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
+            if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
+            if (f.genre && !s.genre) s.genre = f.genre;
+          });
+          if (updated > 0) { saveLibrary(); render(); }
+        }).catch(function() {});
+      }
+      return;
+    }
   }
 
-  // First launch — auto-scan all music
-  showToast('Finding your music...', 60000);
+  // First launch or rescan — show scanning screen and auto-scan
+  nativeScanning = true;
+  nativeScanCount = 0;
+  nativeScanError = '';
+  render();
+
   NativeBridge.scanAllMusic(function(count) {
-    if (count % 100 === 0) showToast('Found ' + count + ' songs...', 3000);
+    nativeScanCount = count;
+    var el = document.getElementById('scanStatusText');
+    if (el) el.textContent = 'Found ' + count + ' songs...';
   }).then(function(files) {
+    nativeScanning = false;
     if (!files || files.length === 0) {
-      showToast('No music found. Try adding songs to your Music folder.');
+      nativeScanError = 'No music found. Make sure storage permission is allowed.';
+      render();
       return;
     }
     var newSongs = files.map(function(f) { return NativeBridge.toSong(f); });
-    songs = songs.concat(newSongs);
-    showToast('Found ' + newSongs.length + ' songs!', 3000);
+    songs = newSongs;
     saveLibrary();
     render();
+    showToast('Loaded ' + newSongs.length + ' songs!', 3000);
     if (newSongs.length > 0 && apiKey) {
-      newSongs.forEach(function(s) { s.tagging = true; });
-      tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs };
-      updateTaggingBanner();
-      tagNextSong(newSongs, 0);
+      var untagged = newSongs.filter(function(s) { return !s.genre && !s.art; });
+      if (untagged.length > 0) {
+        untagged.forEach(function(s) { s.tagging = true; });
+        tagging = { total: untagged.length, done: 0, current: untagged[0].title, active: true, paused: false, queue: untagged };
+        updateTaggingBanner();
+        tagNextSong(untagged, 0);
+      }
     }
   }).catch(function(e) {
-    showToast('Could not scan music: ' + (e.message || e));
+    nativeScanning = false;
+    var msg = e && e.message ? e.message : String(e);
+    nativeScanError = msg || 'Scan failed — please grant storage permission and try again.';
+    render();
   });
 }
 
-// Delay slightly so Capacitor plugins are fully ready
-if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
-  document.addEventListener('deviceready', nativeAutoScan, false);
-  setTimeout(nativeAutoScan, 500);
+// Register on multiple events — Capacitor bridge load timing varies by device
+document.addEventListener('deviceready', nativeAutoScan, false);
+setTimeout(nativeAutoScan, 500);
+setTimeout(nativeAutoScan, 2000);
+
+// ─── Hardware Back Button (Android) ───
+
+function handleHardwareBack() {
+  // 1. Close any overflow/context menu
+  var overflowMenu = document.getElementById('overflowMenu');
+  if (overflowMenu) { overflowMenu.remove(); return; }
+
+  // 2. Close settings modal
+  var settingsModal = document.getElementById('settingsModal');
+  if (settingsModal && !settingsModal.classList.contains('hidden')) {
+    settingsModal.classList.add('hidden');
+    document.getElementById('settingsOverlay').classList.add('hidden');
+    return;
+  }
+
+  // 3. Close edit modal
+  var editModal = document.getElementById('editModal');
+  if (editModal && !editModal.classList.contains('hidden')) {
+    editModal.classList.add('hidden');
+    document.getElementById('editOverlay').classList.add('hidden');
+    return;
+  }
+
+  // 4. Close side drawer
+  var drawer = document.getElementById('drawer');
+  if (drawer && !drawer.classList.contains('hidden')) {
+    toggleDrawer(false);
+    return;
+  }
+
+  // 5. Close Now Playing
+  if (showNowPlaying) {
+    showNowPlaying = false;
+    document.getElementById('nowPlaying').classList.add('hidden');
+    updateMiniPlayer();
+    return;
+  }
+
+  // 6. Close search bar
+  var searchBar = document.getElementById('searchBar');
+  if (searchBar && !searchBar.classList.contains('hidden')) {
+    searchBar.classList.add('hidden');
+    var si = document.getElementById('searchInput');
+    if (si) si.value = '';
+    render();
+    return;
+  }
+
+  // 7. Go up one navigation level
+  if (selectedAlbum) { selectedAlbum = null; render(); return; }
+  if (selectedArtist) { selectedArtist = null; render(); return; }
+
+  // 8. Nothing to dismiss — exit app
+  var plugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.MediaStore;
+  if (plugin && plugin.exitApp) {
+    plugin.exitApp();
+  }
 }
+
+// Fired by MainActivity.onBackPressed() via getBridge().triggerJSEvent()
+document.addEventListener('capacitorBackButton', handleHardwareBack);
