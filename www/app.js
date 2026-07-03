@@ -98,7 +98,8 @@ function saveLibrary() {
         fn: s.fn, title: s.title, artist: s.artist, album: s.album,
         year: s.year, genre: s.genre, track: s.track, art: s.art,
         lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
-        dur: s.dur, fav: s.fav, type: s.type, feat: s.feat
+        dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
+        nativePath: s.nativePath || ''
       };
     });
     localStorage.setItem('muzio_library', JSON.stringify(data));
