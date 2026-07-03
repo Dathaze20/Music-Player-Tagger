@@ -405,30 +405,26 @@ function render() {
 function renderWelcome(el) {
   var isNativeApp = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
 
-  // Native scanning in progress — show live progress screen
-  if (isNativeApp && nativeScanning) {
+  // Native app: always show scanning UI — permissions + scan fire automatically on open
+  if (isNativeApp) {
+    var statusMsg = nativeScanning ? 'Scanning your phone and SD card...' : 'Requesting access to your music...';
+    var countLine = nativeScanCount > 0 ? '<p class="welcome-api-set">Found ' + nativeScanCount + ' songs so far...</p>' : '';
     el.innerHTML = '<div class="welcome-screen">'
       + '<div class="welcome-scan-ring"><div class="welcome-scan-note">&#127925;</div></div>'
       + '<h2 class="welcome-title">Finding Your Music</h2>'
-      + '<p class="welcome-text" id="scanStatusText">Scanning your phone and SD card...</p>'
-      + (nativeScanCount > 0 ? '<p class="welcome-api-set">Found ' + nativeScanCount + ' songs so far...</p>' : '')
+      + '<p class="welcome-text" id="scanStatusText">' + statusMsg + '</p>'
+      + countLine
       + '</div>';
     return;
   }
 
+  // Web browser: show file picker button
   var html = '<div class="welcome-screen">'
     + '<div class="welcome-perm-icon">&#127925;</div>'
-    + '<h2 class="welcome-title">Muzio AI</h2>';
-
-  if (isNativeApp) {
-    html += '<p class="welcome-text">Tap below to give access to your music. Muzio AI will scan your entire phone and SD card — no manual selecting needed.</p>'
-      + '<button class="welcome-btn" id="welcomeGrantBtn">&#10003; Allow Access &amp; Scan</button>'
-      + '<p class="welcome-hint">One-time permission — your library loads instantly every time after</p>';
-  } else {
-    html += '<p class="welcome-text">Select your music files to start playing. Songs play directly from your storage — nothing is copied.</p>'
-      + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Select Music Files</button>'
-      + '<p class="welcome-hint">Navigate to your Music folder → long press → Select All</p>';
-  }
+    + '<h2 class="welcome-title">Muzio AI</h2>'
+    + '<p class="welcome-text">Select your music files to start playing. Songs play directly from your storage — nothing is copied.</p>'
+    + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Select Music Files</button>'
+    + '<p class="welcome-hint">Navigate to your Music folder → long press → Select All</p>';
 
   if (!apiKey) {
     html += '<p class="welcome-api-note" id="welcomeApiLink">&#9881; Set up AI auto-tagging</p>';
@@ -440,9 +436,7 @@ function renderWelcome(el) {
   el.innerHTML = html;
 
   document.getElementById('welcomeGrantBtn').onclick = function() {
-    if (isNativeApp) {
-      nativeAutoScan();
-    } else if (!pickFolderWithHandle()) {
+    if (!pickFolderWithHandle()) {
       document.getElementById('folderInput').click();
     }
   };
@@ -1617,7 +1611,7 @@ if (songs.length > 0 && !songs[0].url) {
 
 function nativeAutoScan() {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
-  if (nativeScanning) return; // scan already in progress
+  if (nativeScanning) return;
 
   // Already have songs — reconnect URLs using saved contentUri or nativePath
   if (songs.length > 0) {
