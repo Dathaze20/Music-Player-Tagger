@@ -587,6 +587,7 @@ function renderArtists(el) {
         var sz = parseInt(img.dataset.size) || artSize;
         img.outerHTML = artHTML(img.dataset.name || '', sz, true);
       };
+      if (img.complete && !img.naturalWidth) img.onerror();
     });
     el.querySelectorAll('.artist-grid-card').forEach(function(card) {
       card.onclick = function() { selectedArtist = card.dataset.artist; render(); };
@@ -613,6 +614,7 @@ function renderArtists(el) {
     img.onerror = function() {
       img.outerHTML = artHTML(img.dataset.name || '', parseInt(img.dataset.size) || 56, true);
     };
+    if (img.complete && !img.naturalWidth) img.onerror();
   });
   el.querySelectorAll('.artist-row').forEach(function(row) {
     row.onclick = function() { selectedArtist = row.dataset.artist; render(); };
@@ -758,6 +760,7 @@ function renderAlbums(el) {
     img.onerror = function() {
       img.parentElement.innerHTML = artHTML(img.dataset.name || '', 200);
     };
+    if (img.complete && !img.naturalWidth) img.onerror();
   });
   el.querySelectorAll('.chip').forEach(function(btn) {
     btn.onclick = function() { albumFilter = btn.dataset.filter; render(); };
@@ -882,6 +885,7 @@ function renderArtistDetail(el) {
     img.onerror = function() {
       img.parentElement.innerHTML = artHTML(img.dataset.name || '', 128);
     };
+    if (img.complete && !img.naturalWidth) img.onerror();
   });
 
   document.getElementById('playAllBtn').onclick = function() {
