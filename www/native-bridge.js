@@ -95,21 +95,36 @@ var NativeBridge = (function() {
   }
 
   function requestPermissions() {
-    var Filesystem = getPlugin('Filesystem');
-    if (Filesystem && Filesystem.requestPermissions) {
-      return Filesystem.requestPermissions().catch(function() {});
+    // Must request READ_MEDIA_AUDIO (Android 13+) via the MediaStore plugin — NOT Filesystem
+    var plugin = getPlugin('MediaStore');
+    if (plugin && plugin.requestPermissions) {
+      return plugin.requestPermissions().catch(function() {});
     }
     return Promise.resolve();
   }
 
+  function openAppSettings() {
+    var plugin = getPlugin('MediaStore');
+    if (plugin && plugin.openAppSettings) {
+      plugin.openAppSettings();
+    }
+  }
+
   function scanAllMusic(onProgress) {
     if (!isNative()) return Promise.resolve([]);
+
+    var plugin = getPlugin('MediaStore');
+    if (!plugin) {
+      return Promise.reject(new Error(
+        'Native music plugin not found. Uninstall the app completely, then reinstall the APK.'
+      ));
+    }
+
+    // Request audio permission first — this triggers the Android system dialog
     return requestPermissions().then(function() {
-      // Try MediaStore first (fast, works on all Android 10+ including SD card)
-      return scanWithMediaStore(onProgress).catch(function() {
-        // Fall back to filesystem scan
-        return scanWithFilesystem(onProgress);
-      });
+      return scanWithMediaStore(onProgress);
+      // No silent filesystem fallback — it doesn't work on Android 13+ (scoped storage)
+      // and would hide the real error from the user
     });
   }
 
@@ -156,5 +171,5 @@ var NativeBridge = (function() {
     };
   }
 
-  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong, requestPermissions: requestPermissions };
+  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong, requestPermissions: requestPermissions, openAppSettings: openAppSettings };
 })();

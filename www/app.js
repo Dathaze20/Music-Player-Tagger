@@ -412,13 +412,19 @@ function renderWelcome(el) {
       el.innerHTML = '<div class="welcome-screen welcome-screen--compact">'
         + '<div class="welcome-perm-icon" style="font-size:36px;width:72px;height:72px;margin-bottom:16px">&#128683;</div>'
         + '<h2 class="welcome-title" style="font-size:18px;margin-bottom:8px">Permission Needed</h2>'
-        + '<p class="welcome-text" style="margin-bottom:20px">' + nativeScanError + '</p>'
-        + '<button class="welcome-btn" id="welcomeRetryBtn" style="max-width:220px">&#8635; Try Again</button>'
-        + '<p class="welcome-hint">Or go to Settings → Apps → Muzio AI → Permissions → Files and media</p>'
+        + '<p class="welcome-text" style="margin-bottom:16px">' + nativeScanError + '</p>'
+        + '<button class="welcome-btn" id="welcomeRetryBtn" style="max-width:240px;margin-bottom:10px">&#8635; Try Again</button>'
+        + '<button class="welcome-btn" id="welcomeSettingsBtn" style="max-width:240px;background:rgba(255,255,255,0.08);box-shadow:none;border:1px solid rgba(255,255,255,0.15)">&#9881; Open App Settings</button>'
+        + '<p class="welcome-hint" style="margin-top:12px">In Settings: Permissions → Music and audio → Allow</p>'
         + '</div>';
       document.getElementById('welcomeRetryBtn').onclick = function() {
         nativeScanError = '';
         nativeAutoScan();
+      };
+      document.getElementById('welcomeSettingsBtn').onclick = function() {
+        if (typeof NativeBridge !== 'undefined' && NativeBridge.openAppSettings) {
+          NativeBridge.openAppSettings();
+        }
       };
       return;
     }

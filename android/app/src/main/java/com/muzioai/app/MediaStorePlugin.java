@@ -1,6 +1,9 @@
 package com.muzioai.app;
 
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -54,6 +57,14 @@ public class MediaStorePlugin extends Plugin {
         } else {
             call.reject("Permission denied — go to Settings → Apps → Muzio AI → Permissions → Files and media");
         }
+    }
+
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.fromParts("package", getContext().getPackageName(), null));
+        getActivity().startActivity(intent);
+        call.resolve();
     }
 
     private void doQuery(PluginCall call) {
