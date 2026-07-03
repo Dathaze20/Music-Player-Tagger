@@ -13,11 +13,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 21
+      - name: Set up JDK 21 (Zulu)
         uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: 'zulu'
+          cache: 'gradle'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -26,6 +27,12 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+
+      - name: Patch @capacitor/filesystem kotlin extension collision
+        run: |
+          FILE="node_modules/@capacitor/filesystem/android/build.gradle"
+          sed -i "s/apply plugin: 'kotlin-android'/if (project.extensions.findByName('kotlin') == null) { apply plugin: 'kotlin-android' }/" "$FILE"
+          echo "Patched $FILE"
 
       - name: Copy web assets to Android
         run: |
@@ -42,22 +49,14 @@ jobs:
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
-      - name: Show Android SDK info
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "--- Available platforms ---"
-          ls $ANDROID_HOME/platforms/ 2>/dev/null || echo "none"
-          echo "--- Available build-tools ---"
-          ls $ANDROID_HOME/build-tools/ 2>/dev/null || echo "none"
-          echo "--- Java version ---"
-          java -version
-
       - name: Install Android SDK 35
         run: |
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-35" "build-tools;35.0.0" 2>/dev/null || true
 
       - name: Build debug APK
-        run: cd android && ./gradlew assembleDebug --no-daemon 2>&1 | tee ../gradle-build.log; exit ${PIPESTATUS[0]}
+        run: |
+          set -o pipefail
+          cd android && ./gradlew assembleDebug --no-daemon 2>&1 | tee ../gradle-build.log
 
       - name: Upload build log on failure
         if: failure()
@@ -73,8 +72,8 @@ jobs:
           if [ -f "$APK" ]; then
             echo "APK built successfully: $(du -sh $APK)"
           else
-            echo "APK not found! Build may have failed silently."
-            find android/app/build -name "*.apk" 2>/dev/null || echo "No APKs found anywhere"
+            echo "APK not found!"
+            find android/app/build -name "*.apk" 2>/dev/null || echo "No APKs found"
             exit 1
           fi
 
