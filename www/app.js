@@ -99,8 +99,10 @@ function saveLibrary() {
         year: s.year, genre: s.genre, track: s.track, art: s.art,
         lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
         dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
-        nativePath: s.nativePath || '',
-        contentUri: s.contentUri || ''
+        nativePath:  s.nativePath  || '',
+        contentUri:  s.contentUri  || '',
+        albumArtUri: s.albumArtUri || '',
+        albumArtist: s.albumArtist || ''
       };
     });
     localStorage.setItem('muzio_library', JSON.stringify(data));
@@ -271,6 +273,9 @@ var queue = [];
 var tagging = { total: 0, done: 0, current: '', active: false, paused: false, queue: [] };
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var sortMode = 'title';
+var artistSortMode = 'az';
+var artistViewMode = 'list';   // 'list' | 'grid2' | 'grid3'
+var albumArtistsOnly = false;
 var nativeScanning = false;
 var nativeScanCount = 0;
 var nativeScanError = '';
@@ -281,15 +286,35 @@ var audio = document.getElementById('audioEl');
 
 function getArtists() {
   var map = {};
+  // Build a set of known album artists for filtering
+  var albumArtistSet = {};
   songs.forEach(function(s) {
-    if (!map[s.artist]) map[s.artist] = { albums: {}, count: 0, arts: [] };
-    map[s.artist].albums[s.album] = true;
-    map[s.artist].count++;
-    if (s.art && map[s.artist].arts.indexOf(s.art) === -1) map[s.artist].arts.push(s.art);
+    if (s.albumArtist) albumArtistSet[s.albumArtist] = true;
   });
-  return Object.keys(map).sort().map(function(name) {
-    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts };
+
+  songs.forEach(function(s) {
+    var key = s.artist;
+    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '' };
+    map[key].albums[s.album] = true;
+    map[key].count++;
+    if (s.art && map[key].arts.indexOf(s.art) === -1) map[key].arts.push(s.art);
+    if (!map[key].albumArtist && s.albumArtist) map[key].albumArtist = s.albumArtist;
   });
+
+  var list = Object.keys(map).map(function(name) {
+    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist };
+  });
+
+  // Album artists filter: only show artists that appear as an albumArtist on at least one song
+  if (albumArtistsOnly && Object.keys(albumArtistSet).length > 0) {
+    list = list.filter(function(a) { return albumArtistSet[a.name]; });
+  }
+
+  if (artistSortMode === 'za') list.sort(function(a, b) { return b.name.localeCompare(a.name); });
+  else if (artistSortMode === 'songs') list.sort(function(a, b) { return b.songCount - a.songCount; });
+  else list.sort(function(a, b) { return a.name.localeCompare(b.name); }); // 'az' default
+
+  return list;
 }
 
 function getAlbums(filter) {
@@ -360,11 +385,23 @@ function render() {
   var menuBtn = document.getElementById('menuBtn');
   var searchBar = document.getElementById('searchBar');
 
+  // Close any open overflow menu on navigation
+  var openMenu = document.getElementById('overflowMenu');
+  if (openMenu) openMenu.remove();
+
   searchBar.classList.add('hidden');
   tabBar.classList.remove('hidden');
   menuBtn.innerHTML = '&#9776;';
   menuBtn.onclick = function() { toggleDrawer(true); };
   fab.classList.remove('hidden');
+
+  // Wire overflow button — only active on main tab views
+  var overflowBtn = document.getElementById('overflowBtn');
+  if (overflowBtn) {
+    overflowBtn.onclick = (selectedArtist || selectedAlbum)
+      ? null
+      : function(e) { e.stopPropagation(); showOverflowMenu(); };
+  }
 
   var counts = getSongCounts();
   var tabs = tabBar.querySelectorAll('button');
@@ -512,10 +549,35 @@ function renderReconnectBanner() {
 function renderArtists(el) {
   var artists = getArtists();
   if (artists.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
+
+  if (artistViewMode !== 'list') {
+    var cols = artistViewMode === 'grid3' ? 3 : 2;
+    var artSize = cols === 3 ? 60 : 80;
+    var html = '<div class="artist-grid grid-' + cols + '">';
+    artists.forEach(function(a) {
+      var safeN = escHtml(a.name).replace(/'/g, "\\'");
+      var artEl = a.arts.length > 0
+        ? '<img src="' + a.arts[0] + '" style="width:' + artSize + 'px;height:' + artSize + 'px;border-radius:50%;object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + safeN + '\',' + artSize + ',true)">'
+        : artHTML(a.name, artSize, true);
+      html += '<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'
+        + artEl
+        + '<div class="artist-grid-name">' + escHtml(a.name) + '</div>'
+        + '<div class="artist-grid-meta">' + a.songCount + ' songs</div>'
+        + '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+    el.querySelectorAll('.artist-grid-card').forEach(function(card) {
+      card.onclick = function() { selectedArtist = card.dataset.artist; render(); };
+    });
+    return;
+  }
+
   var html = '';
   artists.forEach(function(a) {
+    var safeN = escHtml(a.name).replace(/'/g, "\\'");
     var artEl = a.arts.length > 0
-      ? '<img src="' + a.arts[0] + '" style="width:56px;height:56px;border-radius:50%;object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + escHtml(a.name).replace(/'/g,"\\'") + '\',56,true)">'
+      ? '<img src="' + a.arts[0] + '" style="width:56px;height:56px;border-radius:50%;object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + safeN + '\',56,true)">'
       : artHTML(a.name, 56, true);
     html += '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
       + artEl
@@ -530,6 +592,80 @@ function renderArtists(el) {
   el.querySelectorAll('.artist-row').forEach(function(row) {
     row.onclick = function() { selectedArtist = row.dataset.artist; render(); };
   });
+}
+
+function showOverflowMenu() {
+  var existing = document.getElementById('overflowMenu');
+  if (existing) { existing.remove(); return; }
+
+  var menu = document.createElement('div');
+  menu.id = 'overflowMenu';
+  menu.className = 'overflow-menu';
+
+  var items = '';
+
+  if (currentTab === 'artists') {
+    items += '<div class="overflow-item" id="omShuffleAll">&#127925; Shuffle All</div>'
+      + '<div class="overflow-divider"></div>'
+      + '<div class="overflow-section-label">Sort order</div>'
+      + '<div class="overflow-item' + (artistSortMode === 'az' ? ' active' : '') + '" data-sort="az">A &#8594; Z' + (artistSortMode === 'az' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (artistSortMode === 'za' ? ' active' : '') + '" data-sort="za">Z &#8594; A' + (artistSortMode === 'za' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (artistSortMode === 'songs' ? ' active' : '') + '" data-sort="songs">Most Songs' + (artistSortMode === 'songs' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-divider"></div>'
+      + '<div class="overflow-section-label">Grid style</div>'
+      + '<div class="overflow-item' + (artistViewMode === 'list' ? ' active' : '') + '" data-view="list">&#8801; List' + (artistViewMode === 'list' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (artistViewMode === 'grid2' ? ' active' : '') + '" data-view="grid2">&#9638; 2 Columns' + (artistViewMode === 'grid2' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (artistViewMode === 'grid3' ? ' active' : '') + '" data-view="grid3">&#9638; 3 Columns' + (artistViewMode === 'grid3' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-divider"></div>'
+      + '<div class="overflow-item' + (albumArtistsOnly ? ' active' : '') + '" id="omAlbumArtists">'
+      + (albumArtistsOnly ? '&#10004; Album artists only' : '&#9744; Album artists only')
+      + '</div>';
+  } else if (currentTab === 'songs') {
+    items += '<div class="overflow-section-label">Sort order</div>'
+      + '<div class="overflow-item' + (sortMode === 'title' ? ' active' : '') + '" data-song-sort="title">A &#8594; Z (title)' + (sortMode === 'title' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (sortMode === 'artist' ? ' active' : '') + '" data-song-sort="artist">Artist' + (sortMode === 'artist' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (sortMode === 'recent' ? ' active' : '') + '" data-song-sort="recent">Recently added' + (sortMode === 'recent' ? ' &#10003;' : '') + '</div>';
+  }
+
+  if (!items) return;
+
+  menu.innerHTML = items;
+  document.getElementById('app').appendChild(menu);
+
+  // Auto-remove on outside click
+  function closeMenu(e) {
+    if (!menu.contains(e.target) && e.target.id !== 'overflowBtn') {
+      menu.remove();
+      document.removeEventListener('click', closeMenu);
+    }
+  }
+  setTimeout(function() { document.addEventListener('click', closeMenu); }, 0);
+
+  if (currentTab === 'artists') {
+    var shuffleBtn = menu.querySelector('#omShuffleAll');
+    if (shuffleBtn) shuffleBtn.onclick = function() {
+      menu.remove();
+      var allS = [];
+      getArtists().forEach(function(a) { allS = allS.concat(getArtistSongs(a.name)); });
+      if (allS.length > 0) {
+        isShuffled = true;
+        var sh = allS.slice().sort(function() { return Math.random() - 0.5; });
+        playSong(sh[0], sh);
+      }
+    };
+    menu.querySelectorAll('[data-sort]').forEach(function(item) {
+      item.onclick = function() { artistSortMode = item.dataset.sort; menu.remove(); render(); };
+    });
+    menu.querySelectorAll('[data-view]').forEach(function(item) {
+      item.onclick = function() { artistViewMode = item.dataset.view; menu.remove(); render(); };
+    });
+    var aaBtn = menu.querySelector('#omAlbumArtists');
+    if (aaBtn) aaBtn.onclick = function() { albumArtistsOnly = !albumArtistsOnly; menu.remove(); render(); };
+  } else if (currentTab === 'songs') {
+    menu.querySelectorAll('[data-song-sort]').forEach(function(item) {
+      item.onclick = function() { sortMode = item.dataset.songSort; menu.remove(); render(); };
+    });
+  }
 }
 
 function renderSongs(el) {

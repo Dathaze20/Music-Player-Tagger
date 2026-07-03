@@ -31,17 +31,24 @@ var NativeBridge = (function() {
       var files = result.files || [];
       if (onProgress) onProgress(files.length);
       return files.map(function(f) {
+        // Convert album art content:// URI to WebView-playable URL
+        var artUrl = '';
+        if (f.albumArtUri) {
+          try { artUrl = window.Capacitor.convertFileSrc(f.albumArtUri); } catch(e) {}
+        }
         return {
-          name:       f.name,
-          contentUri: f.contentUri,
-          nativePath: f.path ? 'file://' + f.path : '',
-          // Use real metadata from ID3 tags via MediaStore
-          title:      f.title  || '',
-          artist:     f.artist || 'Unknown Artist',
-          album:      f.album  || 'Unknown Album',
-          track:      f.track  || 0,
-          year:       f.year   || '',
-          dur:        f.dur    || 0,
+          name:        f.name,
+          contentUri:  f.contentUri,
+          nativePath:  f.path ? 'file://' + f.path : '',
+          albumArtUri: f.albumArtUri || '',
+          albumArtist: f.albumArtist || '',
+          art:         artUrl,
+          title:       f.title  || '',
+          artist:      f.artist || 'Unknown Artist',
+          album:       f.album  || 'Unknown Album',
+          track:       f.track  || 0,
+          year:        f.year   || '',
+          dur:         f.dur    || 0,
         };
       });
     });
@@ -154,20 +161,23 @@ var NativeBridge = (function() {
     }
 
     return {
-      id:         (typeof genId === 'function') ? genId() : Date.now().toString(36) + Math.random().toString(36).slice(2,8),
-      fn:         fileInfo.name,
-      url:        playUrl,
-      nativePath: fileInfo.nativePath || '',
-      contentUri: fileInfo.contentUri || '',
-      title:      title  || fileInfo.name.replace(/\.[^/.]+$/, ''),
-      artist:     artist || 'Unknown Artist',
-      album:      fileInfo.album || 'Unknown Album',
-      track:      fileInfo.track || 0,
-      year:       fileInfo.year  || '',
-      genre:      fileInfo.genre || '',
-      art:        '', lyrics: '', syncedLyrics: '',
-      dur:        fileInfo.dur || 0,
-      tagging:    false, fav: false, type: '', feat: feat,
+      id:          (typeof genId === 'function') ? genId() : Date.now().toString(36) + Math.random().toString(36).slice(2,8),
+      fn:          fileInfo.name,
+      url:         playUrl,
+      nativePath:  fileInfo.nativePath || '',
+      contentUri:  fileInfo.contentUri || '',
+      albumArtUri: fileInfo.albumArtUri || '',
+      albumArtist: fileInfo.albumArtist || '',
+      title:       title  || fileInfo.name.replace(/\.[^/.]+$/, ''),
+      artist:      artist || 'Unknown Artist',
+      album:       fileInfo.album || 'Unknown Album',
+      track:       fileInfo.track || 0,
+      year:        fileInfo.year  || '',
+      genre:       fileInfo.genre || '',
+      art:         fileInfo.art   || '',   // album art URL from MediaStore
+      lyrics: '', syncedLyrics: '',
+      dur:         fileInfo.dur || 0,
+      tagging:     false, fav: false, type: '', feat: feat,
     };
   }
 
