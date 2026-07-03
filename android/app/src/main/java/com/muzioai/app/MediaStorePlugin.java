@@ -7,16 +7,56 @@ import android.os.Build;
 import android.provider.MediaStore;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
-@CapacitorPlugin(name = "MediaStore")
+@CapacitorPlugin(
+    name = "MediaStore",
+    permissions = {
+        // Android 13+ (API 33): READ_MEDIA_AUDIO is the required permission
+        @Permission(alias = "audioApi33", strings = { "android.permission.READ_MEDIA_AUDIO" }),
+        // Android 12 and below
+        @Permission(alias = "audioLegacy", strings = { "android.permission.READ_EXTERNAL_STORAGE" })
+    }
+)
 public class MediaStorePlugin extends Plugin {
+
+    private boolean hasAudioPermission() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            return getPermissionState("audioApi33") == PermissionState.GRANTED;
+        } else {
+            return getPermissionState("audioLegacy") == PermissionState.GRANTED;
+        }
+    }
 
     @PluginMethod
     public void getAllAudioFiles(PluginCall call) {
+        if (!hasAudioPermission()) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                requestPermissionForAlias("audioApi33", call, "audioPermissionCallback");
+            } else {
+                requestPermissionForAlias("audioLegacy", call, "audioPermissionCallback");
+            }
+            return;
+        }
+        doQuery(call);
+    }
+
+    @PermissionCallback
+    private void audioPermissionCallback(PluginCall call) {
+        if (hasAudioPermission()) {
+            doQuery(call);
+        } else {
+            call.reject("Permission denied — go to Settings → Apps → Muzio AI → Permissions → Files and media");
+        }
+    }
+
+    private void doQuery(PluginCall call) {
         Context ctx = getContext();
         JSArray files = new JSArray();
 
@@ -37,6 +77,7 @@ public class MediaStorePlugin extends Plugin {
         Uri uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
 
         try (Cursor cursor = ctx.getContentResolver().query(uri, projection, selection, null, sortOrder)) {
+
             if (cursor != null) {
                 int idCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
                 int nameCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME);

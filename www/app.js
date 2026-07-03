@@ -273,6 +273,7 @@ var apiKey = localStorage.getItem('gemini_api_key') || '';
 var sortMode = 'title';
 var nativeScanning = false;
 var nativeScanCount = 0;
+var nativeScanError = '';
 
 var audio = document.getElementById('audioEl');
 
@@ -405,14 +406,30 @@ function render() {
 function renderWelcome(el) {
   var isNativeApp = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
 
-  // Native app: always show scanning UI — permissions + scan fire automatically on open
+  // Native app: show scanning UI — auto-starts on open
   if (isNativeApp) {
-    var statusMsg = nativeScanning ? 'Scanning your phone and SD card...' : 'Requesting access to your music...';
-    var countLine = nativeScanCount > 0 ? '<p class="welcome-api-set">Found ' + nativeScanCount + ' songs so far...</p>' : '';
-    el.innerHTML = '<div class="welcome-screen">'
-      + '<div class="welcome-scan-ring"><div class="welcome-scan-note">&#127925;</div></div>'
-      + '<h2 class="welcome-title">Finding Your Music</h2>'
-      + '<p class="welcome-text" id="scanStatusText">' + statusMsg + '</p>'
+    if (nativeScanError) {
+      el.innerHTML = '<div class="welcome-screen welcome-screen--compact">'
+        + '<div class="welcome-perm-icon" style="font-size:36px;width:72px;height:72px;margin-bottom:16px">&#128683;</div>'
+        + '<h2 class="welcome-title" style="font-size:18px;margin-bottom:8px">Permission Needed</h2>'
+        + '<p class="welcome-text" style="margin-bottom:20px">' + nativeScanError + '</p>'
+        + '<button class="welcome-btn" id="welcomeRetryBtn" style="max-width:220px">&#8635; Try Again</button>'
+        + '<p class="welcome-hint">Or go to Settings → Apps → Muzio AI → Permissions → Files and media</p>'
+        + '</div>';
+      document.getElementById('welcomeRetryBtn').onclick = function() {
+        nativeScanError = '';
+        nativeAutoScan();
+      };
+      return;
+    }
+    var countLine = nativeScanCount > 0
+      ? '<p class="scan-count-badge">&#127925; ' + nativeScanCount.toLocaleString() + ' songs found...</p>'
+      : '';
+    var statusMsg = nativeScanning ? 'Scanning phone &amp; SD card...' : 'Starting scan...';
+    el.innerHTML = '<div class="welcome-screen welcome-screen--compact">'
+      + '<div class="welcome-scan-ring"><div class="welcome-scan-note">&#9835;</div></div>'
+      + '<h2 class="welcome-title" style="font-size:18px;margin-bottom:6px">Finding Your Music</h2>'
+      + '<p class="welcome-text" id="scanStatusText" style="margin-bottom:8px">' + statusMsg + '</p>'
       + countLine
       + '</div>';
     return;
@@ -1639,6 +1656,7 @@ function nativeAutoScan() {
   // First launch or rescan — show scanning screen and auto-scan
   nativeScanning = true;
   nativeScanCount = 0;
+  nativeScanError = '';
   render();
 
   NativeBridge.scanAllMusic(function(count) {
@@ -1648,8 +1666,8 @@ function nativeAutoScan() {
   }).then(function(files) {
     nativeScanning = false;
     if (!files || files.length === 0) {
+      nativeScanError = 'No music found. Make sure storage permission is allowed.';
       render();
-      showToast('No music found — grant storage permission and try again', 4000);
       return;
     }
     var newSongs = files.map(function(f) { return NativeBridge.toSong(f); });
@@ -1668,8 +1686,9 @@ function nativeAutoScan() {
     }
   }).catch(function(e) {
     nativeScanning = false;
+    var msg = e && e.message ? e.message : String(e);
+    nativeScanError = msg || 'Scan failed — please grant storage permission and try again.';
     render();
-    showToast('Scan error: ' + (e.message || e), 4000);
   });
 }
 

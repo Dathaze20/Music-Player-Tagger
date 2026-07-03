@@ -33,7 +33,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
         debug {
-            applicationIdSuffix ".debug"
+            // No suffix — keeps same package ID so updates install over existing app
         }
     }
 }

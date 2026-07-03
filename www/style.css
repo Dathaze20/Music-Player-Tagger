@@ -693,8 +693,11 @@ body {
 .welcome-screen {
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  padding: 60px 32px; text-align: center;
+  padding: 40px 28px; text-align: center;
   animation: fadeIn 0.5s ease;
+}
+.welcome-screen--compact {
+  padding: 24px 28px;
 }
 .welcome-perm-icon {
   font-size: 56px;
@@ -1095,9 +1098,9 @@ body {
 /* Scanning welcome state */
 .welcome-scan-ring {
   position: relative;
-  width: 100px;
-  height: 100px;
-  margin-bottom: 28px;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1114,17 +1117,24 @@ body {
 .welcome-scan-ring::after {
   content: '';
   position: absolute;
-  inset: 8px;
+  inset: 6px;
   border-radius: 50%;
   border: 2px solid rgba(0,168,158,0.08);
   border-bottom-color: rgba(0,168,158,0.4);
   animation: spin 1.8s linear infinite reverse;
 }
 .welcome-scan-note {
-  font-size: 40px;
+  font-size: 28px;
   animation: pulse 2s ease-in-out infinite;
   position: relative;
   z-index: 1;
+}
+.scan-count-badge {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--primary);
+  margin-top: 10px;
+  letter-spacing: 0.02em;
 }
 
 /* Now playing art spin when playing */
