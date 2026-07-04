@@ -915,8 +915,8 @@ function renderAlbums(el) {
     else if (a.type === 'Single') badge = '<span class="release-badge single">Single</span>';
 
     var artEl = a.albumArtUri
-      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="width:100%;height:100%;">' + artHTML(a.name, 200) + '</div>'
-      : artHTML(a.name, 200);
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;inset:0;width:100%;height:100%;">' + artHTML(a.name, 200) + '</div>'
+      : '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">' + artHTML(a.name, 200) + '</div>';
     html += '<div class="album-card" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
       + '<div class="album-art-wrap">'
       + artEl
@@ -1961,10 +1961,11 @@ function doSearch(q) {
 document.querySelectorAll('.tabs button').forEach(function(btn) {
   btn.onclick = function() {
     currentTab = btn.dataset.tab;
-    document.querySelectorAll('.tabs button').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
     selectedArtist = null;
     selectedAlbum = null;
+    saveUIState();  // save immediately before render so Android kill can't lose it
+    document.querySelectorAll('.tabs button').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
     render();
   };
 });
@@ -2088,10 +2089,15 @@ function saveUIState() {
 }
 
 function restoreUIState() {
+  // Parse separately so a corrupt JSON string doesn't skip the whole restore
+  var state = null;
   try {
     var raw = localStorage.getItem('muzio_ui_state');
-    if (!raw) return;
-    var state = JSON.parse(raw);
+    if (raw) state = JSON.parse(raw);
+  } catch (e) {}
+  if (!state) return;
+
+  try {
     if (state.tab) currentTab = state.tab;
     if (state.artist) selectedArtist = state.artist;
     if (state.album) selectedAlbum = state.album;
@@ -2122,18 +2128,26 @@ function restoreUIState() {
 
     if (state.scroll) {
       setTimeout(function() {
-        document.getElementById('mainContent').scrollTop = state.scroll;
-      }, 50);
+        var mc = document.getElementById('mainContent');
+        if (mc) mc.scrollTop = state.scroll;
+      }, 80);
     }
 
     if (state.nowPlaying && currentSong) {
-      setTimeout(function() { renderNowPlaying(); }, 100);
+      setTimeout(function() { renderNowPlaying(); }, 120);
     }
   } catch (e) {}
 }
 
 document.addEventListener('visibilitychange', function() {
-  if (document.hidden) saveUIState();
+  if (document.hidden) {
+    saveUIState();
+  } else {
+    // App came to foreground — re-render so the UI matches current state
+    // (handles cases where Android briefly destroys and recreates the activity)
+    render();
+    if (showNowPlaying && currentSong) renderNowPlaying();
+  }
 });
 window.addEventListener('beforeunload', saveUIState);
 window.addEventListener('pagehide', saveUIState);

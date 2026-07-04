@@ -223,21 +223,25 @@ body {
 .album-card { cursor: pointer; text-align: left; transition: transform 0.12s; }
 .album-card:active { transform: scale(0.96); opacity: 0.9; }
 .album-art-wrap {
-  aspect-ratio: 1;
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
+  height: 0;
   border-radius: 12px;
   overflow: hidden;
   margin-bottom: 8px;
   box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-  position: relative;
 }
 .album-art-wrap img { width: 100%; height: 100%; object-fit: cover; }
 .album-art-wrap .art-lazy,
-.album-art-wrap .art-placeholder {
-  position: absolute;
-  inset: 0;
+.album-art-wrap .art-placeholder,
+.album-art-wrap > * {
+  position: absolute !important;
+  inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
   border-radius: 0 !important;
+  top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
 }
 .release-badge {
   position: absolute;
