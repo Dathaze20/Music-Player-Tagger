@@ -87,32 +87,33 @@ function applyArt(el, dataUrls) {
   var size  = parseInt(el.dataset.size) || 56;
 
   if (fill) {
-    // Album grid / album detail hero — stretch image to fill the absolute container
+    // Ensure el is a positioning context so absolute children stay contained
+    var pos = el.style.position;
+    if (pos !== 'absolute' && pos !== 'relative' && pos !== 'fixed') {
+      el.style.position = 'relative';
+    }
     if (valid.length >= 2 && round) {
-      // 2×2 collage — rare fill+round case
       var imgs = valid.slice(0, 4);
       while (imgs.length < 4) imgs.push(imgs[imgs.length % valid.length]);
-      el.innerHTML = '<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:0;">'
+      el.innerHTML = '<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;">'
         + imgs.map(function(u) {
-            return '<img src="' + u + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+            return '<img src="' + u + '" style="width:50%;height:50%;object-fit:cover;display:block;">';
           }).join('') + '</div>';
     } else {
-      // Single image pinned absolutely — avoids height:100% resolution issues on old WebViews
       el.innerHTML = '<img src="' + valid[0] + '" style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;display:block;">';
     }
   } else {
-    // Fixed-size thumbnail (song rows, artist circles, etc.)
     var r = round ? 'border-radius:50%;' : 'border-radius:8px;';
     var wStyle = 'width:' + size + 'px;height:' + size + 'px;' + r + 'overflow:hidden;flex-shrink:0;';
     if (valid.length >= 2 && round) {
       var imgs2 = valid.slice(0, 4);
       while (imgs2.length < 4) imgs2.push(imgs2[imgs2.length % valid.length]);
-      el.innerHTML = '<div style="' + wStyle + 'display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:0;">'
+      el.innerHTML = '<div style="' + wStyle + 'display:-webkit-box;display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;">'
         + imgs2.map(function(u) {
-            return '<img src="' + u + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+            return '<img src="' + u + '" style="width:50%;height:50%;object-fit:cover;display:block;">';
           }).join('') + '</div>';
     } else {
-      el.innerHTML = '<div style="' + wStyle + '"><img src="' + valid[0] + '" style="width:100%;height:100%;object-fit:cover;display:block;"></div>';
+      el.innerHTML = '<img src="' + valid[0] + '" style="width:' + size + 'px;height:' + size + 'px;' + r + 'object-fit:cover;display:block;flex-shrink:0;">';
     }
   }
 }
@@ -930,11 +931,11 @@ function renderAlbums(el) {
     else if (a.type === 'EP') badge = '<span class="release-badge ep">EP</span>';
     else if (a.type === 'Single') badge = '<span class="release-badge single">Single</span>';
 
-    var artEl = a.albumArtUri
-      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;">' + artHTML(a.name, 200) + '</div>'
-      : '<div class="art-placeholder" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:' + (function(){var g=getGrad(a.name);return 'linear-gradient(135deg,'+g[0]+','+g[1]+')';})() + ';">'
-        + '<span style="font-size:48px;font-weight:700;color:#fff;">' + escHtml(a.name.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase()) + '</span>'
-        + '</div>';
+    var aGrad = (function(){ var g = getGrad(a.name); return 'linear-gradient(135deg,' + g[0] + ',' + g[1] + ')'; })();
+    var aInit = escHtml(a.name.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase());
+    // Gradient placeholder always present; art-lazy overlays it once loaded (no 200px fixed child)
+    var artEl = '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:' + aGrad + ';display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:48px;font-weight:700;color:#fff;">' + aInit + '</div>'
+      + (a.albumArtUri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '');
     html += '<div class="album-card" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
       + '<div class="album-art-wrap">'
       + artEl
@@ -1046,9 +1047,10 @@ function renderArtistDetail(el) {
       var badge = '';
       if (a.type === 'Mixtape') badge = '<span class="release-badge mixtape" style="font-size:8px;padding:1px 6px;">Mixtape</span>';
       else if (a.type === 'EP') badge = '<span class="release-badge ep" style="font-size:8px;padding:1px 6px;">EP</span>';
-      var artEl = a.albumArtUri
-        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;">' + artHTML(a.name, 128) + '</div>'
-        : artHTML(a.name, 128);
+      var scrollGrad = (function(){ var g = getGrad(a.name); return 'linear-gradient(135deg,' + g[0] + ',' + g[1] + ')'; })();
+      var scrollInit = escHtml(a.name.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase());
+      var artEl = '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:' + scrollGrad + ';display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:42px;font-weight:700;color:#fff;">' + scrollInit + '</div>'
+        + (a.albumArtUri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '');
       html += '<div class="album-scroll-item" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
         + '<div class="album-scroll-art">'
         + artEl
@@ -1106,13 +1108,13 @@ function renderAlbumDetail(el) {
   var totalDur = albumSongs.reduce(function(sum, s) { return sum + (s.dur || 0); }, 0);
   var albumArtUri = first.albumArtUri || '';
 
-  var heroArt = albumArtUri
-    ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-fill="1" style="width:100%;height:100%;">' + artHTML(selectedAlbum.name, 200) + '</div>'
-    : artHTML(selectedAlbum.name, 200, false, 'xl');
+  var heroGrad = (function(){ var g = getGrad(selectedAlbum.name); return 'linear-gradient(135deg,' + g[0] + ',' + g[1] + ')'; })();
+  var heroInit = selectedAlbum.name.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase();
 
   var html = '<div class="detail-header">'
-    + '<div style="width:200px;height:200px;border-radius:16px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.5);">'
-    + heroArt
+    + '<div style="position:relative;width:200px;height:200px;border-radius:16px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.5);flex-shrink:0;">'
+    + '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:' + heroGrad + ';display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:70px;font-weight:700;color:#fff;">' + escHtml(heroInit) + '</div>'
+    + (albumArtUri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
     + '</div>'
     + '<div class="detail-title">' + escHtml(selectedAlbum.name) + '</div>'
     + '<div class="detail-artist">' + escHtml(selectedAlbum.artist) + '</div>'
