@@ -827,13 +827,20 @@ function renderWelcome(el) {
     var countLine = nativeScanCount > 0
       ? '<p class="scan-count-badge">&#127925; ' + nativeScanCount.toLocaleString() + ' songs found...</p>'
       : '';
-    var statusMsg = nativeScanning ? 'Scanning phone &amp; SD card...' : 'Starting scan...';
+    var statusMsg = nativeScanning ? 'Scanning your music library...' : 'Ready to scan your music library';
     el.innerHTML = '<div class="welcome-screen welcome-screen--compact">'
       + '<div class="welcome-scan-ring"><div class="welcome-scan-note">&#9835;</div></div>'
-      + '<h2 class="welcome-title" style="font-size:18px;margin-bottom:6px">Finding Your Music</h2>'
-      + '<p class="welcome-text" id="scanStatusText" style="margin-bottom:8px">' + statusMsg + '</p>'
+      + '<h2 class="welcome-title" style="font-size:20px;margin-bottom:6px">Muzio AI</h2>'
+      + '<p class="welcome-text" id="scanStatusText" style="margin-bottom:10px">' + statusMsg + '</p>'
       + countLine
+      + (!nativeScanning ? '<button class="welcome-btn" id="welcomeScanNowBtn" style="max-width:220px;margin-top:12px">&#127911; Scan Music Library</button>' : '')
       + '</div>';
+    if (!nativeScanning) {
+      var scanNowBtn = document.getElementById('welcomeScanNowBtn');
+      if (scanNowBtn) {
+        scanNowBtn.onclick = function() { nativeAutoScan(); };
+      }
+    }
     return;
   }
 
@@ -1132,6 +1139,13 @@ function showOverflowMenu() {
 
   if (!items) return;
 
+  // Append native-only actions at the bottom
+  var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+  if (isNat && songs.length > 0) {
+    items += '<div class="overflow-divider"></div>'
+      + '<div class="overflow-item" id="omRescanLib">&#128257; Rescan Library</div>';
+  }
+
   menu.innerHTML = items;
   document.getElementById('app').appendChild(menu);
 
@@ -1172,6 +1186,20 @@ function showOverflowMenu() {
     menu.querySelectorAll('[data-song-sort]').forEach(function(item) {
       item.onclick = function() { sortMode = item.dataset.songSort; menu.remove(); render(); };
     });
+  }
+
+  var omRescan = menu.querySelector('#omRescanLib');
+  if (omRescan) {
+    omRescan.onclick = function() {
+      menu.remove();
+      songs = [];
+      songMap = Object.create(null);
+      _countsCache = null;
+      nativeScanning = false;
+      nativeScanError = '';
+      nativeScanCount = 0;
+      nativeAutoScan();
+    };
   }
 }
 
@@ -2284,7 +2312,7 @@ function openSongEditModal(songId) {
   +     '</div>'
   +     '<div class="te-field"><div class="te-label">Lyrics</div>'
   +       '<textarea class="te-textarea" id="editLyrics" placeholder="Paste lyrics here (supports [mm:ss.xx] LRC format)…" rows="5">'
-  +         + escHtml(song.syncedLyrics || song.lyrics || '') + '</textarea></div>'
+  +         escHtml(song.syncedLyrics || song.lyrics || '') + '</textarea></div>'
   +   '</div>'
   + '</div>'
   + '<div class="te-footer">'
@@ -2734,6 +2762,31 @@ document.getElementById('clearLibBtn').onclick = function() {
   }
 };
 
+document.getElementById('rescanLibBtn').onclick = function() {
+  toggleDrawer(false);
+  // Force a fresh scan even if songs already exist
+  songs = [];
+  songMap = Object.create(null);
+  _countsCache = null;
+  nativeScanning = false;
+  nativeScanError = '';
+  nativeScanCount = 0;
+  nativeAutoScan();
+};
+
+// Show native-only drawer items once Capacitor is ready
+function updateDrawerForPlatform() {
+  var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+  var rescanBtn = document.getElementById('rescanLibBtn');
+  var importFolderBtn = document.getElementById('importFolderBtn');
+  var importFilesBtn = document.getElementById('importFilesBtn');
+  if (rescanBtn) rescanBtn.classList.toggle('hidden', !isNat);
+  if (importFolderBtn) importFolderBtn.classList.toggle('hidden', isNat);
+  if (importFilesBtn) importFilesBtn.classList.toggle('hidden', isNat);
+}
+document.addEventListener('deviceready', updateDrawerForPlatform, false);
+setTimeout(updateDrawerForPlatform, 200);
+
 var appEl = document.getElementById('app');
 appEl.addEventListener('dragover', function(e) { e.preventDefault(); });
 appEl.addEventListener('drop', function(e) {
@@ -2837,9 +2890,9 @@ window.addEventListener('pagehide', saveUIState);
 
 restoreUIState();
 
-if (songs.length === 0 || (currentTab === 'artists' && !selectedArtist && !selectedAlbum)) {
-  render();
-}
+// Always render on startup — restoreUIState only calls render() when saved state exists.
+// Without this, a cold first launch (no saved state) would show a blank screen.
+render();
 
 if (songs.length > 0 && !songs[0].url) {
   if (window.showDirectoryPicker && !isMobile()) {
@@ -2857,21 +2910,22 @@ function nativeAutoScan() {
 
   // Already have songs — reconnect URLs using saved contentUri or nativePath
   if (songs.length > 0) {
+    var needsUrl = songs.filter(function(s) { return !s.url; });
     var reconnected = 0;
-    songs.forEach(function(s) {
-      if (!s.url) {
-        try {
-          if (s.contentUri) {
-            s.url = window.Capacitor.convertFileSrc(s.contentUri);
-            reconnected++;
-          } else if (s.nativePath) {
-            s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
-            reconnected++;
-          }
-        } catch(e) {}
-      }
+    needsUrl.forEach(function(s) {
+      try {
+        if (s.contentUri) {
+          s.url = window.Capacitor.convertFileSrc(s.contentUri);
+          reconnected++;
+        } else if (s.nativePath) {
+          s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
+          reconnected++;
+        }
+      } catch(e) {}
     });
-    if (reconnected > 0) {
+    // If all songs already had URLs or we successfully reconnected, render and stop.
+    // Only fall through to a full rescan when songs exist but no URLs could be restored.
+    if (reconnected > 0 || needsUrl.length === 0) {
       render();
       renderReconnectBanner();
 
@@ -2942,8 +2996,9 @@ function nativeAutoScan() {
 
 // Register on multiple events — Capacitor bridge load timing varies by device
 document.addEventListener('deviceready', nativeAutoScan, false);
-setTimeout(nativeAutoScan, 500);
-setTimeout(nativeAutoScan, 2000);
+setTimeout(nativeAutoScan, 100);   // fast path: bridge usually ready within 100ms
+setTimeout(nativeAutoScan, 500);   // fallback if bridge loads slower
+setTimeout(nativeAutoScan, 2000);  // last resort for slow devices
 
 // Lock screen / notification controls
 initMediaSession();
