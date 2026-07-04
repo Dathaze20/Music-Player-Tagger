@@ -1053,7 +1053,7 @@ function renderArtistDetail(el) {
       + (s.feat ? '<span class="feat"> ft. ' + escHtml(s.feat) + '</span>' : '') + '</div>'
       + '<div class="song-meta">' + escHtml(s.album) + '</div>'
       + '</div>'
-      + '<span class="song-duration">' + fmtTime(s.dur) + '</span>'
+      + (playing ? eqBarsHTML(!isPlaying) : '<span class="song-duration">' + fmtTime(s.dur) + '</span>')
       + '<button class="song-edit" data-edit="' + s.id + '">&#8942;</button>'
       + '</div>';
   });
@@ -1292,7 +1292,9 @@ function renderNowPlaying() {
     ? '<img src="' + artData + '" style="width:100%;height:100%;object-fit:cover;display:block;">'
     : artHTML(currentSong.album || currentSong.title, 300, false, 'xxl');
 
-  var html = '<div class="np-header">'
+  var html = '<div class="np-bg-blur" id="npBgBlur"' + (artData ? ' style="background-image:url(' + artData + ')"' : '') + '></div>'
+    + '<div class="np-content">'
+    + '<div class="np-header">'
     + '<button id="npClose">&#8744;</button>'
     + '<div class="np-header-center"><div class="np-label">Playing From</div>'
     + '<div class="np-header-album">' + escHtml(currentSong.album && currentSong.album !== 'Unknown Album' ? currentSong.album : currentSong.artist) + '</div></div>'
@@ -1359,7 +1361,8 @@ function renderNowPlaying() {
       + '<p class="sub">Add a Gemini API key in Settings to auto-fetch lyrics</p>'
       + '</div>';
   }
-  html += '</div>';
+  html += '</div>';  // end np-lyrics-panel
+  html += '</div>';  // end np-content
 
   np.innerHTML = html;
 
@@ -1371,6 +1374,8 @@ function renderNowPlaying() {
       if (showNowPlaying && currentSong && currentSong.albumArtUri === artUri) {
         var el = document.getElementById('npArtImg');
         if (el) el.innerHTML = '<img src="' + data + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+        var bg = document.getElementById('npBgBlur');
+        if (bg) bg.style.backgroundImage = 'url(' + data + ')';
       }
     }).catch(function() {});
   }
@@ -1498,13 +1503,11 @@ function playSong(song, songList) {
   currentTime = 0;
   duration = song.dur || 0;
   if (song.url) {
+    isPlaying = true;
     audio.src = song.url;
     audio.playbackRate = playbackRate;
-    audio.play().then(function() {
-      isPlaying = true;
-      updateMediaSession();
-      render();
-    }).catch(function() {});
+    audio.play().catch(function() { isPlaying = false; render(); });
+    updateMediaSession();
   } else {
     isPlaying = false;
     showToast('Re-import folder to play');
@@ -1960,10 +1963,12 @@ document.getElementById('searchBtn').onclick = function() {
   bar.classList.toggle('hidden');
   var input = document.getElementById('searchInput');
   if (!bar.classList.contains('hidden')) {
-    input.focus();
     input.value = '';
+    input.focus();
+    input.oninput = function() { doSearch(input.value); };
+  } else {
+    render();
   }
-  input.oninput = function() { doSearch(input.value); };
 };
 
 document.getElementById('miniPlayerContent').onclick = function() { renderNowPlaying(); };
@@ -2083,8 +2088,8 @@ function restoreUIState() {
     if (state.sortMode) sortMode = state.sortMode;
     if (state.shuffled) isShuffled = state.shuffled;
     if (state.repeat) repeatMode = state.repeat;
-    if (typeof state.vol === 'number') volume = state.vol;
-    if (state.muted) isMuted = state.muted;
+    if (typeof state.vol === 'number') { volume = state.vol; audio.volume = volume; }
+    isMuted = false;
     if (state.speed && SPEEDS.indexOf(state.speed) !== -1) { playbackRate = state.speed; audio.playbackRate = playbackRate; }
 
     if (state.songFn) {
