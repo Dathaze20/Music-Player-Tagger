@@ -732,6 +732,9 @@ function render() {
   var openMenu = document.getElementById('overflowMenu');
   if (openMenu) openMenu.remove();
 
+  // Remove alphabet strip when navigating away from artist list
+  ['alphaStrip', 'alphaBubble'].forEach(function(id) { var e = document.getElementById(id); if (e) e.remove(); });
+
   searchBar.classList.add('hidden');
   tabBar.classList.remove('hidden');
   menuBtn.innerHTML = '&#9776;';
@@ -895,6 +898,79 @@ function renderReconnectBanner() {
   }
 }
 
+// ─── Alphabet Fast-Scroll Strip ───
+
+function renderAlphaStrip(listEl, letters) {
+  ['alphaStrip', 'alphaBubble'].forEach(function(id) { var e = document.getElementById(id); if (e) e.remove(); });
+  if (letters.length < 4) return;
+
+  var appEl = document.getElementById('app');
+
+  var strip = document.createElement('div');
+  strip.id = 'alphaStrip';
+  strip.className = 'alpha-strip';
+  letters.forEach(function(letter) {
+    var d = document.createElement('div');
+    d.className = 'alpha-letter';
+    d.textContent = letter;
+    d.dataset.letter = letter;
+    strip.appendChild(d);
+  });
+  appEl.appendChild(strip);
+
+  var bubble = document.createElement('div');
+  bubble.id = 'alphaBubble';
+  bubble.className = 'alpha-bubble';
+  bubble.style.display = 'none';
+  appEl.appendChild(bubble);
+
+  function getLetterAtY(clientY) {
+    var items = strip.querySelectorAll('.alpha-letter');
+    var best = null, bestDist = Infinity;
+    for (var i = 0; i < items.length; i++) {
+      var rect = items[i].getBoundingClientRect();
+      var mid = rect.top + rect.height / 2;
+      var dist = Math.abs(clientY - mid);
+      if (dist < bestDist) { bestDist = dist; best = items[i].dataset.letter; }
+    }
+    return best;
+  }
+
+  function activate(letter, clientY) {
+    strip.querySelectorAll('.alpha-letter').forEach(function(d) {
+      d.classList.toggle('active', d.dataset.letter === letter);
+    });
+    bubble.textContent = letter;
+    bubble.style.display = 'flex';
+    bubble.style.top = (clientY - 28) + 'px';
+    var anchor = listEl.querySelector('[data-alpha-anchor="' + letter + '"]');
+    if (anchor) {
+      var mc = document.getElementById('mainContent');
+      mc.scrollTop = anchor.offsetTop;
+    }
+  }
+
+  function deactivate() {
+    strip.querySelectorAll('.alpha-letter').forEach(function(d) { d.classList.remove('active'); });
+    bubble.style.display = 'none';
+  }
+
+  strip.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    var l = getLetterAtY(e.touches[0].clientY);
+    if (l) activate(l, e.touches[0].clientY);
+  }, { passive: false });
+
+  strip.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    var l = getLetterAtY(e.touches[0].clientY);
+    if (l) activate(l, e.touches[0].clientY);
+  }, { passive: false });
+
+  strip.addEventListener('touchend', deactivate);
+  strip.addEventListener('touchcancel', deactivate);
+}
+
 // ─── Tab Renderers ───
 
 function renderArtists(el) {
@@ -925,11 +1001,21 @@ function renderArtists(el) {
   }
 
   var parts = [];
+  var alphaLetters = [];
+  var seenAlpha = {};
   artists.forEach(function(a) {
+    var ch = a.name.charAt(0).toUpperCase();
+    var letter = (ch >= 'A' && ch <= 'Z') ? ch : '#';
+    var anchor = '';
+    if (!seenAlpha[letter]) {
+      seenAlpha[letter] = true;
+      alphaLetters.push(letter);
+      anchor = ' data-alpha-anchor="' + letter + '"';
+    }
     var artEl = a.albumArtUris.length > 0
       ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1">' + artHTML(a.name, 56, true) + '</div>'
       : artHTML(a.name, 56, true);
-    parts.push('<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
+    parts.push('<div class="artist-row" data-artist="' + escHtml(a.name) + '"' + anchor + '>'
       + artEl
       + '<div class="song-info">'
       + '<div class="artist-name">' + escHtml(a.name) + '</div>'
@@ -943,6 +1029,7 @@ function renderArtists(el) {
   el.querySelectorAll('.artist-row').forEach(function(row) {
     row.onclick = function() { selectedArtist = row.dataset.artist; render(); };
   });
+  renderAlphaStrip(el, alphaLetters);
 }
 
 function showOverflowMenu() {
