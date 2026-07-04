@@ -2259,6 +2259,8 @@ function openSongEditModal(songId) {
     + '<div class="edit-modal-footer">'
     + '<button class="btn-cancel" id="editCancelBtn">Cancel</button>'
     + '<button class="btn-save" id="editSaveBtn">&#10003; Save</button>'
+    + (song.contentUri && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()
+        ? '<button class="btn-save-file" id="editSaveToFileBtn">&#128190; Save to File</button>' : '')
     + '</div>';
 
   modal.classList.remove('hidden');
@@ -2277,7 +2279,7 @@ function openSongEditModal(songId) {
   document.getElementById('editCancelBtn').onclick = closeEditModal;
   overlay.onclick = closeEditModal;
 
-  document.getElementById('editSaveBtn').onclick = function() {
+  function applyFormToSong() {
     song.title = document.getElementById('editTitle').value.trim() || song.title;
     song.artist = document.getElementById('editArtist').value.trim() || song.artist;
     song.album = document.getElementById('editAlbum').value.trim() || song.album;
@@ -2294,6 +2296,9 @@ function openSongEditModal(songId) {
       song.syncedLyrics = '';
       song.lyrics = lyricsVal;
     }
+  }
+
+  function finishSave() {
     closeEditModal();
     saveLibrary();
     render();
@@ -2301,7 +2306,53 @@ function openSongEditModal(songId) {
       currentSong = song;
       renderNowPlaying();
     }
+  }
+
+  document.getElementById('editSaveBtn').onclick = function() {
+    applyFormToSong();
+    finishSave();
   };
+
+  var saveToFileBtn = document.getElementById('editSaveToFileBtn');
+  if (saveToFileBtn) {
+    saveToFileBtn.onclick = function() {
+      applyFormToSong();
+      finishSave();
+      showToast('Writing tags to file…');
+
+      // Prefer an already-decoded data: URL; otherwise fetch from MediaStore albumArtUri
+      var artPromise;
+      if (song.art && song.art.startsWith('data:')) {
+        artPromise = Promise.resolve(song.art);
+      } else if (song.albumArtUri) {
+        artPromise = NativeBridge.readAlbumArt(song.albumArtUri, 500).catch(function() { return ''; });
+      } else {
+        artPromise = Promise.resolve('');
+      }
+
+      artPromise.then(function(artBase64) {
+        return NativeBridge.writeFileTags({
+          contentUri:  song.contentUri,
+          title:       song.title,
+          artist:      song.artist,
+          album:       song.album,
+          year:        song.year        || '',
+          genre:       song.genre       || '',
+          albumArtist: song.albumArtist || '',
+          lyrics:      song.lyrics      || '',
+          artBase64:   artBase64        || '',
+        });
+      }).then(function(result) {
+        if (result && result.fileWritten) {
+          showToast('Tags written to file ✓');
+        } else {
+          showToast('Metadata saved (file embed requires MP3)');
+        }
+      }).catch(function(err) {
+        showToast('File write failed: ' + (err && err.message ? err.message : String(err)));
+      });
+    };
+  }
 }
 
 function openEditModal(albumName, artistName) {

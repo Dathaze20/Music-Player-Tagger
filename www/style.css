@@ -812,6 +812,9 @@ body {
 }
 .btn-cancel { background: var(--bg-secondary); color: var(--text-dim); }
 .btn-save { background: var(--primary); color: var(--primary-fg); }
+.btn-save-file { background: #2a6496; color: #fff; font-size: 12px; padding: 0 10px; }
+.edit-modal-footer:has(.btn-save-file) .btn-cancel,
+.edit-modal-footer:has(.btn-save-file) .btn-save { font-size: 12px; padding: 0 10px; }
 
 /* FAB */
 .fab {

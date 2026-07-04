@@ -192,5 +192,28 @@ var NativeBridge = (function() {
     }).catch(function() { return ''; });
   }
 
-  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong, requestPermissions: requestPermissions, openAppSettings: openAppSettings, readAlbumArt: readAlbumArt };
+  // Write ID3v2 tags to a physical music file on the device.
+  // params: { contentUri, title, artist, album, year, genre, albumArtist, lyrics, artBase64 }
+  // Returns a promise that resolves to { success, fileWritten, note? }.
+  // On Android 11+, may show a one-time system dialog asking the user to grant write access.
+  function writeFileTags(params) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin) return Promise.reject(new Error('MediaStore plugin not available'));
+    if (!params || !params.contentUri) return Promise.reject(new Error('contentUri required'));
+    return plugin.writeFileTags({
+      contentUri:  String(params.contentUri  || ''),
+      title:       String(params.title       || ''),
+      artist:      String(params.artist      || ''),
+      album:       String(params.album       || ''),
+      year:        String(params.year        || ''),
+      genre:       String(params.genre       || ''),
+      albumArtist: String(params.albumArtist || ''),
+      lyrics:      String(params.lyrics      || ''),
+      artBase64:   String(params.artBase64   || ''),
+    });
+  }
+
+  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
+           requestPermissions: requestPermissions, openAppSettings: openAppSettings,
+           readAlbumArt: readAlbumArt, writeFileTags: writeFileTags };
 })();
