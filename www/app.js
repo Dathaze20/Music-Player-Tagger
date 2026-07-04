@@ -742,12 +742,16 @@ function render() {
   menuBtn.onclick = function() { toggleDrawer(true); };
   fab.classList.add('hidden');
 
-  // Wire overflow button — only active on main tab views
+  // Wire overflow button
   var overflowBtn = document.getElementById('overflowBtn');
   if (overflowBtn) {
-    overflowBtn.onclick = (selectedArtist || selectedAlbum)
-      ? null
-      : function(e) { e.stopPropagation(); showOverflowMenu(); };
+    if (selectedAlbum) {
+      overflowBtn.onclick = function(e) { e.stopPropagation(); showAlbumMenu(selectedAlbum); };
+    } else if (selectedArtist) {
+      overflowBtn.onclick = function(e) { e.stopPropagation(); showArtistMenu(selectedArtist); };
+    } else {
+      overflowBtn.onclick = function(e) { e.stopPropagation(); showOverflowMenu(); };
+    }
   }
 
   var counts = getSongCounts();
@@ -1319,7 +1323,7 @@ function songRowHTML(s, playing, showEdit) {
     + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
     + (playing ? eqBarsHTML(!isPlaying) : '<span class="song-duration">' + fmtTime(s.dur) + '</span>')
     + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + (s.fav ? '&#10084;' : '&#9825;') + '</button>'
-    + (showEdit ? '<button class="song-edit" data-edit="' + s.id + '">&#8942;</button>' : '')
+    + (showEdit ? '<button class="song-edit" data-song-menu="' + s.id + '">&#8942;</button>' : '')
     + '</div>';
 }
 
@@ -1393,7 +1397,7 @@ function renderArtistDetail(el) {
       + '<div class="song-meta">' + escHtml(s.album) + '</div>'
       + '</div>'
       + (playing ? eqBarsHTML(!isPlaying) : '<span class="song-duration">' + fmtTime(s.dur) + '</span>')
-      + '<button class="song-edit" data-edit="' + s.id + '">&#8942;</button>'
+      + '<button class="song-edit" data-song-menu="' + s.id + '">&#8942;</button>'
       + '</div>');
   });
 
@@ -1466,7 +1470,7 @@ function renderAlbumDetail(el) {
       + '</div>'
       + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
       + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + (s.fav ? '&#10084;' : '&#9825;') + '</button>'
-      + '<button class="song-edit" data-edit="' + s.id + '">&#8942;</button>'
+      + '<button class="song-edit" data-song-menu="' + s.id + '">&#8942;</button>'
       + '</div>');
   });
 
@@ -1499,8 +1503,8 @@ function bindSongRows(el, songList) {
       if (s) { s.fav = !s.fav; _countsCache = null; saveLibrary(); render(); }
       return;
     }
-    var edit = e.target.closest('[data-edit]');
-    if (edit) { openSongEditModal(edit.dataset.edit); return; }
+    var menuBtn = e.target.closest('[data-song-menu]');
+    if (menuBtn) { showSongMenu(menuBtn.dataset.songMenu, songList); return; }
     var row = e.target.closest('.song-row[data-id]');
     if (row) {
       var s = songMap[row.dataset.id];
@@ -1897,16 +1901,66 @@ function showArtistMenu(artistName) {
         playSong(sh[0], sh);
     }},
     'divider',
-    { icon: '&#9881;',  label: 'Tag all songs',      action: function() {
-        if (!apiKey) { showToast('Set up AI key in Settings first'); return; }
-        var toTag = artistSongs.filter(function(s) { return !s.genre || !s.year; });
-        if (!toTag.length) { showToast('All songs already tagged'); return; }
-        toTag.forEach(function(s) { s.tagging = true; });
-        tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag };
-        updateTaggingBanner(); tagNextSong(toTag, 0);
-        showToast('Tagging ' + toTag.length + ' songs...');
+    { icon: '&#9998;',  label: 'Tag editor',          action: function() { selectedArtist = artistName; render(); showToast('Tap ⋮ on any song to edit its tags'); } },
+  ]);
+}
+
+function showAlbumMenu(album) {
+  var albumSongs = getAlbumSongs(album.name, album.artist);
+  var first = albumSongs[0] || {};
+  var uri = first.albumArtUri || '';
+  var g = getGrad(album.name);
+  var init = album.name.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase();
+  var headerHTML = '<div class="bs-art-single">'
+    + '<div style="width:100%;height:100%;position:absolute;top:0;left:0;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;">' + escHtml(init) + '</div>'
+    + (uri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(uri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
+    + '</div>'
+    + '<div class="bs-info">'
+    + '<div class="bs-name">' + escHtml(album.name) + '</div>'
+    + '<div class="bs-meta">' + escHtml(album.artist) + ' &bull; ' + albumSongs.length + ' Songs</div>'
+    + '</div>';
+  openBottomSheet(headerHTML, [
+    { icon: '&#9654;', label: 'Play',         action: function() { if (albumSongs.length) playSong(albumSongs[0], albumSongs); } },
+    { icon: '&#8631;', label: 'Play next',    action: function() { playNext(albumSongs); } },
+    { icon: '&#8644;', label: 'Add to queue', action: function() { addToQueue(albumSongs); } },
+    { icon: '&#8645;', label: 'Shuffle',      action: function() {
+        if (!albumSongs.length) return;
+        isShuffled = true;
+        var sh = albumSongs.slice().sort(function() { return Math.random() - 0.5; });
+        playSong(sh[0], sh);
     }},
-    { icon: '&#8594;',  label: 'Go to artist',       action: function() { selectedArtist = artistName; render(); } },
+    'divider',
+    { icon: '&#9998;', label: 'Tag editor',   action: function() { openEditModal(album.name, album.artist); } },
+    { icon: '&#9835;', label: 'Go to artist', action: function() { selectedAlbum = null; selectedArtist = album.artist; render(); } },
+  ]);
+}
+
+function showSongMenu(songId, songList) {
+  var song = songMap[songId];
+  if (!song) return;
+  var uri = song.albumArtUri || '';
+  var g = getGrad(song.album || song.title);
+  var init = (song.album || song.title).split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase();
+  var headerHTML = '<div class="bs-art-single">'
+    + '<div style="width:100%;height:100%;position:absolute;top:0;left:0;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;">' + escHtml(init) + '</div>'
+    + (uri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(uri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
+    + (song.art ? '<img src="' + escHtml(song.art) + '" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;" onerror="this.style.display=\'none\'">' : '')
+    + '</div>'
+    + '<div class="bs-info">'
+    + '<div class="bs-name">' + escHtml(song.title) + (song.feat ? '<span style="font-size:12px;color:var(--text-dim);"> ft. ' + escHtml(song.feat) + '</span>' : '') + '</div>'
+    + '<div class="bs-meta">' + escHtml(song.artist) + ' &bull; ' + escHtml(song.album) + '</div>'
+    + '</div>';
+  var isFav = song.fav;
+  openBottomSheet(headerHTML, [
+    { icon: '&#9654;', label: 'Play',              action: function() { if (song.url) playSong(song, songList || queue); else showToast('Re-import folder to play'); } },
+    { icon: '&#8631;', label: 'Play next',         action: function() { playNext([song]); } },
+    { icon: '&#8644;', label: 'Add to queue',      action: function() { addToQueue([song]); } },
+    { icon: isFav ? '&#10084;' : '&#9825;', label: isFav ? 'Remove from favorites' : 'Add to favorites',
+      action: function() { song.fav = !song.fav; _countsCache = null; saveLibraryLater(); showToast(song.fav ? 'Added to favorites' : 'Removed from favorites'); } },
+    'divider',
+    { icon: '&#9998;', label: 'Tag editor',        action: function() { openSongEditModal(songId); } },
+    { icon: '&#9835;', label: 'Go to album',       action: function() { selectedAlbum = { name: song.album, artist: song.artist }; render(); } },
+    { icon: '&#9834;', label: 'Go to artist',      action: function() { selectedAlbum = null; selectedArtist = song.artist; render(); } },
   ]);
 }
 
