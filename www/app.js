@@ -143,6 +143,10 @@ function loadLazyEl(el) {
 
 function initLazyArt(container) {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+
+  // Disconnect previous observer so stale elements don't hold memory
+  if (_lazyArtObs) { _lazyArtObs.disconnect(); _lazyArtObs = null; }
+
   var lazies = container.querySelectorAll('.art-lazy[data-lazy-uri]');
   if (!lazies.length) return;
 
@@ -150,9 +154,9 @@ function initLazyArt(container) {
     lazies.forEach(loadLazyEl);
     return;
   }
-  var obs = new IntersectionObserver(function(entries) {
+  _lazyArtObs = new IntersectionObserver(function(entries) {
     entries.forEach(function(entry) {
-      if (entry.isIntersecting) { obs.unobserve(entry.target); loadLazyEl(entry.target); }
+      if (entry.isIntersecting) { _lazyArtObs.unobserve(entry.target); loadLazyEl(entry.target); }
     });
   }, { rootMargin: '300px' });
 
@@ -161,7 +165,7 @@ function initLazyArt(container) {
     if (uris.length && uris.every(function(u) { return artCache[u]; })) {
       applyArt(el, uris.map(function(u) { return artCache[u]; }));
     } else {
-      obs.observe(el);
+      _lazyArtObs.observe(el);
     }
   });
 }
@@ -270,7 +274,16 @@ function showToast(msg, duration) {
 
 // ─── Persistence (localStorage) ───
 
+var _saveLibraryTimer = null;
+function saveLibraryLater() {
+  clearTimeout(_saveLibraryTimer);
+  _saveLibraryTimer = setTimeout(saveLibrary, 1000);
+}
+
 function saveLibrary() {
+  _countsCache = null;
+  songMap = Object.create(null);
+  songs.forEach(function(s) { songMap[s.id] = s; });
   try {
     var data = songs.map(function(s) {
       return {
@@ -448,6 +461,18 @@ var audioPreload = (function() { var a = new Audio(); a.preload = 'auto'; return
 var preloadedUrl = '';
 var preloadedSong = null;
 
+// Song lookup map — rebuilt in saveLibrary(); avoids O(n) songs.find() on every tap
+var songMap = (function() { var m = Object.create(null); songs.forEach(function(s){m[s.id]=s;}); return m; })();
+
+// Counts cache — invalidated in saveLibrary()
+var _countsCache = null;
+
+// IntersectionObserver singleton — disconnected before each new render
+var _lazyArtObs = null;
+
+// Now Playing DOM element refs — cached after renderNowPlaying, cleared on close
+var _npSeekEl = null, _npFillEl = null, _npTime0El = null;
+
 // Mini player DOM cache to avoid getElementById on every timeupdate
 var _miniLastSongId = '';
 
@@ -571,13 +596,17 @@ function getFavorites() {
 }
 
 function getSongCounts() {
-  var artists = {};
-  var albums = {};
+  if (_countsCache) return _countsCache;
+  var artists = Object.create(null);
+  var albums = Object.create(null);
+  var favs = 0;
   songs.forEach(function(s) {
-    artists[s.artist] = true;
-    albums[s.album + '|||' + s.artist] = true;
+    artists[s.artist] = 1;
+    albums[s.album + '|||' + s.artist] = 1;
+    if (s.fav) favs++;
   });
-  return { songs: songs.length, artists: Object.keys(artists).length, albums: Object.keys(albums).length, favs: getFavorites().length };
+  _countsCache = { songs: songs.length, artists: Object.keys(artists).length, albums: Object.keys(albums).length, favs: favs };
+  return _countsCache;
 }
 
 // ─── Render ───
@@ -766,19 +795,19 @@ function renderArtists(el) {
   if (artistViewMode !== 'list') {
     var cols = artistViewMode === 'grid3' ? 3 : 2;
     var artSize = cols === 3 ? 60 : 80;
-    var html = '<div class="artist-grid grid-' + cols + '">';
+    var gridParts = ['<div class="artist-grid grid-' + cols + '">'];
     artists.forEach(function(a) {
       var artEl = a.albumArtUris.length > 0
         ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="' + artSize + '" data-round="1">' + artHTML(a.name, artSize, true) + '</div>'
         : artHTML(a.name, artSize, true);
-      html += '<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'
+      gridParts.push('<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'
         + artEl
         + '<div class="artist-grid-name">' + escHtml(a.name) + '</div>'
         + '<div class="artist-grid-meta">' + a.songCount + ' songs</div>'
-        + '</div>';
+        + '</div>');
     });
-    html += '</div>';
-    el.innerHTML = html;
+    gridParts.push('</div>');
+    el.innerHTML = gridParts.join('');
     initLazyArt(el);
     el.querySelectorAll('.artist-grid-card').forEach(function(card) {
       card.onclick = function() { selectedArtist = card.dataset.artist; render(); };
@@ -786,21 +815,21 @@ function renderArtists(el) {
     return;
   }
 
-  var html = '';
+  var parts = [];
   artists.forEach(function(a) {
     var artEl = a.albumArtUris.length > 0
       ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1">' + artHTML(a.name, 56, true) + '</div>'
       : artHTML(a.name, 56, true);
-    html += '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
+    parts.push('<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
       + artEl
       + '<div class="song-info">'
       + '<div class="artist-name">' + escHtml(a.name) + '</div>'
       + '<div class="artist-meta">' + a.albumCount + ' ' + (a.albumCount === 1 ? 'Album' : 'Albums') + ' &bull; ' + a.songCount + ' ' + (a.songCount === 1 ? 'Song' : 'Songs') + '</div>'
       + '</div>'
       + '<span style="color:var(--text-faint);padding:8px;font-size:20px;opacity:0.5;">&#8250;</span>'
-      + '</div>';
+      + '</div>');
   });
-  el.innerHTML = html;
+  el.innerHTML = parts.join('');
   initLazyArt(el);
   el.querySelectorAll('.artist-row').forEach(function(row) {
     row.onclick = function() { selectedArtist = row.dataset.artist; render(); };
@@ -888,19 +917,18 @@ function renderSongs(el) {
   else if (sortMode === 'artist') sorted.sort(function(a, b) { return a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title); });
   else if (sortMode === 'recent') sorted.reverse();
 
-  var html = '<div class="sort-bar">'
+  var parts = ['<div class="sort-bar">'
     + '<span class="sort-label">' + songs.length + ' songs</span>'
     + '<div class="sort-btns">'
     + '<button class="sort-btn' + (sortMode==='title'?' active':'') + '" data-sort="title">A-Z</button>'
     + '<button class="sort-btn' + (sortMode==='artist'?' active':'') + '" data-sort="artist">Artist</button>'
     + '<button class="sort-btn' + (sortMode==='recent'?' active':'') + '" data-sort="recent">Recent</button>'
-    + '</div></div>';
+    + '</div></div>'];
 
   sorted.forEach(function(s) {
-    var playing = currentSong && currentSong.id === s.id;
-    html += songRowHTML(s, playing, true);
+    parts.push(songRowHTML(s, currentSong && currentSong.id === s.id, true));
   });
-  el.innerHTML = html;
+  el.innerHTML = parts.join('');
   initLazyArt(el);
 
   el.querySelectorAll('.sort-btn').forEach(function(btn) {
@@ -920,11 +948,11 @@ function renderAlbums(el) {
     eps: allAlbums.filter(function(a){return a.type==='EP'||a.type==='Single';}).length,
   };
   var chips = [['all','All'],['albums','Albums'],['mixtapes','Mixtapes'],['eps','EPs & Singles']];
-  var html = '<div class="filter-chips">';
+  var parts = ['<div class="filter-chips">'];
   chips.forEach(function(c) {
-    html += '<button class="chip' + (albumFilter === c[0] ? ' active' : '') + '" data-filter="' + c[0] + '">' + c[1] + '<span class="count">' + counts[c[0]] + '</span></button>';
+    parts.push('<button class="chip' + (albumFilter === c[0] ? ' active' : '') + '" data-filter="' + c[0] + '">' + c[1] + '<span class="count">' + counts[c[0]] + '</span></button>');
   });
-  html += '</div><div class="album-grid">';
+  parts.push('</div><div class="album-grid">');
   filtered.forEach(function(a) {
     var badge = '';
     if (a.type === 'Mixtape') badge = '<span class="release-badge mixtape">Mixtape</span>';
@@ -933,20 +961,19 @@ function renderAlbums(el) {
 
     var aGrad = (function(){ var g = getGrad(a.name); return 'linear-gradient(135deg,' + g[0] + ',' + g[1] + ')'; })();
     var aInit = escHtml(a.name.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase());
-    // Gradient placeholder always present; art-lazy overlays it once loaded (no 200px fixed child)
     var artEl = '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:' + aGrad + ';display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:48px;font-weight:700;color:#fff;">' + aInit + '</div>'
       + (a.albumArtUri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '');
-    html += '<div class="album-card" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
+    parts.push('<div class="album-card" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
       + '<div class="album-art-wrap">'
       + artEl
       + badge
       + '</div>'
       + '<div class="album-name">' + escHtml(a.name) + '</div>'
       + '<div class="album-meta">' + escHtml(a.artist) + ' &bull; ' + a.songCount + ' Song' + (a.songCount !== 1 ? 's' : '') + '</div>'
-      + '</div>';
+      + '</div>');
   });
-  html += '</div>';
-  el.innerHTML = html;
+  parts.push('</div>');
+  el.innerHTML = parts.join('');
 
   initLazyArt(el);
   el.querySelectorAll('.chip').forEach(function(btn) {
@@ -1063,10 +1090,10 @@ function renderArtistDetail(el) {
     html += '</div>';
   }
 
-  html += '<div class="section-label">All Songs</div>';
+  var songParts = ['<div class="section-label">All Songs</div>'];
   artistSongs.forEach(function(s, i) {
     var playing = currentSong && currentSong.id === s.id;
-    html += '<div class="song-row' + (playing ? ' playing' : '') + '" data-id="' + s.id + '">'
+    songParts.push('<div class="song-row' + (playing ? ' playing' : '') + '" data-id="' + s.id + '">'
       + '<span class="track-num">' + (i + 1) + '</span>'
       + '<div class="song-info">'
       + '<div class="song-title' + (playing ? ' playing' : '') + '">' + escHtml(s.title)
@@ -1075,10 +1102,10 @@ function renderArtistDetail(el) {
       + '</div>'
       + (playing ? eqBarsHTML(!isPlaying) : '<span class="song-duration">' + fmtTime(s.dur) + '</span>')
       + '<button class="song-edit" data-edit="' + s.id + '">&#8942;</button>'
-      + '</div>';
+      + '</div>');
   });
 
-  el.innerHTML = html;
+  el.innerHTML = html + songParts.join('');
 
   initLazyArt(el);
 
@@ -1131,12 +1158,13 @@ function renderAlbumDetail(el) {
     + '<button class="btn btn-secondary" id="editAlbumBtn">&#9998; Edit</button>'
     + '</div></div>';
 
+  var albumRowParts = [];
+  var rowArt = albumArtUri
+    ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-size="48" style="width:48px;height:48px;flex-shrink:0;border-radius:6px;overflow:hidden;">' + artHTML(selectedAlbum.name, 48) + '</div>'
+    : '';
   albumSongs.forEach(function(s, i) {
     var playing = currentSong && currentSong.id === s.id;
-    var rowArt = albumArtUri
-      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-size="48" style="width:48px;height:48px;flex-shrink:0;border-radius:6px;overflow:hidden;">' + artHTML(selectedAlbum.name, 48) + '</div>'
-      : '';
-    html += '<div class="song-row' + (playing ? ' playing' : '') + '" data-id="' + s.id + '">'
+    albumRowParts.push('<div class="song-row' + (playing ? ' playing' : '') + '" data-id="' + s.id + '">'
       + '<span class="track-num">' + (s.track || i + 1) + '</span>'
       + rowArt
       + '<div class="song-info">'
@@ -1147,10 +1175,10 @@ function renderAlbumDetail(el) {
       + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
       + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + (s.fav ? '&#10084;' : '&#9825;') + '</button>'
       + '<button class="song-edit" data-edit="' + s.id + '">&#8942;</button>'
-      + '</div>';
+      + '</div>');
   });
 
-  el.innerHTML = html;
+  el.innerHTML = html + albumRowParts.join('');
   initLazyArt(el);
 
   document.getElementById('playAlbumBtn').onclick = function() {
@@ -1172,29 +1200,24 @@ function renderAlbumDetail(el) {
 // ─── Song Row Bindings ───
 
 function bindSongRows(el, songList) {
-  el.querySelectorAll('.song-row').forEach(function(row) {
-    row.onclick = function(e) {
-      if (e.target.closest('.song-fav') || e.target.closest('.song-edit')) return;
-      var s = songs.find(function(x) { return x.id === row.dataset.id; });
+  el.onclick = function(e) {
+    var fav = e.target.closest('[data-fav]');
+    if (fav) {
+      var s = songMap[fav.dataset.fav];
+      if (s) { s.fav = !s.fav; _countsCache = null; saveLibrary(); render(); }
+      return;
+    }
+    var edit = e.target.closest('[data-edit]');
+    if (edit) { openSongEditModal(edit.dataset.edit); return; }
+    var row = e.target.closest('.song-row[data-id]');
+    if (row) {
+      var s = songMap[row.dataset.id];
       if (s) {
         if (!s.url) { showToast('Re-import your music folder to enable playback'); return; }
         playSong(s, songList);
       }
-    };
-  });
-  el.querySelectorAll('.song-fav').forEach(function(btn) {
-    btn.onclick = function(e) {
-      e.stopPropagation();
-      var s = songs.find(function(x) { return x.id === btn.dataset.fav; });
-      if (s) { s.fav = !s.fav; saveLibrary(); render(); }
-    };
-  });
-  el.querySelectorAll('.song-edit').forEach(function(btn) {
-    btn.onclick = function(e) {
-      e.stopPropagation();
-      openSongEditModal(btn.dataset.edit);
-    };
-  });
+    }
+  };
 }
 
 // ─── Mini Player ───
@@ -1388,6 +1411,11 @@ function renderNowPlaying() {
 
   np.innerHTML = html;
 
+  // Cache NP elements used on every timeupdate tick
+  _npSeekEl  = document.getElementById('npSeek');
+  _npFillEl  = document.getElementById('npSeekFill');
+  _npTime0El = np.querySelector('.np-times span');
+
   // Enable marquee scrolling only if title actually overflows its container
   var marqueeEl = document.getElementById('npTitleMarquee');
   var innerEl = document.getElementById('npTitleInner');
@@ -1411,7 +1439,11 @@ function renderNowPlaying() {
     }).catch(function() {});
   }
 
-  document.getElementById('npClose').onclick = function() { showNowPlaying = false; np.classList.add('hidden'); updateMiniPlayer(); };
+  document.getElementById('npClose').onclick = function() {
+    showNowPlaying = false; np.classList.add('hidden');
+    _npSeekEl = null; _npFillEl = null; _npTime0El = null;
+    updateMiniPlayer();
+  };
   document.getElementById('npPlay').onclick = togglePlay;
   document.getElementById('npPrev').onclick = handlePrev;
   document.getElementById('npNext').onclick = handleNext;
@@ -1422,8 +1454,8 @@ function renderNowPlaying() {
   };
   document.getElementById('npShuffle').onclick = function() { isShuffled = !isShuffled; renderNowPlaying(); };
   document.getElementById('npFav').onclick = function() {
-    var s = songs.find(function(x) { return x.id === currentSong.id; });
-    if (s) { s.fav = !s.fav; currentSong.fav = s.fav; saveLibrary(); renderNowPlaying(); }
+    var s = songMap[currentSong.id];
+    if (s) { s.fav = !s.fav; currentSong.fav = s.fav; _countsCache = null; saveLibrary(); renderNowPlaying(); }
   };
   document.getElementById('npQueueBtn').onclick = function() { /* future: show queue */ };
   document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };
@@ -1615,15 +1647,10 @@ audio.addEventListener('timeupdate', function() {
   // Trigger gapless preload 8 seconds before track ends
   if (duration > 0 && currentTime > 0 && (duration - currentTime) < 8) maybePreloadNext();
   if (showNowPlaying) {
-    var seek = document.getElementById('npSeek');
-    if (seek) { seek.value = currentTime; seek.max = duration || 0; }
-    var fill = document.getElementById('npSeekFill');
-    if (fill && duration > 0) fill.style.width = (currentTime / duration * 100).toFixed(1) + '%';
-    var times = document.querySelectorAll('.np-times span');
-    if (times[0]) times[0].textContent = fmtTime(currentTime);
+    if (_npSeekEl) { _npSeekEl.value = currentTime; _npSeekEl.max = duration || 0; }
+    if (_npFillEl && duration > 0) _npFillEl.style.width = (currentTime / duration * 100).toFixed(1) + '%';
+    if (_npTime0El) _npTime0El.textContent = fmtTime(currentTime);
     updateSyncedLyrics(currentTime);
-    var fsPlay = document.getElementById('lyricsFsPlay');
-    if (fsPlay) fsPlay.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
   }
   // Update lock screen position state every ~2 seconds
   if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && duration > 0 && Math.floor(currentTime) % 2 === 0) {
@@ -1635,7 +1662,7 @@ audio.addEventListener('loadedmetadata', function() {
   duration = audio.duration;
   if (currentSong && (!currentSong.dur || currentSong.dur < 1)) {
     currentSong.dur = audio.duration;
-    saveLibrary();
+    saveLibraryLater();
   }
 });
 audio.addEventListener('ended', handleNext);
@@ -1674,12 +1701,13 @@ function handleFileImport(files) {
   if (newSongs.length > 0) songs = songs.concat(newSongs);
 
   newSongs.forEach(function(s) {
+    songMap[s.id] = s; // keep map current before debounced save fires
     var tempAudio = new Audio();
     tempAudio.preload = 'metadata';
     tempAudio.src = s.url;
     tempAudio.onloadedmetadata = function() {
       s.dur = tempAudio.duration;
-      saveLibrary();
+      saveLibraryLater();
     };
   });
 
@@ -1788,7 +1816,7 @@ function callGeminiTag(fileName) {
 // ─── Edit Modals ───
 
 function openSongEditModal(songId) {
-  var song = songs.find(function(s) { return s.id === songId; });
+  var song = songMap[songId];
   if (!song) return;
   var modal = document.getElementById('editModal');
   var overlay = document.getElementById('editOverlay');
