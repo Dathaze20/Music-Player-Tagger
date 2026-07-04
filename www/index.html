@@ -143,23 +143,44 @@
     <div class="edit-modal-header">
       <div>
         <h3>AI Settings</h3>
-        <p>Enter your Gemini API key for auto-tagging</p>
+        <p>Gemini AI for auto-tagging &amp; lyrics</p>
       </div>
       <button id="settingsClose">&times;</button>
     </div>
-    <div class="edit-modal-body">
+    <div class="edit-modal-body" style="gap:12px;">
       <div class="edit-field">
         <label>Google Gemini API Key</label>
         <input type="password" id="apiKeyInput" placeholder="AIzaSy...">
       </div>
-      <p style="font-size:11px;color:var(--text-faint);margin-top:-8px;">
-        Get a free key at <a href="https://aistudio.google.com/apikey" style="color:var(--primary);" target="_blank">aistudio.google.com/apikey</a>
-      </p>
+      <div class="settings-guide">
+        <p class="settings-guide-title">How to get a free API key:</p>
+        <ol class="settings-guide-steps">
+          <li>Go to <strong>aistudio.google.com/apikey</strong></li>
+          <li>Sign in with your Google account</li>
+          <li>Tap <strong>Create API key</strong></li>
+          <li>Copy the key and paste it above</li>
+        </ol>
+        <p class="settings-guide-note">Free tier: 15 requests/min &bull; No credit card needed</p>
+      </div>
+      <button class="settings-test-btn" id="testApiKeyBtn">&#9654; Test Key</button>
+      <div id="testKeyResult" style="font-size:12px;min-height:16px;text-align:center;"></div>
+      <div class="settings-divider"></div>
+      <button class="settings-retag-btn" id="retagLibBtn">&#9881; Re-tag Library</button>
+      <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">Tags all songs missing genre, year, or art using AI</p>
     </div>
     <div class="edit-modal-footer">
       <button class="btn-cancel" id="settingsCancelBtn">Cancel</button>
       <button class="btn-save" id="settingsSaveBtn">Save</button>
     </div>
+  </div>
+
+  <!-- Queue Panel -->
+  <div id="queuePanel" class="queue-panel hidden">
+    <div class="queue-header">
+      <span class="queue-title">Up Next</span>
+      <button class="queue-close-btn" id="queueCloseBtn">&times;</button>
+    </div>
+    <div class="queue-list" id="queueList"></div>
   </div>
 </div>
 

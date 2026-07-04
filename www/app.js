@@ -602,6 +602,7 @@ var tagging = { total: 0, done: 0, current: '', active: false, paused: false, qu
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var sortMode = 'title';
 var artistSortMode = 'az';
+var albumSortMode = 'az';
 var artistViewMode = 'list';   // 'list' | 'grid2' | 'grid3'
 var albumArtistsOnly = true;
 var nativeScanning = false;
@@ -665,7 +666,7 @@ function getAlbums(filter) {
     var name = key.split('|||')[0];
     var d = map[key];
     return { name: name, artist: d.artist, year: d.year, art: d.art, albumArtUri: d.albumArtUri || '', songCount: d.count, type: d.type };
-  }).sort(function(a, b) { return a.name.localeCompare(b.name); });
+  });
 
   if (!filter || filter === 'all') return all;
   if (filter === 'albums') return all.filter(function(a) { return a.type === 'Album'; });
@@ -970,6 +971,11 @@ function showOverflowMenu() {
       + '<div class="overflow-item" id="omAlbumArtists">'
       + (albumArtistsOnly ? '&#9642; All Artists' : '&#9641; Album Artists Only')
       + '</div>';
+  } else if (currentTab === 'albums') {
+    items += '<div class="overflow-section-label">Sort order</div>'
+      + '<div class="overflow-item' + (albumSortMode === 'az' ? ' active' : '') + '" data-album-sort="az">A &#8594; Z' + (albumSortMode === 'az' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (albumSortMode === 'year' ? ' active' : '') + '" data-album-sort="year">Year (newest first)' + (albumSortMode === 'year' ? ' &#10003;' : '') + '</div>'
+      + '<div class="overflow-item' + (albumSortMode === 'songs' ? ' active' : '') + '" data-album-sort="songs">Most Songs' + (albumSortMode === 'songs' ? ' &#10003;' : '') + '</div>';
   } else if (currentTab === 'songs') {
     items += '<div class="overflow-section-label">Sort order</div>'
       + '<div class="overflow-item' + (sortMode === 'title' ? ' active' : '') + '" data-song-sort="title">A &#8594; Z (title)' + (sortMode === 'title' ? ' &#10003;' : '') + '</div>'
@@ -1011,6 +1017,10 @@ function showOverflowMenu() {
     });
     var aaBtn = menu.querySelector('#omAlbumArtists');
     if (aaBtn) aaBtn.onclick = function() { albumArtistsOnly = !albumArtistsOnly; menu.remove(); render(); };
+  } else if (currentTab === 'albums') {
+    menu.querySelectorAll('[data-album-sort]').forEach(function(item) {
+      item.onclick = function() { albumSortMode = item.dataset.albumSort; menu.remove(); render(); };
+    });
   } else if (currentTab === 'songs') {
     menu.querySelectorAll('[data-song-sort]').forEach(function(item) {
       item.onclick = function() { sortMode = item.dataset.songSort; menu.remove(); render(); };
@@ -1049,6 +1059,13 @@ function renderAlbums(el) {
   if (songs.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
   var allAlbums = getAlbums('all');
   var filtered = getAlbums(albumFilter);
+  if (albumSortMode === 'year') {
+    filtered.sort(function(a, b) { return (parseInt(b.year) || 0) - (parseInt(a.year) || 0); });
+  } else if (albumSortMode === 'songs') {
+    filtered.sort(function(a, b) { return b.songCount - a.songCount; });
+  } else {
+    filtered.sort(function(a, b) { return a.name.localeCompare(b.name); });
+  }
   var counts = {
     all: allAlbums.length,
     albums: allAlbums.filter(function(a){return a.type==='Album';}).length,
@@ -1561,7 +1578,7 @@ function renderNowPlaying() {
     var s = songMap[currentSong.id];
     if (s) { s.fav = !s.fav; currentSong.fav = s.fav; _countsCache = null; saveLibrary(); renderNowPlaying(); }
   };
-  document.getElementById('npQueueBtn').onclick = function() { /* future: show queue */ };
+  document.getElementById('npQueueBtn').onclick = function() { openQueuePanel(); };
   document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };
   document.getElementById('npSpeed').onclick = function() {
     var idx = SPEEDS.indexOf(playbackRate);
@@ -1625,7 +1642,7 @@ function renderNowPlaying() {
     var dx = e.changedTouches[0].clientX - _swipeX;
     var dy = e.changedTouches[0].clientY - _swipeY;
     if (Math.abs(dy) > Math.abs(dx)) {
-      if (dy > 80) { showNowPlaying = false; np.classList.add('hidden'); updateMiniPlayer(); }
+      if (dy > 80) { showNowPlaying = false; np.classList.add('hidden'); _npSeekEl = null; _npFillEl = null; _npTime0El = null; updateMiniPlayer(); }
     } else {
       if (dx < -60) handleNext();
       else if (dx > 60) handlePrev();
@@ -1921,7 +1938,7 @@ function openSongEditModal(songId) {
         return '<button class="type-btn' + cls + '" data-type="' + t + '">' + t + '</button>';
       }).join('')
     + '</div></div>'
-    + '<div class="edit-field"><label>Lyrics</label><textarea id="editLyrics" rows="4" placeholder="Paste lyrics here..." style="width:100%;padding:10px 12px;background:var(--bg-secondary);border:none;border-radius:12px;color:var(--text);font-size:13px;outline:none;resize:vertical;font-family:inherit;">' + escHtml(song.lyrics || '') + '</textarea></div>'
+    + '<div class="edit-field"><label>Lyrics</label><textarea id="editLyrics" rows="4" placeholder="Paste lyrics here (supports [mm:ss.xx] LRC format)..." style="width:100%;padding:10px 12px;background:var(--bg-secondary);border:none;border-radius:12px;color:var(--text);font-size:13px;outline:none;resize:vertical;font-family:inherit;">' + escHtml(song.syncedLyrics || song.lyrics || '') + '</textarea></div>'
     + '</div>'
     + '<div class="edit-modal-footer">'
     + '<button class="btn-cancel" id="editCancelBtn">Cancel</button>'
@@ -1953,7 +1970,14 @@ function openSongEditModal(songId) {
     song.track = parseInt(document.getElementById('editTrack').value) || 0;
     song.feat = document.getElementById('editFeat').value.trim();
     song.type = selectedType;
-    song.lyrics = document.getElementById('editLyrics').value.trim();
+    var lyricsVal = document.getElementById('editLyrics').value.trim();
+    if (lyricsVal && parseLRC(lyricsVal).length > 0) {
+      song.syncedLyrics = lyricsVal;
+      song.lyrics = '';
+    } else {
+      song.syncedLyrics = '';
+      song.lyrics = lyricsVal;
+    }
     closeEditModal();
     saveLibrary();
     render();
@@ -2058,6 +2082,57 @@ function closeSettings() {
   document.getElementById('settingsOverlay').classList.add('hidden');
 }
 
+// ─── Queue Panel ───
+
+function openQueuePanel() {
+  var panel = document.getElementById('queuePanel');
+  var listEl = document.getElementById('queueList');
+  if (!queue || !queue.length) { showToast('Queue is empty'); return; }
+
+  var curIdx = currentSong ? queue.findIndex(function(s) { return s.id === currentSong.id; }) : -1;
+  var rows = [];
+  queue.forEach(function(s, i) {
+    var isCurrent = i === curIdx;
+    rows.push('<div class="queue-row' + (isCurrent ? ' queue-now' : '') + '" data-queue-idx="' + i + '">'
+      + '<div class="queue-row-num">' + (isCurrent ? '&#9654;' : (i + 1)) + '</div>'
+      + '<div class="queue-row-art art-lazy" data-lazy-uri="' + escHtml(s.art || '') + '">'
+      + '<div style="width:100%;height:100%;background:linear-gradient(135deg,#2a3040,#1a1f2e);display:flex;align-items:center;justify-content:center;font-size:16px;">&#9835;</div>'
+      + '</div>'
+      + '<div class="queue-row-info">'
+      + '<div class="queue-row-title">' + escHtml(s.title) + '</div>'
+      + '<div class="queue-row-artist">' + escHtml(s.artist) + '</div>'
+      + '</div>'
+      + '<div class="queue-row-dur">' + fmtTime(s.dur || 0) + '</div>'
+      + '</div>');
+  });
+  listEl.innerHTML = rows.join('');
+
+  listEl.onclick = function(e) {
+    var row = e.target.closest('[data-queue-idx]');
+    if (!row) return;
+    var idx = parseInt(row.dataset.queueIdx);
+    if (!isNaN(idx) && queue[idx]) {
+      closeQueuePanel();
+      playSong(queue[idx], queue);
+    }
+  };
+
+  initLazyArt(listEl);
+  panel.classList.remove('hidden');
+  if (curIdx > 2) {
+    setTimeout(function() {
+      var currentRow = listEl.querySelector('.queue-now');
+      if (currentRow) currentRow.scrollIntoView({ block: 'center' });
+    }, 80);
+  }
+}
+
+function closeQueuePanel() {
+  document.getElementById('queuePanel').classList.add('hidden');
+}
+
+document.getElementById('queueCloseBtn').onclick = closeQueuePanel;
+
 // ─── Search ───
 
 function doSearch(q) {
@@ -2074,11 +2149,11 @@ function doSearch(q) {
     main.innerHTML = '<div class="empty-state"><div class="empty-icon">&#128269;</div><p>No results for "' + escHtml(q) + '"</p></div>';
     return;
   }
-  var html = '<div class="section-header"><h3>Results</h3><span class="section-count">' + filtered.length + ' found</span></div>';
+  var parts = ['<div class="section-header"><h3>Results</h3><span class="section-count">' + filtered.length + ' found</span></div>'];
   filtered.forEach(function(s) {
-    html += songRowHTML(s, currentSong && currentSong.id === s.id, true);
+    parts.push(songRowHTML(s, currentSong && currentSong.id === s.id, true));
   });
-  main.innerHTML = html;
+  main.innerHTML = parts.join('');
   initLazyArt(main);
   bindSongRows(main, filtered);
 }
@@ -2158,6 +2233,50 @@ document.getElementById('settingsSaveBtn').onclick = function() {
   showToast('API key saved!');
 };
 
+document.getElementById('testApiKeyBtn').onclick = function() {
+  var key = document.getElementById('apiKeyInput').value.trim();
+  var resultEl = document.getElementById('testKeyResult');
+  if (!key) { resultEl.style.color = 'var(--red)'; resultEl.textContent = 'Enter a key first'; return; }
+  resultEl.style.color = 'var(--text-dim)';
+  resultEl.textContent = 'Testing...';
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + key;
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with just the word: OK' }] }] })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.candidates && d.candidates[0]) {
+      resultEl.style.color = 'var(--emerald)';
+      resultEl.textContent = '✓ Key is valid and working';
+    } else if (d.error) {
+      resultEl.style.color = 'var(--red)';
+      resultEl.textContent = '✗ ' + (d.error.message || 'Invalid key');
+    }
+  })
+  .catch(function() {
+    resultEl.style.color = 'var(--red)';
+    resultEl.textContent = '✗ Network error — check connection';
+  });
+};
+
+document.getElementById('retagLibBtn').onclick = function() {
+  var key = document.getElementById('apiKeyInput').value.trim() || apiKey;
+  if (!key) { showToast('Save an API key first'); return; }
+  if (tagging.active) { showToast('Tagging already in progress'); return; }
+  var toTag = songs.filter(function(s) { return !s.genre || !s.art || !s.year; });
+  if (toTag.length === 0) { showToast('All songs already tagged!'); return; }
+  apiKey = key;
+  localStorage.setItem('gemini_api_key', apiKey);
+  closeSettings();
+  toTag.forEach(function(s) { s.tagging = true; });
+  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag };
+  updateTaggingBanner();
+  tagNextSong(toTag, 0);
+  showToast('Re-tagging ' + toTag.length + ' song' + (toTag.length !== 1 ? 's' : '') + '...');
+};
+
 document.getElementById('favoritesBtn').onclick = function() {
   toggleDrawer(false);
   currentTab = 'favorites';
@@ -2171,6 +2290,8 @@ document.getElementById('clearLibBtn').onclick = function() {
   toggleDrawer(false);
   if (confirm('Clear your entire library? This cannot be undone.')) {
     songs = [];
+    songMap = Object.create(null);
+    _countsCache = null;
     currentSong = null;
     selectedArtist = null;
     selectedAlbum = null;
@@ -2203,6 +2324,7 @@ function saveUIState() {
       nowPlaying: showNowPlaying,
       albumFilter: albumFilter,
       sortMode: sortMode,
+      albumSortMode: albumSortMode,
       albumArtistsOnly: albumArtistsOnly,
       scroll: document.getElementById('mainContent').scrollTop,
       time: currentTime,
@@ -2231,6 +2353,7 @@ function restoreUIState() {
     if (state.album) selectedAlbum = state.album;
     if (state.albumFilter) albumFilter = state.albumFilter;
     if (state.sortMode) sortMode = state.sortMode;
+    if (state.albumSortMode) albumSortMode = state.albumSortMode;
     if (typeof state.albumArtistsOnly === 'boolean') albumArtistsOnly = state.albumArtistsOnly;
     if (state.shuffled) isShuffled = state.shuffled;
     if (state.repeat) repeatMode = state.repeat;
@@ -2403,6 +2526,13 @@ function handleHardwareBack() {
   var overflowMenu = document.getElementById('overflowMenu');
   if (overflowMenu) { overflowMenu.remove(); return; }
 
+  // 1b. Close queue panel
+  var queuePanel = document.getElementById('queuePanel');
+  if (queuePanel && !queuePanel.classList.contains('hidden')) {
+    queuePanel.classList.add('hidden');
+    return;
+  }
+
   // 2. Close settings modal
   var settingsModal = document.getElementById('settingsModal');
   if (settingsModal && !settingsModal.classList.contains('hidden')) {
@@ -2430,6 +2560,7 @@ function handleHardwareBack() {
   if (showNowPlaying) {
     showNowPlaying = false;
     document.getElementById('nowPlaying').classList.add('hidden');
+    _npSeekEl = null; _npFillEl = null; _npTime0El = null;
     updateMiniPlayer();
     return;
   }
