@@ -581,7 +581,7 @@ function render() {
   tabBar.classList.remove('hidden');
   menuBtn.innerHTML = '&#9776;';
   menuBtn.onclick = function() { toggleDrawer(true); };
-  fab.classList.remove('hidden');
+  fab.classList.add('hidden');
 
   // Wire overflow button — only active on main tab views
   var overflowBtn = document.getElementById('overflowBtn');
@@ -600,25 +600,33 @@ function render() {
 
   if (selectedAlbum) {
     tabBar.classList.add('hidden');
-    fab.classList.add('hidden');
     header.textContent = selectedAlbum.name;
     menuBtn.innerHTML = '&#8249;';
     menuBtn.onclick = function() { selectedAlbum = null; render(); };
     renderAlbumDetail(main);
   } else if (selectedArtist) {
     tabBar.classList.add('hidden');
-    fab.classList.add('hidden');
     header.textContent = selectedArtist;
     menuBtn.innerHTML = '&#8249;';
     menuBtn.onclick = function() { selectedArtist = null; render(); };
     renderArtistDetail(main);
   } else {
     header.textContent = 'Muzio AI';
-    if (currentTab === 'artists') renderArtists(main);
-    else if (currentTab === 'songs') renderSongs(main);
-    else if (currentTab === 'albums') renderAlbums(main);
-    else if (currentTab === 'playlists') renderPlaylists(main);
-    else if (currentTab === 'favorites') renderFavorites(main);
+    if (currentTab === 'artists') {
+      renderArtists(main);
+    } else if (currentTab === 'songs') {
+      fab.innerHTML = '&#128256;';
+      fab.style.fontSize = '22px';
+      fab.title = 'Shuffle all';
+      fab.classList.remove('hidden');
+      renderSongs(main);
+    } else if (currentTab === 'albums') {
+      renderAlbums(main);
+    } else if (currentTab === 'playlists') {
+      renderPlaylists(main);
+    } else if (currentTab === 'favorites') {
+      renderFavorites(main);
+    }
   }
 
   updateMiniPlayer();
@@ -1310,17 +1318,13 @@ function renderNowPlaying() {
     + '<div class="np-times"><span>' + fmtTime(currentTime) + '</span><span>' + fmtTime(duration) + '</span></div>'
     + '</div>'
     + '<div class="np-main-controls">'
-    + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '">&#8645;</button>'
+    + '<button id="npRepeat" class="np-ctrl' + (repeatMode !== 'off' ? ' active' : '') + '">&#128257;' + (repeatMode === 'one' ? '<sub>1</sub>' : '') + '</button>'
     + '<button id="npPrev" class="np-ctrl">&#9198;</button>'
     + '<button class="np-play-btn' + (isPlaying ? ' is-playing' : '') + '" id="npPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
     + '<button id="npNext" class="np-ctrl">&#9197;</button>'
-    + '<button id="npRepeat" class="np-ctrl' + (repeatMode !== 'off' ? ' active' : '') + '">&#128257;' + (repeatMode === 'one' ? '<sub>1</sub>' : '') + '</button>'
+    + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '">&#128256;</button>'
     + '</div>'
     + '<div class="np-bottom">'
-    + '<div class="volume-control">'
-    + '<button id="npMute" class="np-ctrl">' + (isMuted ? '&#128263;' : '&#128266;') + '</button>'
-    + '<input type="range" id="npVolume" min="0" max="1" step="0.01" value="' + (isMuted ? 0 : volume) + '">'
-    + '</div>'
     + '<button id="npSpeed" class="np-ctrl' + (playbackRate !== 1.0 ? ' active' : '') + '" style="font-size:13px;font-weight:700;min-width:40px;">' + playbackRate + 'x</button>'
     + '</div>';
 
@@ -1376,19 +1380,17 @@ function renderNowPlaying() {
   document.getElementById('npPrev').onclick = handlePrev;
   document.getElementById('npNext').onclick = handleNext;
   document.getElementById('npEditBtn').onclick = function() { openSongEditModal(currentSong.id); };
-  document.getElementById('npShuffle').onclick = function() { isShuffled = !isShuffled; renderNowPlaying(); };
   document.getElementById('npRepeat').onclick = function() {
     repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
     renderNowPlaying();
   };
+  document.getElementById('npShuffle').onclick = function() { isShuffled = !isShuffled; renderNowPlaying(); };
   document.getElementById('npFav').onclick = function() {
     var s = songs.find(function(x) { return x.id === currentSong.id; });
     if (s) { s.fav = !s.fav; currentSong.fav = s.fav; saveLibrary(); renderNowPlaying(); }
   };
   document.getElementById('npQueueBtn').onclick = function() { /* future: show queue */ };
   document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };
-  document.getElementById('npVolume').oninput = function(e) { volume = parseFloat(e.target.value); isMuted = false; audio.volume = volume; };
-  document.getElementById('npMute').onclick = function() { isMuted = !isMuted; audio.volume = isMuted ? 0 : volume; renderNowPlaying(); };
   document.getElementById('npSpeed').onclick = function() {
     var idx = SPEEDS.indexOf(playbackRate);
     playbackRate = SPEEDS[(idx + 1) % SPEEDS.length];
@@ -1970,7 +1972,14 @@ document.getElementById('miniPlayBtn').onclick = function(e) { e.stopPropagation
 document.getElementById('miniNextBtn').onclick = function(e) { e.stopPropagation(); handleNext(); };
 
 document.getElementById('fabBtn').onclick = function() {
-  if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
+  if (currentTab === 'songs') {
+    if (songs.length === 0) return;
+    isShuffled = true;
+    var allSongs = songs.slice().sort(function() { return Math.random() - 0.5; });
+    playSong(allSongs[0], allSongs);
+  } else {
+    if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
+  }
 };
 document.getElementById('importFilesBtn').onclick = function() { toggleDrawer(false); document.getElementById('fileInput').click(); };
 document.getElementById('importFolderBtn').onclick = function() {
