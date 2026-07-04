@@ -702,7 +702,7 @@ function renderArtists(el) {
       + '<div class="artist-name">' + escHtml(a.name) + '</div>'
       + '<div class="artist-meta">' + a.albumCount + ' ' + (a.albumCount === 1 ? 'Album' : 'Albums') + ' &bull; ' + a.songCount + ' ' + (a.songCount === 1 ? 'Song' : 'Songs') + '</div>'
       + '</div>'
-      + '<span style="color:var(--text-faint);padding:8px;">&#8942;</span>'
+      + '<span style="color:var(--text-faint);padding:8px;font-size:20px;opacity:0.5;">&#8250;</span>'
       + '</div>';
   });
   el.innerHTML = html;
@@ -902,6 +902,10 @@ function renderFavorites(el) {
 
 // ─── Song Row HTML ───
 
+function eqBarsHTML(paused) {
+  return '<div class="eq-bars' + (paused ? ' paused' : '') + '"><span></span><span></span><span></span></div>';
+}
+
 function songRowHTML(s, playing, showEdit) {
   return '<div class="song-row' + (playing ? ' playing' : '') + (s.tagging ? ' tagging' : '') + '" data-id="' + s.id + '">'
     + imgOrArt(s.art, s.album || s.title, 48)
@@ -913,7 +917,7 @@ function songRowHTML(s, playing, showEdit) {
     + (s.type === 'Mixtape' ? '<span class="mixtape-tag"> &bull; Mixtape</span>' : '')
     + '</div></div>'
     + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
-    + '<span class="song-duration">' + fmtTime(s.dur) + '</span>'
+    + (playing ? eqBarsHTML(!isPlaying) : '<span class="song-duration">' + fmtTime(s.dur) + '</span>')
     + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + (s.fav ? '&#10084;' : '&#9825;') + '</button>'
     + (showEdit ? '<button class="song-edit" data-edit="' + s.id + '">&#8942;</button>' : '')
     + '</div>';
@@ -1217,13 +1221,16 @@ function renderNowPlaying() {
     + '</div>'
     + '<div class="np-controls">'
     + '<div class="np-progress">'
+    + '<div class="np-seek-wrap">'
+    + '<div class="np-seek-track"><div class="np-seek-fill" id="npSeekFill" style="width:' + (duration > 0 ? (currentTime/duration*100).toFixed(1) : 0) + '%"></div></div>'
     + '<input type="range" id="npSeek" min="0" max="' + (duration || 0) + '" value="' + currentTime + '" step="0.1">'
+    + '</div>'
     + '<div class="np-times"><span>' + fmtTime(currentTime) + '</span><span>' + fmtTime(duration) + '</span></div>'
     + '</div>'
     + '<div class="np-main-controls">'
     + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '">&#8645;</button>'
     + '<button id="npPrev" class="np-ctrl">&#9198;</button>'
-    + '<button class="np-play-btn" id="npPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
+    + '<button class="np-play-btn' + (isPlaying ? ' is-playing' : '') + '" id="npPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
     + '<button id="npNext" class="np-ctrl">&#9197;</button>'
     + '<button id="npRepeat" class="np-ctrl' + (repeatMode !== 'off' ? ' active' : '') + '">&#128257;' + (repeatMode === 'one' ? '<sub>1</sub>' : '') + '</button>'
     + '</div>'
@@ -1394,9 +1401,23 @@ function playSong(song, songList) {
 
 function togglePlay() {
   if (!currentSong || !currentSong.url) return;
-  if (isPlaying) { audio.pause(); isPlaying = false; }
-  else { audio.play().then(function() { isPlaying = true; }).catch(function() {}); }
-  if (showNowPlaying) renderNowPlaying();
+  if (isPlaying) {
+    audio.pause();
+    isPlaying = false;
+  } else {
+    audio.play().then(function() { isPlaying = true; }).catch(function() {});
+  }
+  if (showNowPlaying) {
+    var btn = document.getElementById('npPlay');
+    if (btn) {
+      btn.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+      btn.classList.toggle('is-playing', isPlaying);
+    }
+  }
+  // Update EQ bars in song list (paused vs playing)
+  document.querySelectorAll('.eq-bars').forEach(function(el) {
+    el.classList.toggle('paused', !isPlaying);
+  });
   updateMiniPlayer();
 }
 
@@ -1424,6 +1445,8 @@ audio.addEventListener('timeupdate', function() {
   if (showNowPlaying) {
     var seek = document.getElementById('npSeek');
     if (seek) { seek.value = currentTime; seek.max = duration || 0; }
+    var fill = document.getElementById('npSeekFill');
+    if (fill && duration > 0) fill.style.width = (currentTime / duration * 100).toFixed(1) + '%';
     var times = document.querySelectorAll('.np-times span');
     if (times[0]) times[0].textContent = fmtTime(currentTime);
     updateSyncedLyrics(currentTime);
