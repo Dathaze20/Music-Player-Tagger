@@ -2237,6 +2237,11 @@ function openSongEditModal(songId) {
   // Art fallback
   var g = getGrad(song.album || song.title || '');
   var init = (song.album || song.title || '?').split(' ').map(function(w) { return w[0] || ''; }).join('').substring(0, 2).toUpperCase() || '?';
+
+  // Build release-type chips outside the HTML string to avoid leading-+ syntax error
+  var typeChipsHtml = ['Album','Mixtape','EP','Single'].map(function(t) {
+    return '<button class="te-chip' + ((song.type || 'Album') === t ? ' active' : '') + '" data-type="' + t + '">' + t + '</button>';
+  }).join('');
   var artSrc = isNat
     ? (song.art && song.art.startsWith('http://localhost') ? song.art : '')
     : (song.art || '');
@@ -2282,11 +2287,7 @@ function openSongEditModal(songId) {
   +         '<input class="te-input" id="teFeat" value="' + escHtml(song.feat || '') + '" placeholder="Artist name"></div>'
   +     '</div>'
   +     '<div class="te-field"><div class="te-label">Release Type</div>'
-  +       '<div class="te-type-row">'
-  +         ['Album','Mixtape','EP','Single'].map(function(t) {
-  +           return '<button class="te-chip' + ((song.type || 'Album') === t ? ' active' : '') + '" data-type="' + t + '">' + t + '</button>';
-  +         }).join('')
-  +       '</div>'
+  +       '<div class="te-type-row">' + typeChipsHtml + '</div>'
   +     '</div>'
   +     '<div class="te-field"><div class="te-label">Lyrics</div>'
   +       '<textarea class="te-lyrics" id="teLyrics" placeholder="Paste lyrics here (supports [mm:ss.xx] LRC format)…" rows="5">'
