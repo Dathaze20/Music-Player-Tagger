@@ -2120,20 +2120,21 @@ body {
 }
 .te-art-pencil {
   position: absolute;
-  inset: 0;
+  bottom: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  background: rgba(0,0,0,0.65);
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0,0,0,0.35);
-  font-size: 26px;
+  font-size: 14px;
   color: #fff;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
-  border-radius: 10px;
+  border: 1.5px solid rgba(255,255,255,0.25);
 }
-.te-art-wrap:hover .te-art-pencil,
-.te-art-wrap:active .te-art-pencil { opacity: 1; }
+.te-art-wrap:active .te-art-pencil { background: rgba(0,0,0,0.9); }
 .te-fields { display: flex; flex-direction: column; gap: 0; }
 .te-field { padding: 10px 0 2px; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .te-field:last-child { border-bottom: none; }

@@ -123,7 +123,17 @@ function fetchThumbnail(uri) {
   if (artInFlight[uri]) return artInFlight[uri];
   var p = NativeBridge.readAlbumArt(uri).then(function(data) {
     delete artInFlight[uri];
-    if (data) artCache[uri] = data;
+    if (data) {
+      artCache[uri] = data;
+      // Apply art to any DOM elements currently waiting for this URI
+      // (handles the case where render() rebuilt the DOM while fetch was in-flight)
+      document.querySelectorAll('.art-lazy[data-lazy-uri]').forEach(function(lazyEl) {
+        var uris = (lazyEl.dataset.lazyUri || '').split('|').filter(Boolean);
+        if (uris.indexOf(uri) !== -1 && uris.every(function(u) { return artCache[u]; })) {
+          applyArt(lazyEl, uris.map(function(u) { return artCache[u]; }));
+        }
+      });
+    }
     return data || '';
   }).catch(function() { delete artInFlight[uri]; return ''; });
   artInFlight[uri] = p;
@@ -158,7 +168,7 @@ function initLazyArt(container) {
     entries.forEach(function(entry) {
       if (entry.isIntersecting) { _lazyArtObs.unobserve(entry.target); loadLazyEl(entry.target); }
     });
-  }, { rootMargin: '300px' });
+  }, { rootMargin: '700px' });
 
   lazies.forEach(function(el) {
     var uris = (el.dataset.lazyUri || '').split('|').filter(Boolean);
