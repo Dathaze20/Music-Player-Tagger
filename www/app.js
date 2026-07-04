@@ -85,19 +85,35 @@ function applyArt(el, dataUrls) {
   var fill  = el.dataset.fill  === '1';
   var round = el.dataset.round === '1';
   var size  = parseInt(el.dataset.size) || 56;
-  var wStyle = (fill ? 'width:100%;height:100%;' : 'width:' + size + 'px;height:' + size + 'px;')
-             + (round ? 'border-radius:50%;' : 'border-radius:8px;')
-             + 'overflow:hidden;flex-shrink:0;';
-  if (valid.length >= 2 && round) {
-    // 2×2 collage inside circle — mirrors Muzio's multi-album bubble
-    var imgs = valid.slice(0, 4);
-    while (imgs.length < 4) imgs.push(imgs[imgs.length % valid.length]);
-    el.innerHTML = '<div style="' + wStyle + 'display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:0;">'
-      + imgs.map(function(u) {
-          return '<img src="' + u + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
-        }).join('') + '</div>';
+
+  if (fill) {
+    // Album grid / album detail hero — stretch image to fill the absolute container
+    if (valid.length >= 2 && round) {
+      // 2×2 collage — rare fill+round case
+      var imgs = valid.slice(0, 4);
+      while (imgs.length < 4) imgs.push(imgs[imgs.length % valid.length]);
+      el.innerHTML = '<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:0;">'
+        + imgs.map(function(u) {
+            return '<img src="' + u + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+          }).join('') + '</div>';
+    } else {
+      // Single image pinned absolutely — avoids height:100% resolution issues on old WebViews
+      el.innerHTML = '<img src="' + valid[0] + '" style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;display:block;">';
+    }
   } else {
-    el.innerHTML = '<div style="' + wStyle + '"><img src="' + valid[0] + '" style="width:100%;height:100%;object-fit:cover;display:block;"></div>';
+    // Fixed-size thumbnail (song rows, artist circles, etc.)
+    var r = round ? 'border-radius:50%;' : 'border-radius:8px;';
+    var wStyle = 'width:' + size + 'px;height:' + size + 'px;' + r + 'overflow:hidden;flex-shrink:0;';
+    if (valid.length >= 2 && round) {
+      var imgs2 = valid.slice(0, 4);
+      while (imgs2.length < 4) imgs2.push(imgs2[imgs2.length % valid.length]);
+      el.innerHTML = '<div style="' + wStyle + 'display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:0;">'
+        + imgs2.map(function(u) {
+            return '<img src="' + u + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+          }).join('') + '</div>';
+    } else {
+      el.innerHTML = '<div style="' + wStyle + '"><img src="' + valid[0] + '" style="width:100%;height:100%;object-fit:cover;display:block;"></div>';
+    }
   }
 }
 
@@ -915,8 +931,10 @@ function renderAlbums(el) {
     else if (a.type === 'Single') badge = '<span class="release-badge single">Single</span>';
 
     var artEl = a.albumArtUri
-      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;inset:0;width:100%;height:100%;">' + artHTML(a.name, 200) + '</div>'
-      : '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">' + artHTML(a.name, 200) + '</div>';
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;">' + artHTML(a.name, 200) + '</div>'
+      : '<div class="art-placeholder" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:' + (function(){var g=getGrad(a.name);return 'linear-gradient(135deg,'+g[0]+','+g[1]+')';})() + ';">'
+        + '<span style="font-size:48px;font-weight:700;color:#fff;">' + escHtml(a.name.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase()) + '</span>'
+        + '</div>';
     html += '<div class="album-card" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
       + '<div class="album-art-wrap">'
       + artEl
@@ -1029,7 +1047,7 @@ function renderArtistDetail(el) {
       if (a.type === 'Mixtape') badge = '<span class="release-badge mixtape" style="font-size:8px;padding:1px 6px;">Mixtape</span>';
       else if (a.type === 'EP') badge = '<span class="release-badge ep" style="font-size:8px;padding:1px 6px;">EP</span>';
       var artEl = a.albumArtUri
-        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="width:100%;height:100%;">' + artHTML(a.name, 128) + '</div>'
+        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;">' + artHTML(a.name, 128) + '</div>'
         : artHTML(a.name, 128);
       html += '<div class="album-scroll-item" data-album="' + escHtml(a.name) + '" data-artist="' + escHtml(a.artist) + '">'
         + '<div class="album-scroll-art">'
