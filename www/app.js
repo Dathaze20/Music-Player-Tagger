@@ -827,20 +827,13 @@ function renderWelcome(el) {
     var countLine = nativeScanCount > 0
       ? '<p class="scan-count-badge">&#127925; ' + nativeScanCount.toLocaleString() + ' songs found...</p>'
       : '';
-    var statusMsg = nativeScanning ? 'Scanning your music library...' : 'Ready to scan your music library';
+    var statusMsg = nativeScanning ? 'Scanning phone &amp; SD card...' : 'Starting scan...';
     el.innerHTML = '<div class="welcome-screen welcome-screen--compact">'
       + '<div class="welcome-scan-ring"><div class="welcome-scan-note">&#9835;</div></div>'
-      + '<h2 class="welcome-title" style="font-size:20px;margin-bottom:6px">Muzio AI</h2>'
-      + '<p class="welcome-text" id="scanStatusText" style="margin-bottom:10px">' + statusMsg + '</p>'
+      + '<h2 class="welcome-title" style="font-size:18px;margin-bottom:6px">Finding Your Music</h2>'
+      + '<p class="welcome-text" id="scanStatusText" style="margin-bottom:8px">' + statusMsg + '</p>'
       + countLine
-      + (!nativeScanning ? '<button class="welcome-btn" id="welcomeScanNowBtn" style="max-width:220px;margin-top:12px">&#127911; Scan Music Library</button>' : '')
       + '</div>';
-    if (!nativeScanning) {
-      var scanNowBtn = document.getElementById('welcomeScanNowBtn');
-      if (scanNowBtn) {
-        scanNowBtn.onclick = function() { nativeAutoScan(); };
-      }
-    }
     return;
   }
 
@@ -1139,13 +1132,6 @@ function showOverflowMenu() {
 
   if (!items) return;
 
-  // Append native-only actions at the bottom
-  var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
-  if (isNat && songs.length > 0) {
-    items += '<div class="overflow-divider"></div>'
-      + '<div class="overflow-item" id="omRescanLib">&#128257; Rescan Library</div>';
-  }
-
   menu.innerHTML = items;
   document.getElementById('app').appendChild(menu);
 
@@ -1186,20 +1172,6 @@ function showOverflowMenu() {
     menu.querySelectorAll('[data-song-sort]').forEach(function(item) {
       item.onclick = function() { sortMode = item.dataset.songSort; menu.remove(); render(); };
     });
-  }
-
-  var omRescan = menu.querySelector('#omRescanLib');
-  if (omRescan) {
-    omRescan.onclick = function() {
-      menu.remove();
-      songs = [];
-      songMap = Object.create(null);
-      _countsCache = null;
-      nativeScanning = false;
-      nativeScanError = '';
-      nativeScanCount = 0;
-      nativeAutoScan();
-    };
   }
 }
 
@@ -2260,133 +2232,74 @@ function openSongEditModal(songId) {
   if (!song) return;
   var modal = document.getElementById('editModal');
   var overlay = document.getElementById('editOverlay');
-  var isNative = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
 
-  // Build art section: gradient underneath, image on top (falls back gracefully)
-  var g = getGrad(song.album || song.title);
-  var init = (song.album || song.title).split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase() || '?';
-  var artSrc = !isNative ? (song.art || '') : (song.art && song.art.startsWith('http://localhost') ? song.art : '');
-
-  modal.className = 'edit-modal tag-editor';
-  modal.innerHTML =
-    '<div class="te-header">'
-  +   '<span class="te-title">Tag editor</span>'
-  +   '<button class="te-close-btn" id="editClose">&times;</button>'
-  + '</div>'
-  + '<div class="te-body">'
-  +   '<div class="te-art-section">'
-  +     '<div class="te-art-wrap" id="teArtWrap">'
-  +       '<div class="te-art-bg" style="background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');">' + init + '</div>'
-  +       (artSrc ? '<img class="te-art-img" id="teArtImg" src="' + escHtml(artSrc) + '" onerror="this.remove()">' : '')
-  +       '<label class="te-art-edit-btn" for="teArtFile" title="Change art">&#9998;</label>'
-  +     '</div>'
-  +     '<input type="file" id="teArtFile" accept="image/*" style="display:none">'
-  +   '</div>'
-  +   '<div class="te-fields">'
-  +     '<div class="te-field"><div class="te-label">Title</div>'
-  +       '<input class="te-input" id="editTitle" value="' + escHtml(song.title) + '" placeholder="Song title"></div>'
-  +     '<div class="te-field"><div class="te-label">Artist</div>'
-  +       '<input class="te-input" id="editArtist" value="' + escHtml(song.artist) + '" placeholder="Artist name"></div>'
-  +     '<div class="te-field"><div class="te-label">Album</div>'
-  +       '<input class="te-input" id="editAlbum" value="' + escHtml(song.album) + '" placeholder="Album name"></div>'
-  +     '<div class="te-field"><div class="te-label">Album Artist</div>'
-  +       '<input class="te-input" id="editAlbumArtist" value="' + escHtml(song.albumArtist || '') + '" placeholder="Album artist"></div>'
-  +     '<div class="te-row">'
-  +       '<div class="te-field"><div class="te-label">Year</div>'
-  +         '<input class="te-input" id="editYear" type="number" value="' + escHtml(song.year || '') + '" placeholder="2024" min="1900" max="2099"></div>'
-  +       '<div class="te-field"><div class="te-label">Genre</div>'
-  +         '<input class="te-input" id="editGenre" value="' + escHtml(song.genre || '') + '" placeholder="Hip-Hop"></div>'
-  +     '</div>'
-  +     '<div class="te-row">'
-  +       '<div class="te-field"><div class="te-label">Track #</div>'
-  +         '<input class="te-input" id="editTrack" type="number" value="' + (song.track || '') + '" placeholder="1" min="1"></div>'
-  +       '<div class="te-field"><div class="te-label">Featured</div>'
-  +         '<input class="te-input" id="editFeat" value="' + escHtml(song.feat || '') + '" placeholder="Artist name"></div>'
-  +     '</div>'
-  +     '<div class="te-field"><div class="te-label">Release Type</div>'
-  +       '<div class="te-type-row">'
-  +         ['Album','Mixtape','EP','Single'].map(function(t) {
-  +           return '<button class="te-type-chip' + ((song.type || 'Album') === t ? ' active' : '') + '" data-type="' + t + '">' + t + '</button>';
-  +         }).join('')
-  +       '</div>'
-  +     '</div>'
-  +     '<div class="te-field"><div class="te-label">Lyrics</div>'
-  +       '<textarea class="te-textarea" id="editLyrics" placeholder="Paste lyrics here (supports [mm:ss.xx] LRC format)…" rows="5">'
-  +         escHtml(song.syncedLyrics || song.lyrics || '') + '</textarea></div>'
-  +   '</div>'
-  + '</div>'
-  + '<div class="te-footer">'
-  +   '<button class="te-btn-cancel" id="editCancelBtn">Cancel</button>'
-  +   '<button class="te-btn-save" id="editSaveBtn">Save</button>'
-  +   (song.contentUri && isNative ? '<button class="te-btn-file" id="editSaveToFileBtn">&#128190; File</button>' : '')
-  + '</div>';
+  modal.innerHTML = '<div class="edit-modal-header"><div><h3>Edit Song</h3>'
+    + '<p>' + escHtml(song.title) + '</p></div>'
+    + '<button id="editClose">&times;</button></div>'
+    + '<div class="edit-modal-body">'
+    + '<div class="edit-field"><label>Title</label><input id="editTitle" value="' + escHtml(song.title) + '"></div>'
+    + '<div class="edit-field"><label>Artist</label><input id="editArtist" value="' + escHtml(song.artist) + '"></div>'
+    + '<div class="edit-field"><label>Album / Mixtape</label><input id="editAlbum" value="' + escHtml(song.album) + '"></div>'
+    + '<div class="edit-row">'
+    + '<div class="edit-field"><label>Year</label><input id="editYear" value="' + escHtml(song.year) + '" placeholder="2024"></div>'
+    + '<div class="edit-field"><label>Genre</label><input id="editGenre" value="' + escHtml(song.genre) + '" placeholder="Hip-Hop"></div>'
+    + '</div>'
+    + '<div class="edit-row">'
+    + '<div class="edit-field"><label>Track #</label><input id="editTrack" type="number" value="' + (song.track || '') + '" placeholder="1"></div>'
+    + '<div class="edit-field"><label>Featured</label><input id="editFeat" value="' + escHtml(song.feat) + '" placeholder="Artist name"></div>'
+    + '</div>'
+    + '<div class="edit-field"><label>Release Type</label><div class="type-buttons">'
+    + ['Album','Mixtape','EP','Single'].map(function(t) {
+        var cls = (song.type || 'Album') === t ? ' active-' + t.toLowerCase() : '';
+        return '<button class="type-btn' + cls + '" data-type="' + t + '">' + t + '</button>';
+      }).join('')
+    + '</div></div>'
+    + '<div class="edit-field"><label>Lyrics</label><textarea id="editLyrics" rows="4" placeholder="Paste lyrics here (supports [mm:ss.xx] LRC format)..." style="width:100%;padding:10px 12px;background:var(--bg-secondary);border:none;border-radius:12px;color:var(--text);font-size:13px;outline:none;resize:vertical;font-family:inherit;">' + escHtml(song.syncedLyrics || song.lyrics || '') + '</textarea></div>'
+    + '</div>'
+    + '<div class="edit-modal-footer">'
+    + '<button class="btn-cancel" id="editCancelBtn">Cancel</button>'
+    + '<button class="btn-save" id="editSaveBtn">&#10003; Save</button>'
+    + (song.contentUri && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()
+        ? '<button class="btn-save-file" id="editSaveToFileBtn">&#128190; Save to File</button>' : '')
+    + '</div>';
 
   modal.classList.remove('hidden');
-  // Don't show overlay behind full-screen modal — just keep it hidden
-  overlay.classList.add('hidden');
+  overlay.classList.remove('hidden');
 
   var selectedType = song.type || 'Album';
-  var pendingArt = null; // data: URL of user-picked replacement art
-
-  modal.querySelectorAll('.te-type-chip').forEach(function(btn) {
+  modal.querySelectorAll('.type-btn').forEach(function(btn) {
     btn.onclick = function() {
       selectedType = btn.dataset.type;
-      modal.querySelectorAll('.te-type-chip').forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
+      modal.querySelectorAll('.type-btn').forEach(function(b) { b.className = 'type-btn'; });
+      btn.className = 'type-btn active-' + selectedType.toLowerCase();
     };
   });
 
-  // Art replacement via file picker
-  document.getElementById('teArtFile').onchange = function(e) {
-    var file = e.target.files && e.target.files[0];
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function(ev) {
-      pendingArt = ev.target.result;
-      var wrap = document.getElementById('teArtWrap');
-      if (!wrap) return;
-      var img = wrap.querySelector('.te-art-img');
-      if (img) {
-        img.src = pendingArt;
-      } else {
-        img = document.createElement('img');
-        img.className = 'te-art-img';
-        img.src = pendingArt;
-        var editBtn = wrap.querySelector('.te-art-edit-btn');
-        wrap.insertBefore(img, editBtn);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  function closeTagEditor() {
-    modal.className = 'edit-modal hidden';
-  }
-
-  document.getElementById('editClose').onclick = closeTagEditor;
-  document.getElementById('editCancelBtn').onclick = closeTagEditor;
+  document.getElementById('editClose').onclick = closeEditModal;
+  document.getElementById('editCancelBtn').onclick = closeEditModal;
+  overlay.onclick = closeEditModal;
 
   function applyFormToSong() {
-    song.title       = document.getElementById('editTitle').value.trim()       || song.title;
-    song.artist      = document.getElementById('editArtist').value.trim()      || song.artist;
-    song.album       = document.getElementById('editAlbum').value.trim()       || song.album;
-    song.albumArtist = document.getElementById('editAlbumArtist').value.trim();
-    song.year        = document.getElementById('editYear').value.trim();
-    song.genre       = document.getElementById('editGenre').value.trim();
-    song.track       = parseInt(document.getElementById('editTrack').value) || 0;
-    song.feat        = document.getElementById('editFeat').value.trim();
-    song.type        = selectedType;
-    if (pendingArt)  song.art = pendingArt;
-    var lyricsVal    = document.getElementById('editLyrics').value.trim();
+    song.title = document.getElementById('editTitle').value.trim() || song.title;
+    song.artist = document.getElementById('editArtist').value.trim() || song.artist;
+    song.album = document.getElementById('editAlbum').value.trim() || song.album;
+    song.year = document.getElementById('editYear').value.trim();
+    song.genre = document.getElementById('editGenre').value.trim();
+    song.track = parseInt(document.getElementById('editTrack').value) || 0;
+    song.feat = document.getElementById('editFeat').value.trim();
+    song.type = selectedType;
+    var lyricsVal = document.getElementById('editLyrics').value.trim();
     if (lyricsVal && parseLRC(lyricsVal).length > 0) {
-      song.syncedLyrics = lyricsVal; song.lyrics = '';
+      song.syncedLyrics = lyricsVal;
+      song.lyrics = '';
     } else {
-      song.syncedLyrics = ''; song.lyrics = lyricsVal;
+      song.syncedLyrics = '';
+      song.lyrics = lyricsVal;
     }
   }
 
   function finishSave() {
-    closeTagEditor();
+    closeEditModal();
     saveLibrary();
     render();
     if (showNowPlaying && currentSong && currentSong.id === song.id) {
@@ -2407,10 +2320,9 @@ function openSongEditModal(songId) {
       finishSave();
       showToast('Writing tags to file…');
 
+      // Prefer an already-decoded data: URL; otherwise fetch from MediaStore albumArtUri
       var artPromise;
-      if (pendingArt) {
-        artPromise = Promise.resolve(pendingArt);
-      } else if (song.art && song.art.startsWith('data:')) {
+      if (song.art && song.art.startsWith('data:')) {
         artPromise = Promise.resolve(song.art);
       } else if (song.albumArtUri) {
         artPromise = NativeBridge.readAlbumArt(song.albumArtUri, 500).catch(function() { return ''; });
@@ -2448,8 +2360,6 @@ function openEditModal(albumName, artistName) {
   var first = albumSongs[0] || {};
   var modal = document.getElementById('editModal');
   var overlay = document.getElementById('editOverlay');
-
-  modal.className = 'edit-modal'; // reset any tag-editor class from song edit
 
   modal.innerHTML = '<div class="edit-modal-header"><div><h3>Edit Album</h3>'
     + '<p>Changes apply to all ' + albumSongs.length + ' songs</p></div>'
@@ -2515,7 +2425,7 @@ function openEditModal(albumName, artistName) {
 }
 
 function closeEditModal() {
-  document.getElementById('editModal').className = 'edit-modal hidden';
+  document.getElementById('editModal').classList.add('hidden');
   document.getElementById('editOverlay').classList.add('hidden');
 }
 
@@ -2762,31 +2672,6 @@ document.getElementById('clearLibBtn').onclick = function() {
   }
 };
 
-document.getElementById('rescanLibBtn').onclick = function() {
-  toggleDrawer(false);
-  // Force a fresh scan even if songs already exist
-  songs = [];
-  songMap = Object.create(null);
-  _countsCache = null;
-  nativeScanning = false;
-  nativeScanError = '';
-  nativeScanCount = 0;
-  nativeAutoScan();
-};
-
-// Show native-only drawer items once Capacitor is ready
-function updateDrawerForPlatform() {
-  var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
-  var rescanBtn = document.getElementById('rescanLibBtn');
-  var importFolderBtn = document.getElementById('importFolderBtn');
-  var importFilesBtn = document.getElementById('importFilesBtn');
-  if (rescanBtn) rescanBtn.classList.toggle('hidden', !isNat);
-  if (importFolderBtn) importFolderBtn.classList.toggle('hidden', isNat);
-  if (importFilesBtn) importFilesBtn.classList.toggle('hidden', isNat);
-}
-document.addEventListener('deviceready', updateDrawerForPlatform, false);
-setTimeout(updateDrawerForPlatform, 200);
-
 var appEl = document.getElementById('app');
 appEl.addEventListener('dragover', function(e) { e.preventDefault(); });
 appEl.addEventListener('drop', function(e) {
@@ -2890,9 +2775,9 @@ window.addEventListener('pagehide', saveUIState);
 
 restoreUIState();
 
-// Always render on startup — restoreUIState only calls render() when saved state exists.
-// Without this, a cold first launch (no saved state) would show a blank screen.
-render();
+if (songs.length === 0 || (currentTab === 'artists' && !selectedArtist && !selectedAlbum)) {
+  render();
+}
 
 if (songs.length > 0 && !songs[0].url) {
   if (window.showDirectoryPicker && !isMobile()) {
@@ -2910,22 +2795,21 @@ function nativeAutoScan() {
 
   // Already have songs — reconnect URLs using saved contentUri or nativePath
   if (songs.length > 0) {
-    var needsUrl = songs.filter(function(s) { return !s.url; });
     var reconnected = 0;
-    needsUrl.forEach(function(s) {
-      try {
-        if (s.contentUri) {
-          s.url = window.Capacitor.convertFileSrc(s.contentUri);
-          reconnected++;
-        } else if (s.nativePath) {
-          s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
-          reconnected++;
-        }
-      } catch(e) {}
+    songs.forEach(function(s) {
+      if (!s.url) {
+        try {
+          if (s.contentUri) {
+            s.url = window.Capacitor.convertFileSrc(s.contentUri);
+            reconnected++;
+          } else if (s.nativePath) {
+            s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
+            reconnected++;
+          }
+        } catch(e) {}
+      }
     });
-    // If all songs already had URLs or we successfully reconnected, render and stop.
-    // Only fall through to a full rescan when songs exist but no URLs could be restored.
-    if (reconnected > 0 || needsUrl.length === 0) {
+    if (reconnected > 0) {
       render();
       renderReconnectBanner();
 
@@ -2996,9 +2880,8 @@ function nativeAutoScan() {
 
 // Register on multiple events — Capacitor bridge load timing varies by device
 document.addEventListener('deviceready', nativeAutoScan, false);
-setTimeout(nativeAutoScan, 100);   // fast path: bridge usually ready within 100ms
-setTimeout(nativeAutoScan, 500);   // fallback if bridge loads slower
-setTimeout(nativeAutoScan, 2000);  // last resort for slow devices
+setTimeout(nativeAutoScan, 500);
+setTimeout(nativeAutoScan, 2000);
 
 // Lock screen / notification controls
 initMediaSession();
@@ -3029,10 +2912,11 @@ function handleHardwareBack() {
     return;
   }
 
-  // 3. Close edit modal (song or album editor)
+  // 3. Close edit modal
   var editModal = document.getElementById('editModal');
   if (editModal && !editModal.classList.contains('hidden')) {
-    closeEditModal();
+    editModal.classList.add('hidden');
+    document.getElementById('editOverlay').classList.add('hidden');
     return;
   }
 
