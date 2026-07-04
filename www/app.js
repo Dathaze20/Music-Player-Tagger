@@ -495,7 +495,7 @@ var apiKey = localStorage.getItem('gemini_api_key') || '';
 var sortMode = 'title';
 var artistSortMode = 'az';
 var artistViewMode = 'list';   // 'list' | 'grid2' | 'grid3'
-var albumArtistsOnly = false;
+var albumArtistsOnly = true;
 var nativeScanning = false;
 var nativeScanCount = 0;
 var nativeScanError = '';
@@ -2124,6 +2124,7 @@ function saveUIState() {
       nowPlaying: showNowPlaying,
       albumFilter: albumFilter,
       sortMode: sortMode,
+      albumArtistsOnly: albumArtistsOnly,
       scroll: document.getElementById('mainContent').scrollTop,
       time: currentTime,
       shuffled: isShuffled,
@@ -2151,6 +2152,7 @@ function restoreUIState() {
     if (state.album) selectedAlbum = state.album;
     if (state.albumFilter) albumFilter = state.albumFilter;
     if (state.sortMode) sortMode = state.sortMode;
+    if (typeof state.albumArtistsOnly === 'boolean') albumArtistsOnly = state.albumArtistsOnly;
     if (state.shuffled) isShuffled = state.shuffled;
     if (state.repeat) repeatMode = state.repeat;
     if (typeof state.vol === 'number') { volume = state.vol; audio.volume = volume; }
