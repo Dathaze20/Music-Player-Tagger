@@ -734,6 +734,7 @@ function render() {
 
   // Remove alphabet strip when navigating away from artist list
   ['alphaStrip', 'alphaBubble'].forEach(function(id) { var e = document.getElementById(id); if (e) e.remove(); });
+  removeScrollIndicator();
 
   searchBar.classList.add('hidden');
   tabBar.classList.remove('hidden');
@@ -971,6 +972,58 @@ function renderAlphaStrip(listEl, letters) {
   strip.addEventListener('touchcancel', deactivate);
 }
 
+// ─── Custom Scroll Indicator ───
+
+var _scrollInd = null;
+var _scrollIndTimer = null;
+
+function initScrollIndicator() {
+  // Create indicator element once
+  if (!_scrollInd) {
+    _scrollInd = document.createElement('div');
+    _scrollInd.className = 'scroll-indicator';
+    document.getElementById('app').appendChild(_scrollInd);
+  }
+  var mc = document.getElementById('mainContent');
+  // Re-attach listener each time (safe — removeEventListener is a no-op if not added)
+  mc.removeEventListener('scroll', _onScrollIndicator, false);
+  mc.addEventListener('scroll', _onScrollIndicator, { passive: true });
+  // Initialise position immediately (handle case where list is short enough to not scroll)
+  _updateScrollIndicator();
+}
+
+function _updateScrollIndicator() {
+  var ind = _scrollInd;
+  var mc = document.getElementById('mainContent');
+  if (!ind || !mc) return;
+  var scrollTop    = mc.scrollTop;
+  var scrollHeight = mc.scrollHeight;
+  var clientHeight = mc.clientHeight;
+  if (scrollHeight <= clientHeight + 4) { ind.style.opacity = '0'; return; }
+  // Track area = between header+tabs and mini-player
+  var topOff    = 108; // header (~56) + tabs (~44) + a little breathing room
+  var bottomOff = 72;  // mini-player height
+  var trackH    = window.innerHeight - topOff - bottomOff;
+  var thumbH    = Math.max(36, Math.round(trackH * clientHeight / scrollHeight));
+  var ratio     = scrollTop / (scrollHeight - clientHeight);
+  var thumbTop  = topOff + Math.round(ratio * (trackH - thumbH));
+  ind.style.height = thumbH + 'px';
+  ind.style.top    = thumbTop + 'px';
+  ind.style.opacity = '1';
+}
+
+function _onScrollIndicator() {
+  _updateScrollIndicator();
+  clearTimeout(_scrollIndTimer);
+  _scrollIndTimer = setTimeout(function() { if (_scrollInd) _scrollInd.style.opacity = '0'; }, 1200);
+}
+
+function removeScrollIndicator() {
+  var mc = document.getElementById('mainContent');
+  if (mc) mc.removeEventListener('scroll', _onScrollIndicator, false);
+  if (_scrollInd) _scrollInd.style.opacity = '0';
+}
+
 // ─── Tab Renderers ───
 
 function renderArtists(el) {
@@ -1140,6 +1193,7 @@ function renderSongs(el) {
     btn.onclick = function(e) { e.stopPropagation(); sortMode = btn.dataset.sort; render(); };
   });
   bindSongRows(el, sorted);
+  initScrollIndicator();
 }
 
 function renderAlbums(el) {
@@ -1197,6 +1251,7 @@ function renderAlbums(el) {
       render();
     };
   });
+  initScrollIndicator();
 }
 
 function renderPlaylists(el) {
@@ -1236,6 +1291,7 @@ function renderFavorites(el) {
   el.innerHTML = html;
   initLazyArt(el);
   bindSongRows(el, favs);
+  initScrollIndicator();
 }
 
 // ─── Song Row HTML ───

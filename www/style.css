@@ -1656,6 +1656,23 @@ body {
   box-shadow: 0 0 6px rgba(0,168,158,0.4);
 }
 
+/* ─── Hide native scrollbar, show custom indicator ─── */
+#mainContent::-webkit-scrollbar { display: none; }
+#mainContent { scrollbar-width: none; }
+
+.scroll-indicator {
+  position: fixed;
+  right: 3px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--primary);
+  z-index: 115;
+  pointer-events: none;
+  opacity: 0;
+  -webkit-transition: opacity 0.35s;
+  transition: opacity 0.35s;
+}
+
 /* ─── Alphabet Fast-Scroll Strip ─── */
 .alpha-strip {
   position: fixed;
