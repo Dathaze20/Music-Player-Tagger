@@ -1132,6 +1132,12 @@ function showOverflowMenu() {
 
   if (!items) return;
 
+  // Native-only: rescan option at the bottom of any tab menu
+  if (songs.length > 0 && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+    items += '<div class="overflow-divider"></div>'
+      + '<div class="overflow-item" id="omRescanLib">&#128257; Rescan Library</div>';
+  }
+
   menu.innerHTML = items;
   document.getElementById('app').appendChild(menu);
 
@@ -1172,6 +1178,16 @@ function showOverflowMenu() {
     menu.querySelectorAll('[data-song-sort]').forEach(function(item) {
       item.onclick = function() { sortMode = item.dataset.songSort; menu.remove(); render(); };
     });
+  }
+
+  var rescanBtn = menu.querySelector('#omRescanLib');
+  if (rescanBtn) {
+    rescanBtn.onclick = function() {
+      menu.remove();
+      songs = []; songMap = Object.create(null); _countsCache = null;
+      nativeScanning = false; nativeScanError = ''; nativeScanCount = 0;
+      nativeAutoScan();
+    };
   }
 }
 
@@ -2736,6 +2752,24 @@ document.getElementById('clearLibBtn').onclick = function() {
   }
 };
 
+document.getElementById('rescanLibBtn').onclick = function() {
+  toggleDrawer(false);
+  songs = []; songMap = Object.create(null); _countsCache = null;
+  nativeScanning = false; nativeScanError = ''; nativeScanCount = 0;
+  nativeAutoScan();
+};
+
+// Show native-only drawer items once Capacitor is ready
+function updateDrawerForPlatform() {
+  var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+  var el;
+  el = document.getElementById('rescanLibBtn');    if (el) el.classList.toggle('hidden', !isNat);
+  el = document.getElementById('importFolderBtn'); if (el) el.classList.toggle('hidden', isNat);
+  el = document.getElementById('importFilesBtn');  if (el) el.classList.toggle('hidden', isNat);
+}
+document.addEventListener('deviceready', updateDrawerForPlatform, false);
+setTimeout(updateDrawerForPlatform, 200);
+
 var appEl = document.getElementById('app');
 appEl.addEventListener('dragover', function(e) { e.preventDefault(); });
 appEl.addEventListener('drop', function(e) {
@@ -2839,9 +2873,9 @@ window.addEventListener('pagehide', saveUIState);
 
 restoreUIState();
 
-if (songs.length === 0 || (currentTab === 'artists' && !selectedArtist && !selectedAlbum)) {
-  render();
-}
+// Always render on startup — restoreUIState only calls render() when saved state exists,
+// so a cold first-launch (no saved state) would otherwise show a blank screen.
+render();
 
 if (songs.length > 0 && !songs[0].url) {
   if (window.showDirectoryPicker && !isMobile()) {
@@ -2859,21 +2893,22 @@ function nativeAutoScan() {
 
   // Already have songs — reconnect URLs using saved contentUri or nativePath
   if (songs.length > 0) {
+    var needsUrl = songs.filter(function(s) { return !s.url; });
     var reconnected = 0;
-    songs.forEach(function(s) {
-      if (!s.url) {
-        try {
-          if (s.contentUri) {
-            s.url = window.Capacitor.convertFileSrc(s.contentUri);
-            reconnected++;
-          } else if (s.nativePath) {
-            s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
-            reconnected++;
-          }
-        } catch(e) {}
-      }
+    needsUrl.forEach(function(s) {
+      try {
+        if (s.contentUri) {
+          s.url = window.Capacitor.convertFileSrc(s.contentUri);
+          reconnected++;
+        } else if (s.nativePath) {
+          s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
+          reconnected++;
+        }
+      } catch(e) {}
     });
-    if (reconnected > 0) {
+    // Render and stop whether we reconnected some URLs or all songs already had them.
+    // Only fall through to a full rescan if songs exist but zero URLs could be restored.
+    if (reconnected > 0 || needsUrl.length === 0) {
       render();
       renderReconnectBanner();
 
@@ -2944,8 +2979,9 @@ function nativeAutoScan() {
 
 // Register on multiple events — Capacitor bridge load timing varies by device
 document.addEventListener('deviceready', nativeAutoScan, false);
-setTimeout(nativeAutoScan, 500);
-setTimeout(nativeAutoScan, 2000);
+setTimeout(nativeAutoScan, 100);   // fast path: bridge usually ready within 100ms
+setTimeout(nativeAutoScan, 500);   // fallback for slower bridge init
+setTimeout(nativeAutoScan, 2000);  // last resort for slow devices
 
 // Lock screen / notification controls
 initMediaSession();
