@@ -1304,12 +1304,12 @@ function renderNowPlaying() {
     + '<div class="np-info-row">'
     + '<button id="npFav" class="' + (currentSong.fav ? 'fav-active' : '') + '">' + (currentSong.fav ? '&#10084;' : '&#9825;') + '</button>'
     + '<div class="np-info-text">'
-    + '<div class="np-song-title">' + escHtml(currentSong.title)
+    + '<div class="np-title-marquee" id="npTitleMarquee"><span class="np-song-title" id="npTitleInner">' + escHtml(currentSong.title)
     + (currentSong.feat ? '<span class="feat"> ft. ' + escHtml(currentSong.feat) + '</span>' : '')
-    + '</div>'
+    + '</span></div>'
     + '<div class="np-song-artist">' + escHtml(currentSong.artist) + '</div>'
     + '</div>'
-    + '<button id="npQueueBtn" title="Queue">&#9776;&#9835;</button>'
+    + '<button id="npQueueBtn" title="Queue">&#9776;</button>'
     + '</div>'
     + '<div class="np-controls">'
     + '<div class="np-progress">'
@@ -1320,11 +1320,13 @@ function renderNowPlaying() {
     + '<div class="np-times"><span>' + fmtTime(currentTime) + '</span><span>' + fmtTime(duration) + '</span></div>'
     + '</div>'
     + '<div class="np-main-controls">'
-    + '<button id="npRepeat" class="np-ctrl' + (repeatMode !== 'off' ? ' active' : '') + '">&#128257;' + (repeatMode === 'one' ? '<sub>1</sub>' : '') + '</button>'
+    + '<button id="npRepeat" class="np-ctrl' + (repeatMode !== 'off' ? ' active' : '') + '" style="font-size:20px;">'
+    + (repeatMode === 'off' ? '&#8594;' : repeatMode === 'all' ? '&#8635;' : '&#8635;<span style="font-size:11px;font-weight:700;vertical-align:super;margin-left:1px;">1</span>')
+    + '</button>'
     + '<button id="npPrev" class="np-ctrl">&#9198;</button>'
     + '<button class="np-play-btn' + (isPlaying ? ' is-playing' : '') + '" id="npPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
     + '<button id="npNext" class="np-ctrl">&#9197;</button>'
-    + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '">&#128256;</button>'
+    + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '" style="font-size:20px;">&#8644;</button>'
     + '</div>'
     + '<div class="np-bottom">'
     + '<button id="npSpeed" class="np-ctrl' + (playbackRate !== 1.0 ? ' active' : '') + '" style="font-size:13px;font-weight:700;min-width:40px;">' + playbackRate + 'x</button>'
@@ -1365,6 +1367,15 @@ function renderNowPlaying() {
   html += '</div>';  // end np-content
 
   np.innerHTML = html;
+
+  // Enable marquee scrolling only if title actually overflows its container
+  var marqueeEl = document.getElementById('npTitleMarquee');
+  var innerEl = document.getElementById('npTitleInner');
+  if (marqueeEl && innerEl && innerEl.scrollWidth > marqueeEl.offsetWidth + 4) {
+    var dist = innerEl.scrollWidth - marqueeEl.offsetWidth;
+    marqueeEl.style.setProperty('--np-scroll-dist', '-' + dist + 'px');
+    marqueeEl.classList.add('is-scrolling');
+  }
 
   // Load HD art in-place if not yet cached
   if (artUri && !artCacheHD[artUri] && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {

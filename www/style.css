@@ -389,48 +389,68 @@ body {
 }
 .np-label { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; }
 
-/* Full-width album art (Muzio style) */
+/* Album art — padded with rounded corners so blurred background shows on sides */
 .np-art-full {
-  width: 100%;
+  width: calc(100% - 48px);
+  margin: 4px 24px 0;
   aspect-ratio: 1;
+  border-radius: 16px;
   overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.65);
 }
 .np-art-full img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .np-art-full .art-placeholder { width: 100% !important; height: 100% !important; font-size: 80px !important; border-radius: 0 !important; }
 
-/* Info row: heart | title+artist | queue */
+/* Info row: heart | [title marquee + artist] | queue */
 .np-info-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 12px 12px 4px;
+  gap: 8px;
+  padding: 20px 20px 8px;
   flex-shrink: 0;
 }
 .np-info-row button {
-  background: none; border: none; color: var(--text-faint);
-  padding: 8px; cursor: pointer; font-size: 22px; flex-shrink: 0;
+  background: none; border: none; color: rgba(255,255,255,0.5);
+  padding: 8px; cursor: pointer; font-size: 24px; flex-shrink: 0;
+  transition: color 0.15s;
 }
+.np-info-row button:active { color: var(--text); }
 .np-info-row button.fav-active { color: #f43f5e; }
 .np-info-text { flex: 1; min-width: 0; }
-.np-song-title {
-  font-size: 18px;
-  font-weight: 700;
-  white-space: nowrap;
+
+/* Marquee container — clips overflow; inner span scrolls when text is too wide */
+.np-title-marquee {
   overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.np-song-title .feat { color: var(--text-faint); font-size: 14px; font-weight: 400; }
-.np-song-artist { font-size: 13px; color: var(--text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-title-marquee .np-song-title {
+  display: inline-block;
+  white-space: nowrap;
+}
+@keyframes npMarquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(var(--np-scroll-dist, 0px)); }
+}
+.np-title-marquee.is-scrolling .np-song-title {
+  animation: npMarquee 4s ease-in-out 0.8s infinite alternate;
+  padding-right: 48px;
+}
+
+.np-song-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+.np-song-title .feat { color: rgba(255,255,255,0.45); font-size: 15px; font-weight: 400; }
+.np-song-artist { font-size: 14px; color: rgba(255,255,255,0.55); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-song-album { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
 
 /* Keep old .np-art for any legacy references */
 .np-art { display: none; }
 .np-art-container { display: none; }
 
-.np-controls { padding: 0 20px 8px; }
-.np-progress { margin-bottom: 12px; }
+.np-controls { padding: 0 24px 8px; }
+.np-progress { margin-bottom: 16px; }
 .np-seek-wrap {
   position: relative;
   height: 20px;
@@ -441,16 +461,16 @@ body {
 .np-seek-track {
   position: absolute;
   left: 0; right: 0;
-  height: 5px;
-  background: var(--bg-secondary);
-  border-radius: 3px;
+  height: 3px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 2px;
   overflow: hidden;
   pointer-events: none;
 }
 .np-seek-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary), #00d4c8);
-  border-radius: 3px;
+  background: #fff;
+  border-radius: 2px;
   transition: width 0.3s linear;
   width: 0%;
 }
@@ -461,37 +481,34 @@ body {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
-  border-radius: 3px;
   outline: none;
   cursor: pointer;
   z-index: 1;
 }
 .np-progress input[type=range]::-webkit-slider-runnable-track {
-  height: 5px;
+  height: 3px;
   background: transparent;
-  border-radius: 3px;
 }
 .np-progress input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px; height: 18px;
+  width: 14px; height: 14px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 0 3px var(--primary), 0 2px 8px rgba(0,0,0,0.5);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.4);
   cursor: pointer;
-  transition: transform 0.1s, box-shadow 0.1s;
-  margin-top: -6.5px;
+  transition: transform 0.1s;
+  margin-top: -5.5px;
 }
 .np-progress input[type=range]:active::-webkit-slider-thumb {
-  transform: scale(1.3);
-  box-shadow: 0 0 0 4px var(--primary), 0 0 16px rgba(0,168,158,0.5);
+  transform: scale(1.35);
 }
 .np-times {
   display: flex;
   justify-content: space-between;
-  margin-top: 2px;
+  margin-top: 6px;
 }
-.np-times span { font-size: 11px; color: var(--text-faint); }
+.np-times span { font-size: 11px; color: rgba(255,255,255,0.45); }
 .np-main-controls {
   display: flex;
   align-items: center;
@@ -499,35 +516,29 @@ body {
   margin-bottom: 16px;
 }
 .np-main-controls button {
-  background: none; border: none; color: var(--text);
-  padding: 10px; cursor: pointer; font-size: 24px;
-  transition: transform 0.1s;
+  background: none; border: none; color: rgba(255,255,255,0.75);
+  padding: 10px; cursor: pointer; font-size: 22px;
+  transition: transform 0.1s, color 0.1s;
 }
-.np-main-controls button:active { transform: scale(0.85); }
+.np-main-controls button:active { transform: scale(0.85); color: #fff; }
 .np-main-controls button.active { color: var(--primary); }
 .np-play-btn {
   width: 72px !important; height: 72px;
   border-radius: 50% !important;
-  background: var(--primary) !important;
-  color: var(--primary-fg) !important;
+  background: #ffffff !important;
+  color: #1a1f2e !important;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 30px !important;
-  box-shadow: 0 4px 24px rgba(0,168,158,0.5);
+  font-size: 28px !important;
+  box-shadow: 0 4px 28px rgba(0,0,0,0.45);
   transition: transform 0.1s, box-shadow 0.15s !important;
 }
 .np-play-btn:active {
   transform: scale(0.93) !important;
-  box-shadow: 0 2px 12px rgba(0,168,158,0.4) !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
 }
-.np-play-btn.is-playing {
-  animation: playGlow 2.5s ease-in-out infinite;
-}
-@keyframes playGlow {
-  0%, 100% { box-shadow: 0 4px 24px rgba(0,168,158,0.5); }
-  50% { box-shadow: 0 4px 36px rgba(0,168,158,0.85), 0 0 24px rgba(0,212,200,0.4); }
-}
+.np-play-btn.is-playing { animation: none; }
 .np-bottom {
   display: flex;
   align-items: center;
