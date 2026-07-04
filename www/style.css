@@ -1817,6 +1817,126 @@ body {
 .settings-retag-btn:active { background: rgba(0,168,158,0.22); }
 .settings-retag-btn:disabled { opacity: 0.4; cursor: default; }
 
+/* ─── Artist three-dot button ─── */
+.artist-menu-btn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 20px;
+  padding: 10px 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+.artist-menu-btn:active { color: var(--text); }
+
+/* ─── Context Bottom Sheet ─── */
+.bs-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 550;
+  -webkit-tap-highlight-color: transparent;
+}
+.bs-overlay.hidden { display: none; }
+.bottom-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 430px;
+  background: #1e2436;
+  border-radius: 20px 20px 0 0;
+  z-index: 560;
+  max-height: 80vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 20px;
+}
+.bottom-sheet.hidden { display: none; }
+.bs-handle {
+  width: 36px;
+  height: 4px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 2px;
+  margin: 12px auto 4px;
+}
+.bs-header {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.bs-collage {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+  -webkit-flex-shrink: 0;
+  flex-shrink: 0;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+.bs-collage-cell {
+  width: 50%;
+  height: 50%;
+  position: relative;
+  overflow: hidden;
+}
+.bs-art-single {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+  -webkit-flex-shrink: 0;
+  flex-shrink: 0;
+  position: relative;
+}
+.bs-info { -webkit-box-flex: 1; flex: 1; min-width: 0; }
+.bs-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bs-meta { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
+.bs-item {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  gap: 18px;
+  padding: 15px 22px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s;
+}
+.bs-item:active { background: rgba(255,255,255,0.07); }
+.bs-icon {
+  font-size: 18px;
+  color: var(--text-dim);
+  width: 22px;
+  text-align: center;
+  -webkit-flex-shrink: 0;
+  flex-shrink: 0;
+}
+.bs-label { font-size: 16px; font-weight: 500; color: var(--text); }
+.bs-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 6px 0; }
+
 /* ─── Queue Panel ─── */
 .queue-panel {
   position: fixed;

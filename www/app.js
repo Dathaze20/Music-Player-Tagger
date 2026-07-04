@@ -1074,14 +1074,17 @@ function renderArtists(el) {
       + '<div class="artist-name">' + escHtml(a.name) + '</div>'
       + '<div class="artist-meta">' + a.albumCount + ' ' + (a.albumCount === 1 ? 'Album' : 'Albums') + ' &bull; ' + a.songCount + ' ' + (a.songCount === 1 ? 'Song' : 'Songs') + '</div>'
       + '</div>'
-      + '<span style="color:var(--text-faint);padding:8px;font-size:20px;opacity:0.5;">&#8250;</span>'
+      + '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>'
       + '</div>');
   });
   el.innerHTML = parts.join('');
   initLazyArt(el);
-  el.querySelectorAll('.artist-row').forEach(function(row) {
-    row.onclick = function() { selectedArtist = row.dataset.artist; render(); };
-  });
+  el.onclick = function(e) {
+    var menuBtn = e.target.closest('[data-artist-menu]');
+    if (menuBtn) { e.stopPropagation(); showArtistMenu(menuBtn.dataset.artistMenu); return; }
+    var row = e.target.closest('.artist-row[data-artist]');
+    if (row) { selectedArtist = row.dataset.artist; render(); }
+  };
   renderAlphaStrip(el, alphaLetters);
 }
 
@@ -1813,6 +1816,101 @@ function renderNowPlaying() {
     }
   };
 }
+
+// ─── Context Bottom Sheet ───
+
+function closeBottomSheet() {
+  document.getElementById('bottomSheet').classList.add('hidden');
+  document.getElementById('bsOverlay').classList.add('hidden');
+}
+
+function openBottomSheet(headerHTML, items) {
+  document.getElementById('bsHeader').innerHTML = headerHTML;
+  var itemsEl = document.getElementById('bsItems');
+  itemsEl.innerHTML = '';
+  items.forEach(function(item) {
+    if (item === 'divider') {
+      var d = document.createElement('div');
+      d.className = 'bs-divider';
+      itemsEl.appendChild(d);
+      return;
+    }
+    var row = document.createElement('div');
+    row.className = 'bs-item';
+    row.innerHTML = '<span class="bs-icon">' + item.icon + '</span><span class="bs-label">' + escHtml(item.label) + '</span>';
+    row.onclick = function() { closeBottomSheet(); item.action(); };
+    itemsEl.appendChild(row);
+  });
+  // Init lazy art inside header if any
+  initLazyArt(document.getElementById('bsHeader'));
+  document.getElementById('bottomSheet').classList.remove('hidden');
+  document.getElementById('bsOverlay').classList.remove('hidden');
+}
+
+function playNext(songList) {
+  if (!songList || !songList.length) return;
+  if (!currentSong || !queue.length) { playSong(songList[0], songList); return; }
+  var idx = queue.findIndex(function(s) { return s.id === currentSong.id; });
+  if (idx === -1) { queue = queue.concat(songList); }
+  else { queue.splice.apply(queue, [idx + 1, 0].concat(songList)); }
+  showToast('Playing next: ' + songList.length + ' song' + (songList.length !== 1 ? 's' : ''));
+}
+
+function addToQueue(songList) {
+  if (!songList || !songList.length) return;
+  if (!currentSong || !queue.length) { playSong(songList[0], songList); return; }
+  queue = queue.concat(songList);
+  showToast('Added ' + songList.length + ' song' + (songList.length !== 1 ? 's' : '') + ' to queue');
+}
+
+function showArtistMenu(artistName) {
+  var artistAlbums = getArtistAlbums(artistName);
+  var artistSongs  = getArtistSongs(artistName);
+
+  // Build mini collage header
+  var count = Math.max(artistAlbums.length, 1);
+  var cells = [];
+  for (var i = 0; i < 4; i++) {
+    var album = artistAlbums[i % count];
+    var uri = album ? (album.albumArtUri || '') : '';
+    var g = getGrad(album ? album.name : artistName);
+    var init = (album ? album.name : artistName).split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase();
+    cells.push('<div class="bs-collage-cell">'
+      + '<div style="width:100%;height:100%;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:12px;font-weight:700;color:rgba(255,255,255,0.8);">' + escHtml(init) + '</div>'
+      + (uri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(uri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
+      + '</div>');
+  }
+  var headerHTML = '<div class="bs-collage">' + cells.join('') + '</div>'
+    + '<div class="bs-info">'
+    + '<div class="bs-name">' + escHtml(artistName) + '</div>'
+    + '<div class="bs-meta">' + artistAlbums.length + ' ' + (artistAlbums.length === 1 ? 'Album' : 'Albums') + ' &bull; ' + artistSongs.length + ' Songs</div>'
+    + '</div>';
+
+  openBottomSheet(headerHTML, [
+    { icon: '&#9654;',  label: 'Play',              action: function() { if (artistSongs.length) playSong(artistSongs[0], artistSongs); } },
+    { icon: '&#8631;',  label: 'Play next',          action: function() { playNext(artistSongs); } },
+    { icon: '&#8644;',  label: 'Add to queue',       action: function() { addToQueue(artistSongs); } },
+    { icon: '&#8645;',  label: 'Shuffle',            action: function() {
+        if (!artistSongs.length) return;
+        isShuffled = true;
+        var sh = artistSongs.slice().sort(function() { return Math.random() - 0.5; });
+        playSong(sh[0], sh);
+    }},
+    'divider',
+    { icon: '&#9881;',  label: 'Tag all songs',      action: function() {
+        if (!apiKey) { showToast('Set up AI key in Settings first'); return; }
+        var toTag = artistSongs.filter(function(s) { return !s.genre || !s.year; });
+        if (!toTag.length) { showToast('All songs already tagged'); return; }
+        toTag.forEach(function(s) { s.tagging = true; });
+        tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag };
+        updateTaggingBanner(); tagNextSong(toTag, 0);
+        showToast('Tagging ' + toTag.length + ' songs...');
+    }},
+    { icon: '&#8594;',  label: 'Go to artist',       action: function() { selectedArtist = artistName; render(); } },
+  ]);
+}
+
+document.getElementById('bsOverlay').onclick = closeBottomSheet;
 
 // ─── Playback ───
 
@@ -2690,7 +2788,11 @@ function handleHardwareBack() {
   var overflowMenu = document.getElementById('overflowMenu');
   if (overflowMenu) { overflowMenu.remove(); return; }
 
-  // 1b. Close queue panel
+  // 1b. Close bottom sheet
+  var bs = document.getElementById('bottomSheet');
+  if (bs && !bs.classList.contains('hidden')) { closeBottomSheet(); return; }
+
+  // 1c. Close queue panel
   var queuePanel = document.getElementById('queuePanel');
   if (queuePanel && !queuePanel.classList.contains('hidden')) {
     queuePanel.classList.add('hidden');
