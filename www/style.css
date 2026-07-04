@@ -275,7 +275,66 @@ body {
 .album-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .album-meta { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Album detail / Artist detail */
+/* Artist detail header — horizontal collage + info */
+.artist-detail-header {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 16px 12px;
+}
+.artist-collage {
+  width: 150px;
+  height: 150px;
+  border-radius: 14px;
+  overflow: hidden;
+  -webkit-flex-shrink: 0;
+  flex-shrink: 0;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+}
+.artist-collage-cell {
+  width: 50%;
+  height: 50%;
+  position: relative;
+  overflow: hidden;
+}
+.artist-header-info {
+  -webkit-box-flex: 1;
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  gap: 5px;
+}
+.artist-header-name {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+  word-break: break-word;
+}
+.artist-header-stats {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.artist-header-dur {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+/* Album detail */
 .detail-header {
   display: flex;
   flex-direction: column;

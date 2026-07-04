@@ -1179,19 +1179,40 @@ function songRowHTML(s, playing, showEdit) {
 
 // ─── Detail Views ───
 
+function artistCollageHTML(artistAlbums, artistName) {
+  // Collect album art URIs; fill up to 4 slots (cycle if fewer)
+  var count = Math.max(artistAlbums.length, 1);
+  var cells = [];
+  for (var i = 0; i < 4; i++) {
+    var album = artistAlbums[i % count];
+    var uri = album ? (album.albumArtUri || '') : '';
+    var g = getGrad(album ? album.name : artistName);
+    var init = (album ? album.name : artistName)
+      .split(' ').map(function(w) { return w[0] || ''; }).join('').substring(0, 2).toUpperCase();
+    cells.push('<div class="artist-collage-cell">'
+      + '<div style="width:100%;height:100%;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:20px;font-weight:700;color:rgba(255,255,255,0.8);">' + escHtml(init) + '</div>'
+      + (uri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(uri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
+      + '</div>');
+  }
+  return '<div class="artist-collage">' + cells.join('') + '</div>';
+}
+
 function renderArtistDetail(el) {
   var artistSongs = getArtistSongs(selectedArtist);
   var artistAlbums = getArtistAlbums(selectedArtist);
   var totalDur = artistSongs.reduce(function(sum, s) { return sum + (s.dur || 0); }, 0);
 
-  var html = '<div class="detail-header">'
-    + artHTML(selectedArtist, 120, true, 'large')
-    + '<div class="detail-title">' + escHtml(selectedArtist) + '</div>'
-    + '<div class="detail-artist">' + artistAlbums.length + ' ' + (artistAlbums.length === 1 ? 'Album' : 'Albums') + ' &bull; ' + artistSongs.length + ' Songs &bull; ' + fmtTime(totalDur) + '</div>'
-    + '<div class="detail-actions">'
+  var html = '<div class="artist-detail-header">'
+    + artistCollageHTML(artistAlbums, selectedArtist)
+    + '<div class="artist-header-info">'
+    + '<div class="artist-header-name">' + escHtml(selectedArtist) + '</div>'
+    + '<div class="artist-header-stats">' + artistAlbums.length + ' ' + (artistAlbums.length === 1 ? 'Album' : 'Albums') + ' &bull; ' + artistSongs.length + ' Song' + (artistSongs.length !== 1 ? 's' : '') + '</div>'
+    + '<div class="artist-header-dur">' + fmtTime(totalDur) + '</div>'
+    + '</div></div>'
+    + '<div class="detail-actions" style="padding:0 16px 16px;">'
     + '<button class="btn btn-primary" id="playAllBtn">&#9654; Play All</button>'
     + '<button class="btn btn-secondary" id="shuffleAllBtn">&#8645; Shuffle</button>'
-    + '</div></div>';
+    + '</div>';
 
   if (artistAlbums.length > 0) {
     html += '<div class="section-label">Albums &amp; Projects</div><div class="album-scroll">';
