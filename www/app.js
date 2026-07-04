@@ -923,7 +923,7 @@ function renderAlbums(el) {
       + badge
       + '</div>'
       + '<div class="album-name">' + escHtml(a.name) + '</div>'
-      + '<div class="album-meta">' + escHtml(a.artist) + ' &bull; ' + (a.year || '—') + '</div>'
+      + '<div class="album-meta">' + escHtml(a.artist) + ' &bull; ' + a.songCount + ' Song' + (a.songCount !== 1 ? 's' : '') + '</div>'
       + '</div>';
   });
   html += '</div>';
