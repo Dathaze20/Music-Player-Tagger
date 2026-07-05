@@ -1231,8 +1231,9 @@ function renderAlphaStrip(listEl, letters) {
 }
 
 // ─── Scroll Indicator ───
-var _scrollInd      = null;
-var _scrollIndTimer = null;
+var _scrollInd        = null;
+var _scrollIndTimer   = null;
+var _scrollIndTouching = false;
 
 function initScrollIndicator() {
   if (!_scrollInd) {
@@ -1241,14 +1242,22 @@ function initScrollIndicator() {
     document.getElementById('app').appendChild(_scrollInd);
   }
   var mc = document.getElementById('mainContent');
-  mc.removeEventListener('scroll', _onScrollInd, false);
-  mc.addEventListener('scroll', _onScrollInd, { passive: true });
-  // Show briefly so user knows it is there, then fade
+  mc.removeEventListener('scroll',     _onScrollInd,     false);
+  mc.removeEventListener('touchstart', _onIndTouchStart, false);
+  mc.removeEventListener('touchend',   _onIndTouchEnd,   false);
+  mc.removeEventListener('touchcancel',_onIndTouchEnd,   false);
+  mc.addEventListener('scroll',     _onScrollInd,     { passive: true });
+  mc.addEventListener('touchstart', _onIndTouchStart, { passive: true });
+  mc.addEventListener('touchend',   _onIndTouchEnd,   { passive: true });
+  mc.addEventListener('touchcancel',_onIndTouchEnd,   { passive: true });
+  // Show briefly on load so user knows scrolling is available
   requestAnimationFrame(function() {
     if (_posScrollInd()) {
       _scrollInd.style.opacity = '1';
       clearTimeout(_scrollIndTimer);
-      _scrollIndTimer = setTimeout(function() { if (_scrollInd) _scrollInd.style.opacity = '0'; }, 1500);
+      _scrollIndTimer = setTimeout(function() {
+        if (_scrollInd && !_scrollIndTouching) _scrollInd.style.opacity = '0';
+      }, 2000);
     }
   });
 }
@@ -1259,9 +1268,11 @@ function _posScrollInd() {
   if (!ind || !mc) return false;
   var sh = mc.scrollHeight, ch = mc.clientHeight, st = mc.scrollTop;
   if (sh <= ch + 4) { ind.style.opacity = '0'; return false; }
-  var topOff = 108, botOff = 72;
+  var topOff = 108;
+  var mini = document.getElementById('miniPlayer');
+  var botOff = (mini && !mini.classList.contains('hidden')) ? 72 : 8;
   var trackH = window.innerHeight - topOff - botOff;
-  var thumbH = Math.max(40, Math.floor(trackH * ch / sh));
+  var thumbH = Math.max(44, Math.floor(trackH * ch / sh));
   var thumbY = topOff + Math.floor((trackH - thumbH) * st / (sh - ch));
   ind.style.height = thumbH + 'px';
   ind.style.top    = thumbY + 'px';
@@ -1271,14 +1282,40 @@ function _posScrollInd() {
 function _onScrollInd() {
   if (!_posScrollInd()) return;
   _scrollInd.style.opacity = '1';
+  if (!_scrollIndTouching) {
+    clearTimeout(_scrollIndTimer);
+    _scrollIndTimer = setTimeout(function() {
+      if (_scrollInd && !_scrollIndTouching) _scrollInd.style.opacity = '0';
+    }, 2500);
+  }
+}
+
+function _onIndTouchStart() {
+  _scrollIndTouching = true;
+  if (_posScrollInd()) {
+    _scrollInd.style.opacity = '1';
+    clearTimeout(_scrollIndTimer);
+  }
+}
+
+function _onIndTouchEnd() {
+  _scrollIndTouching = false;
   clearTimeout(_scrollIndTimer);
-  _scrollIndTimer = setTimeout(function() { if (_scrollInd) _scrollInd.style.opacity = '0'; }, 1500);
+  _scrollIndTimer = setTimeout(function() {
+    if (_scrollInd && !_scrollIndTouching) _scrollInd.style.opacity = '0';
+  }, 2500);
 }
 
 function removeScrollIndicator() {
   var mc = document.getElementById('mainContent');
-  if (mc) mc.removeEventListener('scroll', _onScrollInd, false);
+  if (mc) {
+    mc.removeEventListener('scroll',     _onScrollInd,     false);
+    mc.removeEventListener('touchstart', _onIndTouchStart, false);
+    mc.removeEventListener('touchend',   _onIndTouchEnd,   false);
+    mc.removeEventListener('touchcancel',_onIndTouchEnd,   false);
+  }
   clearTimeout(_scrollIndTimer);
+  _scrollIndTouching = false;
   if (_scrollInd) _scrollInd.style.opacity = '0';
 }
 
