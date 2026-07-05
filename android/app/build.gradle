@@ -15,25 +15,24 @@ android {
         }
     }
     signingConfigs {
-        release {
-            def keystorePath = System.getenv("KEYSTORE_PATH")
-            if (keystorePath) {
-                storeFile file(keystorePath)
-                storePassword System.getenv("STORE_PASSWORD") ?: ""
-                keyAlias System.getenv("KEY_ALIAS") ?: ""
-                keyPassword System.getenv("KEY_PASSWORD") ?: ""
-            }
+        muzio {
+            // Stable key committed to repo — same cert on every build so Android
+            // never sees a "new" app and Play Protect warns only once.
+            storeFile file('muzio.keystore')
+            storePassword 'muzio2024'
+            keyAlias 'muzio_key'
+            keyPassword 'muzio2024'
         }
     }
     buildTypes {
         release {
-            def hasKeystore = System.getenv("KEYSTORE_PATH") != null
-            signingConfig hasKeystore ? signingConfigs.release : signingConfigs.debug
+            signingConfig signingConfigs.muzio
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
         debug {
-            // No suffix — keeps same package ID so updates install over existing app
+            signingConfig signingConfigs.muzio
+            // Same package ID — APK installs over existing app without uninstalling
         }
     }
 }

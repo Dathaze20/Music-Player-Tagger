@@ -1217,65 +1217,9 @@ function renderAlphaStrip(listEl, letters) {
   strip.addEventListener('touchcancel', deactivate);
 }
 
-// ─── Custom Scroll Indicator (fade on scroll, never blocks touch) ───
-
-var _scrollInd      = null;
-var _scrollIndTimer = null;
-
-function initScrollIndicator() {
-  if (!_scrollInd) {
-    _scrollInd = document.createElement('div');
-    _scrollInd.className = 'scroll-indicator';
-    document.getElementById('app').appendChild(_scrollInd);
-  }
-  var mc = document.getElementById('mainContent');
-  mc.removeEventListener('scroll', _onScrollIndicator, false);
-  mc.addEventListener('scroll', _onScrollIndicator, { passive: true });
-  // Show briefly on first render so user knows the bar is there
-  requestAnimationFrame(function() {
-    _positionScrollIndicator();
-    _scrollInd.style.opacity = '1';
-    clearTimeout(_scrollIndTimer);
-    _scrollIndTimer = setTimeout(function() {
-      if (_scrollInd) _scrollInd.style.opacity = '0';
-    }, 1500);
-  });
-}
-
-function _positionScrollIndicator() {
-  var ind = _scrollInd;
-  var mc  = document.getElementById('mainContent');
-  if (!ind || !mc) return false;
-  var scrollTop    = mc.scrollTop;
-  var scrollHeight = mc.scrollHeight;
-  var clientHeight = mc.clientHeight;
-  if (scrollHeight <= clientHeight + 4) return false;
-  var topOff    = 108;
-  var bottomOff = 72;
-  var trackH    = window.innerHeight - topOff - bottomOff;
-  var thumbH    = Math.max(44, Math.round(trackH * clientHeight / scrollHeight));
-  var ratio     = scrollTop / (scrollHeight - clientHeight);
-  var thumbTop  = topOff + Math.round(ratio * (trackH - thumbH));
-  ind.style.height = thumbH + 'px';
-  ind.style.top    = thumbTop + 'px';
-  return true;
-}
-
-function _onScrollIndicator() {
-  if (!_positionScrollIndicator()) return;
-  _scrollInd.style.opacity = '1';
-  clearTimeout(_scrollIndTimer);
-  _scrollIndTimer = setTimeout(function() {
-    if (_scrollInd) _scrollInd.style.opacity = '0';
-  }, 1500);
-}
-
-function removeScrollIndicator() {
-  var mc = document.getElementById('mainContent');
-  if (mc) mc.removeEventListener('scroll', _onScrollIndicator, false);
-  clearTimeout(_scrollIndTimer);
-  if (_scrollInd) _scrollInd.style.opacity = '0';
-}
+// Native WebView scroll indicator handles all tabs — no custom code needed.
+function initScrollIndicator() {}
+function removeScrollIndicator() {}
 
 // ─── Tab Renderers ───
 
