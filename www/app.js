@@ -1231,9 +1231,12 @@ function renderAlphaStrip(listEl, letters) {
 }
 
 // ─── Scroll Indicator ───
-var _scrollInd        = null;
-var _scrollIndTimer   = null;
+var _scrollInd         = null;
+var _scrollIndTimer    = null;
 var _scrollIndTouching = false;
+var _scrollIndDragging = false;
+var _scrollIndDragY    = 0;
+var _scrollIndDragST   = 0;
 
 function initScrollIndicator() {
   if (!_scrollInd) {
@@ -1241,6 +1244,8 @@ function initScrollIndicator() {
     _scrollInd.className = 'scroll-indicator';
     document.getElementById('app').appendChild(_scrollInd);
   }
+  _scrollInd.removeEventListener('touchstart', _onIndDragStart, false);
+  _scrollInd.addEventListener('touchstart', _onIndDragStart, { passive: false });
   var mc = document.getElementById('mainContent');
   mc.removeEventListener('scroll',     _onScrollInd,     false);
   mc.removeEventListener('touchstart', _onIndTouchStart, false);
@@ -1306,6 +1311,49 @@ function _onIndTouchEnd() {
   }, 2500);
 }
 
+function _onIndDragStart(e) {
+  e.stopPropagation();
+  _scrollIndDragging = true;
+  _scrollIndTouching = true;
+  _scrollIndDragY = e.touches[0].clientY;
+  var mc = document.getElementById('mainContent');
+  _scrollIndDragST = mc ? mc.scrollTop : 0;
+  clearTimeout(_scrollIndTimer);
+  if (_posScrollInd()) _scrollInd.style.opacity = '1';
+  document.addEventListener('touchmove',   _onIndDragMove, { passive: false });
+  document.addEventListener('touchend',    _onIndDragEnd,  { passive: true });
+  document.addEventListener('touchcancel', _onIndDragEnd,  { passive: true });
+}
+
+function _onIndDragMove(e) {
+  if (!_scrollIndDragging) return;
+  e.preventDefault();
+  var mc = document.getElementById('mainContent');
+  if (!mc) return;
+  var sh = mc.scrollHeight, ch = mc.clientHeight;
+  if (sh <= ch) return;
+  var topOff = 108;
+  var mini = document.getElementById('miniPlayer');
+  var botOff = (mini && !mini.classList.contains('hidden')) ? 72 : 8;
+  var trackH = window.innerHeight - topOff - botOff;
+  var thumbH = Math.max(44, Math.floor(trackH * ch / sh));
+  var dy = e.touches[0].clientY - _scrollIndDragY;
+  mc.scrollTop = _scrollIndDragST + dy * (sh - ch) / (trackH - thumbH);
+  _posScrollInd();
+}
+
+function _onIndDragEnd() {
+  _scrollIndDragging = false;
+  _scrollIndTouching = false;
+  document.removeEventListener('touchmove',   _onIndDragMove, false);
+  document.removeEventListener('touchend',    _onIndDragEnd,  false);
+  document.removeEventListener('touchcancel', _onIndDragEnd,  false);
+  clearTimeout(_scrollIndTimer);
+  _scrollIndTimer = setTimeout(function() {
+    if (_scrollInd && !_scrollIndTouching) _scrollInd.style.opacity = '0';
+  }, 2500);
+}
+
 function removeScrollIndicator() {
   var mc = document.getElementById('mainContent');
   if (mc) {
@@ -1314,8 +1362,13 @@ function removeScrollIndicator() {
     mc.removeEventListener('touchend',   _onIndTouchEnd,   false);
     mc.removeEventListener('touchcancel',_onIndTouchEnd,   false);
   }
+  if (_scrollInd) _scrollInd.removeEventListener('touchstart', _onIndDragStart, false);
+  document.removeEventListener('touchmove',   _onIndDragMove, false);
+  document.removeEventListener('touchend',    _onIndDragEnd,  false);
+  document.removeEventListener('touchcancel', _onIndDragEnd,  false);
   clearTimeout(_scrollIndTimer);
   _scrollIndTouching = false;
+  _scrollIndDragging = false;
   if (_scrollInd) _scrollInd.style.opacity = '0';
 }
 

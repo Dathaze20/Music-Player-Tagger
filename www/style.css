@@ -1669,16 +1669,25 @@ body {
 /* ─── Scroll Indicator ─── */
 .scroll-indicator {
   position: fixed;
-  right: 3px;
+  right: 0;
+  width: 24px;
+  z-index: 200;
+  pointer-events: auto;
+  touch-action: none;
+  opacity: 0;
+  -webkit-transition: opacity 0.35s;
+  transition: opacity 0.35s;
+}
+.scroll-indicator::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  top: 0;
+  bottom: 0;
   width: 5px;
   border-radius: 2.5px;
   background: var(--primary);
   box-shadow: 0 0 4px rgba(0,168,158,0.5);
-  z-index: 200;
-  pointer-events: none;
-  opacity: 0;
-  -webkit-transition: opacity 0.35s;
-  transition: opacity 0.35s;
 }
 
 /* ─── Alphabet Fast-Scroll Strip ─── */
