@@ -156,12 +156,12 @@ function backgroundLoadAllArt() {
       uris.push(s.albumArtUri);
     }
   });
-  // Cap at 500 unique album art URIs to avoid ANR on very large libraries (15k+ songs)
-  if (uris.length > 500) uris = uris.slice(0, 500);
+  // Cap at 1200 unique album art URIs (unique albums, not songs — safe for 15k+ libraries)
+  if (uris.length > 1200) uris = uris.slice(0, 1200);
 
   var idx = 0;
   var active = 0;
-  var MAX = 10;
+  var MAX = 20;
 
   function finish() { active--; pump(); }
   function pump() {
@@ -204,7 +204,7 @@ function initLazyArt(container) {
     entries.forEach(function(entry) {
       if (entry.isIntersecting) { _lazyArtObs.unobserve(entry.target); loadLazyEl(entry.target); }
     });
-  }, { rootMargin: '1200px' });
+  }, { rootMargin: '2400px' });
 
   lazies.forEach(function(el) {
     var uris = (el.dataset.lazyUri || '').split('|').filter(Boolean);
@@ -645,7 +645,7 @@ function loadPersistedArt() {
       var req = tx.objectStore(ART_STORE_NAME).openCursor();
       req.onsuccess = function(e) {
         var cur = e.target.result;
-        if (cur && count < 300) { result[cur.key] = cur.value; count++; cur.continue(); }
+        if (cur && count < 800) { result[cur.key] = cur.value; count++; cur.continue(); }
         else resolve(result);
       };
       req.onerror = function() { resolve({}); };
@@ -1220,9 +1220,16 @@ function renderAlphaStrip(listEl, letters) {
 // ─── Custom Scroll Indicator ───
 
 var _scrollInd = null;
+var _scrollIndTrack = null;
 var _scrollIndTimer = null;
 
 function initScrollIndicator() {
+  // Create track (background) element once
+  if (!_scrollIndTrack) {
+    _scrollIndTrack = document.createElement('div');
+    _scrollIndTrack.className = 'scroll-indicator-track';
+    document.getElementById('app').appendChild(_scrollIndTrack);
+  }
   // Create indicator element once
   if (!_scrollInd) {
     _scrollInd = document.createElement('div');
@@ -1233,25 +1240,39 @@ function initScrollIndicator() {
   // Re-attach listener each time (safe — removeEventListener is a no-op if not added)
   mc.removeEventListener('scroll', _onScrollIndicator, false);
   mc.addEventListener('scroll', _onScrollIndicator, { passive: true });
-  // Initialise position immediately (handle case where list is short enough to not scroll)
+  // Show immediately, then auto-fade after 2.5s if user doesn't scroll
   _updateScrollIndicator();
+  clearTimeout(_scrollIndTimer);
+  _scrollIndTimer = setTimeout(function() {
+    if (_scrollInd) _scrollInd.style.opacity = '0';
+    if (_scrollIndTrack) _scrollIndTrack.classList.remove('visible');
+  }, 2500);
 }
 
 function _updateScrollIndicator() {
   var ind = _scrollInd;
+  var track = _scrollIndTrack;
   var mc = document.getElementById('mainContent');
   if (!ind || !mc) return;
   var scrollTop    = mc.scrollTop;
   var scrollHeight = mc.scrollHeight;
   var clientHeight = mc.clientHeight;
-  if (scrollHeight <= clientHeight + 4) { ind.style.opacity = '0'; return; }
-  // Track area = between header+tabs and mini-player
-  var topOff    = 108; // header (~56) + tabs (~44) + a little breathing room
-  var bottomOff = 72;  // mini-player height
+  if (scrollHeight <= clientHeight + 4) {
+    ind.style.opacity = '0';
+    if (track) track.classList.remove('visible');
+    return;
+  }
+  var topOff    = 108;
+  var bottomOff = 72;
   var trackH    = window.innerHeight - topOff - bottomOff;
-  var thumbH    = Math.max(36, Math.round(trackH * clientHeight / scrollHeight));
+  var thumbH    = Math.max(40, Math.round(trackH * clientHeight / scrollHeight));
   var ratio     = scrollTop / (scrollHeight - clientHeight);
   var thumbTop  = topOff + Math.round(ratio * (trackH - thumbH));
+  if (track) {
+    track.style.height = trackH + 'px';
+    track.style.top    = topOff + 'px';
+    track.classList.add('visible');
+  }
   ind.style.height = thumbH + 'px';
   ind.style.top    = thumbTop + 'px';
   ind.style.opacity = '1';
@@ -1260,13 +1281,17 @@ function _updateScrollIndicator() {
 function _onScrollIndicator() {
   _updateScrollIndicator();
   clearTimeout(_scrollIndTimer);
-  _scrollIndTimer = setTimeout(function() { if (_scrollInd) _scrollInd.style.opacity = '0'; }, 1200);
+  _scrollIndTimer = setTimeout(function() {
+    if (_scrollInd) _scrollInd.style.opacity = '0';
+    if (_scrollIndTrack) _scrollIndTrack.classList.remove('visible');
+  }, 2500);
 }
 
 function removeScrollIndicator() {
   var mc = document.getElementById('mainContent');
   if (mc) mc.removeEventListener('scroll', _onScrollIndicator, false);
   if (_scrollInd) _scrollInd.style.opacity = '0';
+  if (_scrollIndTrack) _scrollIndTrack.classList.remove('visible');
 }
 
 // ─── Tab Renderers ───
@@ -2893,10 +2918,25 @@ function openSettings() {
   document.getElementById('settingsOverlay').classList.remove('hidden');
   document.getElementById('apiKeyInput').value = apiKey;
 
-  // Show SD card access button only inside the native APK
   var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
   var sdSection = document.getElementById('sdCardSection');
-  if (sdSection) sdSection.style.display = isNat ? '' : 'none';
+  if (!sdSection) return;
+  sdSection.style.display = isNat ? '' : 'none';
+
+  if (isNat && NativeBridge.getSdCardTreeUri) {
+    NativeBridge.getSdCardTreeUri().then(function(result) {
+      var granted = result && result.treeUri;
+      var btn = document.getElementById('grantSdCardBtn');
+      var statusEl = document.getElementById('sdCardStatus');
+      if (granted) {
+        if (btn) btn.textContent = '📁 Change SD Card Folder';
+        if (statusEl) { statusEl.textContent = 'SD card write access: Active ✓'; statusEl.style.color = 'var(--primary)'; }
+      } else {
+        if (btn) btn.innerHTML = '&#128190; Grant SD Card Access';
+        if (statusEl) { statusEl.textContent = 'Not yet granted'; statusEl.style.color = 'var(--text-faint)'; }
+      }
+    }).catch(function() {});
+  }
 }
 
 function closeSettings() {

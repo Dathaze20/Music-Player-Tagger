@@ -1669,11 +1669,24 @@ body {
 #mainContent::-webkit-scrollbar { display: none; }
 #mainContent { scrollbar-width: none; }
 
+.scroll-indicator-track {
+  position: fixed;
+  right: 2px;
+  width: 5px;
+  border-radius: 3px;
+  background: rgba(128,128,128,0.15);
+  z-index: 114;
+  pointer-events: none;
+  opacity: 0;
+  -webkit-transition: opacity 0.35s;
+  transition: opacity 0.35s;
+}
+.scroll-indicator-track.visible { opacity: 1; }
 .scroll-indicator {
   position: fixed;
-  right: 3px;
-  width: 4px;
-  border-radius: 2px;
+  right: 2px;
+  width: 5px;
+  border-radius: 3px;
   background: var(--primary);
   z-index: 115;
   pointer-events: none;
