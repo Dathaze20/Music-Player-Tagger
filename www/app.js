@@ -140,6 +140,39 @@ function fetchThumbnail(uri) {
   return p;
 }
 
+// Pre-warm the art cache for all songs so scrolling is always instant.
+// Loads 4 thumbnails at a time in the background — won't block playback.
+function backgroundLoadAllArt() {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  if (_artBgLoading) return;
+  _artBgLoading = true;
+
+  var seen = {};
+  var uris = [];
+  songs.forEach(function(s) {
+    if (s.albumArtUri && !seen[s.albumArtUri]) {
+      seen[s.albumArtUri] = true;
+      uris.push(s.albumArtUri);
+    }
+  });
+
+  var idx = 0;
+  var active = 0;
+  var MAX = 4;
+
+  function finish() { active--; pump(); }
+  function pump() {
+    while (active < MAX && idx < uris.length) {
+      var uri = uris[idx++];
+      if (artCache[uri] || artInFlight[uri]) continue;
+      active++;
+      fetchThumbnail(uri).then(finish, finish);
+    }
+    if (active === 0) _artBgLoading = false;
+  }
+  pump();
+}
+
 function loadLazyEl(el) {
   var urisStr = el.dataset.lazyUri || '';
   var uris = urisStr.split('|').filter(Boolean);
@@ -168,7 +201,7 @@ function initLazyArt(container) {
     entries.forEach(function(entry) {
       if (entry.isIntersecting) { _lazyArtObs.unobserve(entry.target); loadLazyEl(entry.target); }
     });
-  }, { rootMargin: '700px' });
+  }, { rootMargin: '1200px' });
 
   lazies.forEach(function(el) {
     var uris = (el.dataset.lazyUri || '').split('|').filter(Boolean);
@@ -571,6 +604,7 @@ var songs = loadLibrary();
 var artCache = {};     // content:// URI → 192px base64 thumbnail
 var artCacheHD = {};   // content:// URI → 600px base64 for Now Playing
 var artInFlight = {};  // content:// URI → Promise (deduplicates concurrent requests)
+var _artBgLoading = false; // true while backgroundLoadAllArt is pumping
 
 // Playback speed
 var playbackRate = 1.0;
@@ -2975,6 +3009,11 @@ function nativeAutoScan() {
         renderReconnectBanner();
       }
 
+      // Bridge is ready — start pre-warming the art cache so scrolling is instant
+      if (reconnected > 0 || needsUrl.length === 0) {
+        backgroundLoadAllArt();
+      }
+
       // If library is missing album art metadata (old scan), refresh silently in background
       var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
       if (needsArtRefresh) {
@@ -3022,6 +3061,7 @@ function nativeAutoScan() {
     songs = newSongs;
     saveLibrary();
     render();
+    backgroundLoadAllArt();
     showToast('Loaded ' + newSongs.length + ' songs!', 3000);
     if (newSongs.length > 0 && apiKey) {
       var untagged = newSongs.filter(function(s) { return !s.genre && !s.art; });
