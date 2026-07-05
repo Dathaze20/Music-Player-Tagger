@@ -2323,7 +2323,6 @@ function openSongEditModal(songId) {
   + '<div class="te-footer">'
   +   '<button class="te-btn-cancel" id="teCancelBtn">Cancel</button>'
   +   '<button class="te-btn-save" id="teSaveBtn">Save</button>'
-  +   (song.contentUri && isNat ? '<button class="te-btn-file" id="teSaveFileBtn">&#128190; File</button>' : '')
   + '</div>';
 
   var selectedType = song.type || 'Album';
@@ -2398,14 +2397,10 @@ function openSongEditModal(songId) {
   document.getElementById('teSaveBtn').onclick = function() {
     applyFormToSong();
     finishSave();
-  };
 
-  var saveFileBtn = document.getElementById('teSaveFileBtn');
-  if (saveFileBtn) {
-    saveFileBtn.onclick = function() {
-      applyFormToSong();
-      finishSave();
-      showToast('Writing tags to file…');
+    // On native, always write tags to the physical file permanently
+    if (isNat && song.contentUri) {
+      showToast('Saving to file…');
 
       var artPromise;
       if (pendingArt && pendingArt.startsWith('data:')) {
@@ -2432,15 +2427,15 @@ function openSongEditModal(songId) {
         });
       }).then(function(result) {
         if (result && result.fileWritten) {
-          showToast('Tags written to file ✓');
+          showToast('Saved to file permanently ✓');
         } else {
-          showToast('Metadata saved (file embed requires MP3)');
+          showToast('Saved — metadata updated in library');
         }
       }).catch(function(err) {
         showToast('File write failed: ' + (err && err.message ? err.message : String(err)));
       });
-    };
-  }
+    }
+  };
 }
 
 function openEditModal(albumName, artistName) {
