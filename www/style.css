@@ -1671,10 +1671,10 @@ body {
 
 .scroll-indicator-track {
   position: fixed;
-  right: 2px;
-  width: 6px;
-  border-radius: 3px;
-  background: rgba(128,128,128,0.18);
+  right: 0;
+  width: 20px;
+  border-radius: 10px 0 0 10px;
+  background: rgba(128,128,128,0.15);
   z-index: 114;
   pointer-events: auto;
   display: none;
@@ -1684,14 +1684,15 @@ body {
 }
 .scroll-indicator {
   position: fixed;
-  right: 2px;
-  width: 6px;
-  border-radius: 3px;
+  right: 4px;
+  width: 12px;
+  border-radius: 6px;
   background: var(--primary);
   z-index: 115;
   pointer-events: none;
   display: none;
   opacity: 0;
+  box-shadow: 0 2px 6px rgba(0,168,158,0.5);
   -webkit-transition: top 0.08s, opacity 0.2s;
   transition: top 0.08s, opacity 0.2s;
 }
