@@ -2240,3 +2240,129 @@ body {
   padding: 13px 8px;
   cursor: pointer;
 }
+
+/* ─── Disc Header ─── */
+.disc-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.disc-header::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ─── Genre Filter Chips ─── */
+.genre-chips-row {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.genre-chips-row::-webkit-scrollbar { display: none; }
+.chip-genre {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.chip-genre.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ─── Art Viewer Overlay ─── */
+.art-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0,0,0,0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.22s;
+}
+.art-viewer-overlay.visible { background: rgba(0,0,0,0.92); }
+.art-viewer-img {
+  max-width: 92vw;
+  max-height: 85vh;
+  border-radius: 12px;
+  object-fit: contain;
+  box-shadow: 0 16px 60px rgba(0,0,0,0.8);
+  transform: scale(0.92);
+  transition: transform 0.22s;
+}
+.art-viewer-overlay.visible .art-viewer-img { transform: scale(1); }
+.art-viewer-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Search Grouped Results ─── */
+.search-section-header {
+  padding: 16px 16px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.search-result-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.search-result-row:active { background: var(--bg-secondary); }
+
+/* ─── Queue Drag Handle ─── */
+.queue-drag-handle {
+  color: var(--text-faint);
+  font-size: 18px;
+  padding: 0 8px 0 4px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.queue-row.dragging {
+  opacity: 0.5;
+  background: var(--bg-secondary);
+}
+.queue-row.drag-over {
+  border-top: 2px solid var(--primary);
+}
