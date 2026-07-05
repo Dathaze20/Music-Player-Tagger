@@ -2490,15 +2490,18 @@ function openEditModal(albumName, artistName) {
     var newYear        = document.getElementById('editYear').value.trim();
     var newGenre       = document.getElementById('editGenre').value.trim();
 
-    songs.forEach(function(s) {
-      if (s.album === albumName && s.artist === artistName) {
-        if (newArtist)      s.artist      = newArtist;
-        if (newAlbumArtist !== undefined) s.albumArtist = newAlbumArtist;
-        if (newAlbum)       s.album       = newAlbum;
-        if (newYear)        s.year        = newYear;
-        if (newGenre)       s.genre       = newGenre;
-        s.type = selectedType;
-      }
+    // Collect the songs that belong to this album before we rename anything
+    var affected = songs.filter(function(s) {
+      return s.album === albumName && s.artist === artistName;
+    });
+
+    affected.forEach(function(s) {
+      if (newArtist)      s.artist      = newArtist;
+      s.albumArtist = newAlbumArtist;   // always set (allow clearing too)
+      if (newAlbum)       s.album       = newAlbum;
+      if (newYear)        s.year        = newYear;
+      if (newGenre)       s.genre       = newGenre;
+      s.type = selectedType;
     });
 
     if (selectedAlbum) {
@@ -2507,6 +2510,53 @@ function openEditModal(albumName, artistName) {
     closeEditModal();
     saveLibrary();
     render();
+
+    // On native, write tags to every song file in the album sequentially
+    var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+    if (!isNat) return;
+
+    var toWrite = affected.filter(function(s) { return s.contentUri; });
+    if (!toWrite.length) return;
+
+    showToast('Writing tags to ' + toWrite.length + ' files…');
+    var done = 0;
+    var failed = 0;
+
+    function writeNext(i) {
+      if (i >= toWrite.length) {
+        if (failed > 0) {
+          showToast(done + ' files saved, ' + failed + ' failed');
+        } else {
+          showToast('All ' + done + ' files saved permanently ✓');
+        }
+        return;
+      }
+      var s = toWrite[i];
+      var artPromise = s.albumArtUri
+        ? NativeBridge.readAlbumArt(s.albumArtUri, 500).catch(function() { return ''; })
+        : Promise.resolve(s.art && s.art.startsWith('data:') ? s.art : '');
+
+      artPromise.then(function(artBase64) {
+        return NativeBridge.writeFileTags({
+          contentUri:  s.contentUri,
+          title:       s.title,
+          artist:      s.artist,
+          album:       s.album,
+          year:        s.year        || '',
+          genre:       s.genre       || '',
+          albumArtist: s.albumArtist || '',
+          lyrics:      s.lyrics      || '',
+          artBase64:   artBase64     || '',
+        });
+      }).then(function() {
+        done++;
+        writeNext(i + 1);
+      }).catch(function() {
+        failed++;
+        writeNext(i + 1);
+      });
+    }
+    writeNext(0);
   };
 }
 
