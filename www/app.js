@@ -2964,10 +2964,16 @@ function nativeAutoScan() {
       } catch(e) {}
     });
     // Render and stop whether we reconnected some URLs or all songs already had them.
-    // Only fall through to a full rescan if songs exist but zero URLs could be restored.
-    if (reconnected > 0 || needsUrl.length === 0) {
+    // Also stop if songs have saved native paths — reconnected===0 just means the
+    // Capacitor bridge isn't ready yet (100ms timer fires too early on some devices).
+    // The 500ms/2000ms retries will reconnect URLs. Never fall through to a full rescan
+    // in this case, which would wipe all user edits.
+    var hasNativePaths = songs.some(function(s) { return s.contentUri || s.nativePath; });
+    if (reconnected > 0 || needsUrl.length === 0 || hasNativePaths) {
       render();
-      renderReconnectBanner();
+      if (reconnected > 0 || needsUrl.length === 0) {
+        renderReconnectBanner();
+      }
 
       // If library is missing album art metadata (old scan), refresh silently in background
       var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
