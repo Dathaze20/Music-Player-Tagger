@@ -1672,7 +1672,7 @@ body {
   right: 0;
   width: 24px;
   z-index: 200;
-  pointer-events: auto;
+  pointer-events: none;
   touch-action: none;
   opacity: 0;
   -webkit-transition: opacity 0.35s;

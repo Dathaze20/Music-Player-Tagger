@@ -1244,6 +1244,8 @@ function initScrollIndicator() {
     _scrollInd.className = 'scroll-indicator';
     document.getElementById('app').appendChild(_scrollInd);
   }
+  _scrollInd.style.pointerEvents = 'auto';
+  _scrollInd.style.touchAction   = 'none';
   _scrollInd.removeEventListener('touchstart', _onIndDragStart, false);
   _scrollInd.addEventListener('touchstart', _onIndDragStart, { passive: false });
   var mc = document.getElementById('mainContent');
@@ -1362,14 +1364,17 @@ function removeScrollIndicator() {
     mc.removeEventListener('touchend',   _onIndTouchEnd,   false);
     mc.removeEventListener('touchcancel',_onIndTouchEnd,   false);
   }
-  if (_scrollInd) _scrollInd.removeEventListener('touchstart', _onIndDragStart, false);
+  if (_scrollInd) {
+    _scrollInd.removeEventListener('touchstart', _onIndDragStart, false);
+    _scrollInd.style.pointerEvents = 'none';
+    _scrollInd.style.opacity = '0';
+  }
   document.removeEventListener('touchmove',   _onIndDragMove, false);
   document.removeEventListener('touchend',    _onIndDragEnd,  false);
   document.removeEventListener('touchcancel', _onIndDragEnd,  false);
   clearTimeout(_scrollIndTimer);
   _scrollIndTouching = false;
   _scrollIndDragging = false;
-  if (_scrollInd) _scrollInd.style.opacity = '0';
 }
 
 // ─── Tab Renderers ───
