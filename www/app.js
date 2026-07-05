@@ -451,8 +451,10 @@ function saveLibrary() {
     });
     localStorage.setItem('muzio_library', JSON.stringify(data));
     localStorage.setItem('muzio_library_count', songs.length.toString());
+    localStorage.setItem('muzio_library_saved', Date.now().toString());
   } catch (e) {
-    showToast('Warning: library could not be saved (' + (e && e.name ? e.name : 'storage error') + ')');
+    // Keep the error toast visible longer so the user notices it
+    showToast('⚠ Edits could not be saved (' + (e && e.name ? e.name : 'storage full?') + '). Try clearing unused data.', 6000);
   }
 }
 
@@ -2463,6 +2465,11 @@ function openSongEditModal(songId) {
   }
 
   function finishSave() {
+    // Navigate back to the root tab view so the tab bar is always visible after saving.
+    // Without this, if the editor was opened from inside an artist/album detail view,
+    // render() would hide the tab bar and the user couldn't switch tabs.
+    selectedArtist = null;
+    selectedAlbum  = null;
     closeEditModal();
     saveLibrary();
     render();
@@ -2640,6 +2647,13 @@ function closeEditModal() {
   m.classList.add('hidden');
   m.classList.remove('tag-editor');
   document.getElementById('editOverlay').classList.add('hidden');
+  // Defensive cleanup — close any lingering overlays so they can't block the tab bar
+  var bs = document.getElementById('bottomSheet');
+  var bsOv = document.getElementById('bsOverlay');
+  if (bs)   bs.classList.add('hidden');
+  if (bsOv) bsOv.classList.add('hidden');
+  var om = document.getElementById('overflowMenu');
+  if (om) om.remove();
 }
 
 // ─── Drawer ───
