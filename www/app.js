@@ -1217,81 +1217,85 @@ function renderAlphaStrip(listEl, letters) {
   strip.addEventListener('touchcancel', deactivate);
 }
 
-// ─── Custom Scroll Indicator ───
+// ─── Custom Scroll Bar (always-visible on songs tab) ───
 
 var _scrollInd = null;
 var _scrollIndTrack = null;
-var _scrollIndTimer = null;
 
 function initScrollIndicator() {
-  // Create track (background) element once
+  var app = document.getElementById('app');
+
   if (!_scrollIndTrack) {
     _scrollIndTrack = document.createElement('div');
     _scrollIndTrack.className = 'scroll-indicator-track';
-    document.getElementById('app').appendChild(_scrollIndTrack);
+    app.appendChild(_scrollIndTrack);
   }
-  // Create indicator element once
   if (!_scrollInd) {
     _scrollInd = document.createElement('div');
     _scrollInd.className = 'scroll-indicator';
-    document.getElementById('app').appendChild(_scrollInd);
+    app.appendChild(_scrollInd);
   }
+
   var mc = document.getElementById('mainContent');
-  // Re-attach listener each time (safe — removeEventListener is a no-op if not added)
   mc.removeEventListener('scroll', _onScrollIndicator, false);
   mc.addEventListener('scroll', _onScrollIndicator, { passive: true });
-  // Show immediately, then auto-fade after 2.5s if user doesn't scroll
-  _updateScrollIndicator();
-  clearTimeout(_scrollIndTimer);
-  _scrollIndTimer = setTimeout(function() {
-    if (_scrollInd) _scrollInd.style.opacity = '0';
-    if (_scrollIndTrack) _scrollIndTrack.classList.remove('visible');
-  }, 2500);
+
+  // Tap/drag on the track to jump to that scroll position
+  _scrollIndTrack.ontouchstart = _scrollIndTrack.onmousedown = function(e) {
+    var rect = _scrollIndTrack.getBoundingClientRect();
+    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    var ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    var mc2 = document.getElementById('mainContent');
+    if (mc2) mc2.scrollTop = ratio * (mc2.scrollHeight - mc2.clientHeight);
+    e.preventDefault();
+  };
+
+  // Use requestAnimationFrame so the layout is complete before measuring
+  requestAnimationFrame(function() { _updateScrollIndicator(true); });
 }
 
-function _updateScrollIndicator() {
+function _updateScrollIndicator(forceShow) {
   var ind = _scrollInd;
   var track = _scrollIndTrack;
   var mc = document.getElementById('mainContent');
   if (!ind || !mc) return;
+
   var scrollTop    = mc.scrollTop;
   var scrollHeight = mc.scrollHeight;
   var clientHeight = mc.clientHeight;
+
   if (scrollHeight <= clientHeight + 4) {
-    ind.style.opacity = '0';
-    if (track) track.classList.remove('visible');
+    ind.style.display = 'none';
+    if (track) track.style.display = 'none';
     return;
   }
-  var topOff    = 108;
-  var bottomOff = 72;
+
+  var topOff    = 108;  // header + tab bar
+  var bottomOff = 72;   // mini-player
   var trackH    = window.innerHeight - topOff - bottomOff;
-  var thumbH    = Math.max(40, Math.round(trackH * clientHeight / scrollHeight));
+  var thumbH    = Math.max(44, Math.round(trackH * clientHeight / scrollHeight));
   var ratio     = scrollTop / (scrollHeight - clientHeight);
   var thumbTop  = topOff + Math.round(ratio * (trackH - thumbH));
+
   if (track) {
-    track.style.height = trackH + 'px';
-    track.style.top    = topOff + 'px';
-    track.classList.add('visible');
+    track.style.display = 'block';
+    track.style.height  = trackH + 'px';
+    track.style.top     = topOff + 'px';
+    track.style.opacity = '1';
   }
-  ind.style.height = thumbH + 'px';
-  ind.style.top    = thumbTop + 'px';
+  ind.style.display = 'block';
+  ind.style.height  = thumbH + 'px';
+  ind.style.top     = thumbTop + 'px';
   ind.style.opacity = '1';
 }
 
-function _onScrollIndicator() {
-  _updateScrollIndicator();
-  clearTimeout(_scrollIndTimer);
-  _scrollIndTimer = setTimeout(function() {
-    if (_scrollInd) _scrollInd.style.opacity = '0';
-    if (_scrollIndTrack) _scrollIndTrack.classList.remove('visible');
-  }, 2500);
-}
+function _onScrollIndicator() { _updateScrollIndicator(); }
 
 function removeScrollIndicator() {
   var mc = document.getElementById('mainContent');
   if (mc) mc.removeEventListener('scroll', _onScrollIndicator, false);
-  if (_scrollInd) _scrollInd.style.opacity = '0';
-  if (_scrollIndTrack) _scrollIndTrack.classList.remove('visible');
+  if (_scrollInd) { _scrollInd.style.opacity = '0'; _scrollInd.style.display = 'none'; }
+  if (_scrollIndTrack) { _scrollIndTrack.style.opacity = '0'; _scrollIndTrack.style.display = 'none'; }
 }
 
 // ─── Tab Renderers ───

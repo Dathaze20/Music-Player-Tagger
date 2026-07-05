@@ -1672,27 +1672,28 @@ body {
 .scroll-indicator-track {
   position: fixed;
   right: 2px;
-  width: 5px;
+  width: 6px;
   border-radius: 3px;
-  background: rgba(128,128,128,0.15);
+  background: rgba(128,128,128,0.18);
   z-index: 114;
-  pointer-events: none;
+  pointer-events: auto;
+  display: none;
   opacity: 0;
-  -webkit-transition: opacity 0.35s;
-  transition: opacity 0.35s;
+  -webkit-transition: opacity 0.2s;
+  transition: opacity 0.2s;
 }
-.scroll-indicator-track.visible { opacity: 1; }
 .scroll-indicator {
   position: fixed;
   right: 2px;
-  width: 5px;
+  width: 6px;
   border-radius: 3px;
   background: var(--primary);
   z-index: 115;
   pointer-events: none;
+  display: none;
   opacity: 0;
-  -webkit-transition: opacity 0.35s;
-  transition: opacity 0.35s;
+  -webkit-transition: top 0.08s, opacity 0.2s;
+  transition: top 0.08s, opacity 0.2s;
 }
 
 /* ─── Alphabet Fast-Scroll Strip ─── */
