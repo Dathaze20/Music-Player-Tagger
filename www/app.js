@@ -156,6 +156,8 @@ function backgroundLoadAllArt() {
       uris.push(s.albumArtUri);
     }
   });
+  // Cap at 500 unique album art URIs to avoid ANR on very large libraries (15k+ songs)
+  if (uris.length > 500) uris = uris.slice(0, 500);
 
   var idx = 0;
   var active = 0;
@@ -440,7 +442,7 @@ function saveLibrary() {
     var data = songs.map(function(s) {
       return {
         fn: s.fn, title: s.title, artist: s.artist, album: s.album,
-        year: s.year, genre: s.genre, track: s.track, art: s.art,
+        year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track, art: s.art,
         lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
         dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
         nativePath:  s.nativePath  || '',
@@ -503,10 +505,12 @@ function loadPersistedArt() {
     return new Promise(function(resolve) {
       var tx = db.transaction(ART_STORE_NAME, 'readonly');
       var result = {};
+      var count = 0;
+      // Cap at 300 entries at startup to prevent slow startup on large libraries
       var req = tx.objectStore(ART_STORE_NAME).openCursor();
       req.onsuccess = function(e) {
         var cur = e.target.result;
-        if (cur) { result[cur.key] = cur.value; cur.continue(); }
+        if (cur && count < 300) { result[cur.key] = cur.value; count++; cur.continue(); }
         else resolve(result);
       };
       req.onerror = function() { resolve({}); };
@@ -767,12 +771,21 @@ function getAlbums(filter) {
 
 function getAlbumSongs(albumName, artistName) {
   return songs.filter(function(s) { return s.album === albumName && s.artist === artistName; })
-    .sort(function(a, b) { return (a.track || 0) - (b.track || 0); });
+    .sort(function(a, b) {
+      var da = ((a.disc || 1) * 1000) + (a.track || 0);
+      var db = ((b.disc || 1) * 1000) + (b.track || 0);
+      return da - db;
+    });
 }
 
 function getArtistSongs(name) {
   return songs.filter(function(s) { return s.artist === name; })
-    .sort(function(a, b) { return a.album === b.album ? (a.track||0) - (b.track||0) : a.album.localeCompare(b.album); });
+    .sort(function(a, b) {
+      if (a.album !== b.album) return a.album.localeCompare(b.album);
+      var da = ((a.disc || 1) * 1000) + (a.track || 0);
+      var db = ((b.disc || 1) * 1000) + (b.track || 0);
+      return da - db;
+    });
 }
 
 function getArtistAlbums(name) {
@@ -2517,7 +2530,13 @@ function openSongEditModal(songId) {
           showToast('Saved — metadata updated in library');
         }
       }).catch(function(err) {
-        showToast('File write failed: ' + (err && err.message ? err.message : String(err)));
+        var msg = err && err.message ? err.message : String(err);
+        if (msg.indexOf('SD_CARD_ACCESS_REQUIRED') !== -1) {
+          showToast('SD card access needed — grant it in AI Settings', 5000);
+          promptSdCardAccess();
+        } else {
+          showToast('File write failed: ' + msg);
+        }
       });
     }
   };
@@ -2633,8 +2652,15 @@ function openEditModal(albumName, artistName) {
       }).then(function() {
         done++;
         writeNext(i + 1);
-      }).catch(function() {
+      }).catch(function(err) {
         failed++;
+        var msg = err && err.message ? err.message : String(err);
+        if (msg.indexOf('SD_CARD_ACCESS_REQUIRED') !== -1 && done + failed === 1) {
+          // First failure is SD card access — prompt once and abort the rest
+          showToast('SD card access needed — grant it in AI Settings', 5000);
+          promptSdCardAccess();
+          return;
+        }
         writeNext(i + 1);
       });
     }
@@ -2665,10 +2691,26 @@ function toggleDrawer(show) {
 
 // ─── Settings ───
 
+// Launches the Android SAF folder picker to grant write access to the SD card.
+function promptSdCardAccess() {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.requestSdCardAccess) return;
+  showToast('Opening SD card folder picker…', 3000);
+  NativeBridge.requestSdCardAccess().then(function() {
+    showToast('SD card access granted! Save changes to SD card files ✓', 4000);
+  }).catch(function() {
+    showToast('SD card access not granted — SD card files cannot be updated');
+  });
+}
+
 function openSettings() {
   document.getElementById('settingsModal').classList.remove('hidden');
   document.getElementById('settingsOverlay').classList.remove('hidden');
   document.getElementById('apiKeyInput').value = apiKey;
+
+  // Show SD card access button only inside the native APK
+  var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+  var sdSection = document.getElementById('sdCardSection');
+  if (sdSection) sdSection.style.display = isNat ? '' : 'none';
 }
 
 function closeSettings() {
@@ -2853,6 +2895,10 @@ document.getElementById('testApiKeyBtn').onclick = function() {
     resultEl.style.color = 'var(--red)';
     resultEl.textContent = '✗ Network error — check connection';
   });
+};
+
+document.getElementById('grantSdCardBtn').onclick = function() {
+  promptSdCardAccess();
 };
 
 document.getElementById('retagLibBtn').onclick = function() {
