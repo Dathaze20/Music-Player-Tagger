@@ -2449,6 +2449,7 @@ function openEditModal(albumName, artistName) {
     + '<button id="editClose">&times;</button></div>'
     + '<div class="edit-modal-body">'
     + '<div class="edit-field"><label>Artist</label><input id="editArtist" value="' + escHtml(artistName) + '"></div>'
+    + '<div class="edit-field"><label>Album Artist</label><input id="editAlbumArtist" value="' + escHtml(first.albumArtist || '') + '" placeholder="e.g. Various Artists"></div>'
     + '<div class="edit-field"><label>Album / Mixtape Name</label><input id="editAlbum" value="' + escHtml(albumName) + '"></div>'
     + '<div class="edit-row">'
     + '<div class="edit-field"><label>Year</label><input id="editYear" value="' + escHtml(first.year || '') + '" placeholder="2024"></div>'
@@ -2483,17 +2484,19 @@ function openEditModal(albumName, artistName) {
   overlay.onclick = closeEditModal;
 
   document.getElementById('editSaveBtn').onclick = function() {
-    var newArtist = document.getElementById('editArtist').value.trim();
-    var newAlbum = document.getElementById('editAlbum').value.trim();
-    var newYear = document.getElementById('editYear').value.trim();
-    var newGenre = document.getElementById('editGenre').value.trim();
+    var newArtist      = document.getElementById('editArtist').value.trim();
+    var newAlbumArtist = document.getElementById('editAlbumArtist').value.trim();
+    var newAlbum       = document.getElementById('editAlbum').value.trim();
+    var newYear        = document.getElementById('editYear').value.trim();
+    var newGenre       = document.getElementById('editGenre').value.trim();
 
     songs.forEach(function(s) {
       if (s.album === albumName && s.artist === artistName) {
-        if (newArtist) s.artist = newArtist;
-        if (newAlbum) s.album = newAlbum;
-        if (newYear) s.year = newYear;
-        if (newGenre) s.genre = newGenre;
+        if (newArtist)      s.artist      = newArtist;
+        if (newAlbumArtist !== undefined) s.albumArtist = newAlbumArtist;
+        if (newAlbum)       s.album       = newAlbum;
+        if (newYear)        s.year        = newYear;
+        if (newGenre)       s.genre       = newGenre;
         s.type = selectedType;
       }
     });
