@@ -1217,9 +1217,57 @@ function renderAlphaStrip(listEl, letters) {
   strip.addEventListener('touchcancel', deactivate);
 }
 
-// Native WebView scroll indicator handles all tabs — no custom code needed.
-function initScrollIndicator() {}
-function removeScrollIndicator() {}
+// ─── Scroll Indicator ───
+var _scrollInd      = null;
+var _scrollIndTimer = null;
+
+function initScrollIndicator() {
+  if (!_scrollInd) {
+    _scrollInd = document.createElement('div');
+    _scrollInd.className = 'scroll-indicator';
+    document.getElementById('app').appendChild(_scrollInd);
+  }
+  var mc = document.getElementById('mainContent');
+  mc.removeEventListener('scroll', _onScrollInd, false);
+  mc.addEventListener('scroll', _onScrollInd, { passive: true });
+  // Show briefly so user knows it is there, then fade
+  requestAnimationFrame(function() {
+    if (_posScrollInd()) {
+      _scrollInd.style.opacity = '1';
+      clearTimeout(_scrollIndTimer);
+      _scrollIndTimer = setTimeout(function() { if (_scrollInd) _scrollInd.style.opacity = '0'; }, 1500);
+    }
+  });
+}
+
+function _posScrollInd() {
+  var ind = _scrollInd;
+  var mc  = document.getElementById('mainContent');
+  if (!ind || !mc) return false;
+  var sh = mc.scrollHeight, ch = mc.clientHeight, st = mc.scrollTop;
+  if (sh <= ch + 4) return false;
+  var topOff = 108, botOff = 72;
+  var trackH = window.innerHeight - topOff - botOff;
+  var thumbH = Math.max(40, Math.floor(trackH * ch / sh));
+  var thumbY = topOff + Math.floor((trackH - thumbH) * st / (sh - ch));
+  ind.style.height = thumbH + 'px';
+  ind.style.top    = thumbY + 'px';
+  return true;
+}
+
+function _onScrollInd() {
+  if (!_posScrollInd()) return;
+  _scrollInd.style.opacity = '1';
+  clearTimeout(_scrollIndTimer);
+  _scrollIndTimer = setTimeout(function() { if (_scrollInd) _scrollInd.style.opacity = '0'; }, 1500);
+}
+
+function removeScrollIndicator() {
+  var mc = document.getElementById('mainContent');
+  if (mc) mc.removeEventListener('scroll', _onScrollInd, false);
+  clearTimeout(_scrollIndTimer);
+  if (_scrollInd) _scrollInd.style.opacity = '0';
+}
 
 // ─── Tab Renderers ───
 

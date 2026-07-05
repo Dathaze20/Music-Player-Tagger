@@ -1665,9 +1665,19 @@ body {
   box-shadow: 0 0 6px rgba(0,168,158,0.4);
 }
 
-/* Native scrollbar — let Android WebView show its own fade-on-scroll indicator */
-
-/* Custom scroll indicator removed — native WebView indicator used on all tabs */
+/* ─── Scroll Indicator ─── */
+.scroll-indicator {
+  position: fixed;
+  right: 3px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--primary);
+  z-index: 200;
+  pointer-events: none;
+  opacity: 0;
+  -webkit-transition: opacity 0.3s;
+  transition: opacity 0.3s;
+}
 
 /* ─── Alphabet Fast-Scroll Strip ─── */
 .alpha-strip {
