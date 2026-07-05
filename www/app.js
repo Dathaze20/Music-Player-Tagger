@@ -125,6 +125,7 @@ function fetchThumbnail(uri) {
     delete artInFlight[uri];
     if (data) {
       artCache[uri] = data;
+      persistArt(uri, data); // save to IndexedDB for instant load next session
       // Apply art to any DOM elements currently waiting for this URI
       // (handles the case where render() rebuilt the DOM while fetch was in-flight)
       document.querySelectorAll('.art-lazy[data-lazy-uri]').forEach(function(lazyEl) {
@@ -158,7 +159,7 @@ function backgroundLoadAllArt() {
 
   var idx = 0;
   var active = 0;
-  var MAX = 4;
+  var MAX = 10;
 
   function finish() { active--; pump(); }
   function pump() {
@@ -468,6 +469,47 @@ function loadLibrary() {
       return s;
     });
   } catch (e) { return []; }
+}
+
+// ─── Art Cache Persistence (IndexedDB) ───
+// Thumbnails are stored here so subsequent sessions load art instantly from
+// local storage instead of re-fetching through the native bridge each time.
+
+var _artDb = null;
+var ART_DB_NAME = 'muzio_art';
+var ART_STORE_NAME = 'thumbs';
+
+function openArtDb() {
+  if (_artDb) return Promise.resolve(_artDb);
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open(ART_DB_NAME, 1);
+    req.onupgradeneeded = function() { req.result.createObjectStore(ART_STORE_NAME); };
+    req.onsuccess = function() { _artDb = req.result; resolve(_artDb); };
+    req.onerror = function() { reject(req.error); };
+  });
+}
+
+function persistArt(uri, data) {
+  openArtDb().then(function(db) {
+    var tx = db.transaction(ART_STORE_NAME, 'readwrite');
+    tx.objectStore(ART_STORE_NAME).put(data, uri);
+  }).catch(function() {});
+}
+
+function loadPersistedArt() {
+  return openArtDb().then(function(db) {
+    return new Promise(function(resolve) {
+      var tx = db.transaction(ART_STORE_NAME, 'readonly');
+      var result = {};
+      var req = tx.objectStore(ART_STORE_NAME).openCursor();
+      req.onsuccess = function(e) {
+        var cur = e.target.result;
+        if (cur) { result[cur.key] = cur.value; cur.continue(); }
+        else resolve(result);
+      };
+      req.onerror = function() { resolve({}); };
+    });
+  }).catch(function() { return {}; });
 }
 
 // ─── Persistent Folder Access (IndexedDB + File System Access API) ───
@@ -2967,6 +3009,16 @@ restoreUIState();
 // Always render on startup — restoreUIState only calls render() when saved state exists,
 // so a cold first-launch (no saved state) would otherwise show a blank screen.
 render();
+
+// Load persisted art from IndexedDB — after the first session all thumbnails are
+// stored locally, so this fills artCache before the next render and art appears
+// instantly with no pop-in, no matter how fast the user scrolls.
+loadPersistedArt().then(function(cached) {
+  var keys = Object.keys(cached);
+  if (keys.length === 0) return;
+  keys.forEach(function(k) { if (!artCache[k]) artCache[k] = cached[k]; });
+  render(); // re-render with full art cache — instantaneous, no more pop-in
+}).catch(function() {});
 
 if (songs.length > 0 && !songs[0].url) {
   if (window.showDirectoryPicker && !isMobile()) {
