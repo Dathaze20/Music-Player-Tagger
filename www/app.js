@@ -1217,85 +1217,64 @@ function renderAlphaStrip(listEl, letters) {
   strip.addEventListener('touchcancel', deactivate);
 }
 
-// ─── Custom Scroll Bar (always-visible on songs tab) ───
+// ─── Custom Scroll Indicator (fade on scroll, never blocks touch) ───
 
-var _scrollInd = null;
-var _scrollIndTrack = null;
+var _scrollInd      = null;
+var _scrollIndTimer = null;
 
 function initScrollIndicator() {
-  var app = document.getElementById('app');
-
-  if (!_scrollIndTrack) {
-    _scrollIndTrack = document.createElement('div');
-    _scrollIndTrack.className = 'scroll-indicator-track';
-    app.appendChild(_scrollIndTrack);
-  }
   if (!_scrollInd) {
     _scrollInd = document.createElement('div');
     _scrollInd.className = 'scroll-indicator';
-    app.appendChild(_scrollInd);
+    document.getElementById('app').appendChild(_scrollInd);
   }
-
   var mc = document.getElementById('mainContent');
   mc.removeEventListener('scroll', _onScrollIndicator, false);
   mc.addEventListener('scroll', _onScrollIndicator, { passive: true });
-
-  // Tap/drag on the track to jump to that scroll position
-  _scrollIndTrack.ontouchstart = _scrollIndTrack.onmousedown = function(e) {
-    var rect = _scrollIndTrack.getBoundingClientRect();
-    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    var ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-    var mc2 = document.getElementById('mainContent');
-    if (mc2) mc2.scrollTop = ratio * (mc2.scrollHeight - mc2.clientHeight);
-    e.preventDefault();
-  };
-
-  // Use requestAnimationFrame so the layout is complete before measuring
-  requestAnimationFrame(function() { _updateScrollIndicator(true); });
+  // Show briefly on first render so user knows the bar is there
+  requestAnimationFrame(function() {
+    _positionScrollIndicator();
+    _scrollInd.style.opacity = '1';
+    clearTimeout(_scrollIndTimer);
+    _scrollIndTimer = setTimeout(function() {
+      if (_scrollInd) _scrollInd.style.opacity = '0';
+    }, 1500);
+  });
 }
 
-function _updateScrollIndicator(forceShow) {
+function _positionScrollIndicator() {
   var ind = _scrollInd;
-  var track = _scrollIndTrack;
-  var mc = document.getElementById('mainContent');
-  if (!ind || !mc) return;
-
+  var mc  = document.getElementById('mainContent');
+  if (!ind || !mc) return false;
   var scrollTop    = mc.scrollTop;
   var scrollHeight = mc.scrollHeight;
   var clientHeight = mc.clientHeight;
-
-  if (scrollHeight <= clientHeight + 4) {
-    ind.style.display = 'none';
-    if (track) track.style.display = 'none';
-    return;
-  }
-
-  var topOff    = 108;  // header + tab bar
-  var bottomOff = 72;   // mini-player
+  if (scrollHeight <= clientHeight + 4) return false;
+  var topOff    = 108;
+  var bottomOff = 72;
   var trackH    = window.innerHeight - topOff - bottomOff;
   var thumbH    = Math.max(44, Math.round(trackH * clientHeight / scrollHeight));
   var ratio     = scrollTop / (scrollHeight - clientHeight);
   var thumbTop  = topOff + Math.round(ratio * (trackH - thumbH));
-
-  if (track) {
-    track.style.display = 'block';
-    track.style.height  = trackH + 'px';
-    track.style.top     = topOff + 'px';
-    track.style.opacity = '1';
-  }
-  ind.style.display = 'block';
-  ind.style.height  = thumbH + 'px';
-  ind.style.top     = thumbTop + 'px';
-  ind.style.opacity = '1';
+  ind.style.height = thumbH + 'px';
+  ind.style.top    = thumbTop + 'px';
+  return true;
 }
 
-function _onScrollIndicator() { _updateScrollIndicator(); }
+function _onScrollIndicator() {
+  if (!_positionScrollIndicator()) return;
+  _scrollInd.style.opacity = '1';
+  clearTimeout(_scrollIndTimer);
+  _scrollIndTimer = setTimeout(function() {
+    if (_scrollInd) _scrollInd.style.opacity = '0';
+  }, 1500);
+}
 
 function removeScrollIndicator() {
   var mc = document.getElementById('mainContent');
   if (mc) mc.removeEventListener('scroll', _onScrollIndicator, false);
-  if (_scrollInd) { _scrollInd.style.opacity = '0'; _scrollInd.style.display = 'none'; }
-  if (_scrollIndTrack) { _scrollIndTrack.style.opacity = '0'; _scrollIndTrack.style.display = 'none'; }
+  clearTimeout(_scrollIndTimer);
+  if (_scrollInd) _scrollInd.style.opacity = '0';
 }
 
 // ─── Tab Renderers ───

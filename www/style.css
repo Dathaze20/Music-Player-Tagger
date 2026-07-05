@@ -1670,31 +1670,20 @@ body {
 #mainContent { scrollbar-width: none; }
 
 .scroll-indicator-track {
-  position: fixed;
-  right: 0;
-  width: 20px;
-  border-radius: 10px 0 0 10px;
-  background: rgba(128,128,128,0.15);
-  z-index: 114;
-  pointer-events: auto;
-  display: none;
-  opacity: 0;
-  -webkit-transition: opacity 0.2s;
-  transition: opacity 0.2s;
+  display: none; /* unused — keeping for compat */
 }
 .scroll-indicator {
   position: fixed;
-  right: 4px;
+  right: 3px;
   width: 12px;
   border-radius: 6px;
   background: var(--primary);
   z-index: 115;
-  pointer-events: none;
-  display: none;
+  pointer-events: none; /* never blocks touch scrolling */
   opacity: 0;
-  box-shadow: 0 2px 6px rgba(0,168,158,0.5);
-  -webkit-transition: top 0.08s, opacity 0.2s;
-  transition: top 0.08s, opacity 0.2s;
+  box-shadow: 0 2px 8px rgba(0,168,158,0.45);
+  -webkit-transition: top 0.05s linear, opacity 0.4s;
+  transition: top 0.05s linear, opacity 0.4s;
 }
 
 /* ─── Alphabet Fast-Scroll Strip ─── */
