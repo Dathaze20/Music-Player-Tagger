@@ -739,25 +739,30 @@ body {
   animation: fadeIn 0.2s;
 }
 .edit-modal {
-  position: absolute;
+  position: fixed;
   left: 16px; right: 16px;
-  top: 15%;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 56;
   background: var(--bg-card);
   border-radius: 16px;
   box-shadow: 0 8px 40px rgba(0,0,0,0.5);
   overflow: hidden;
   animation: slideUp 0.3s ease;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
 }
 .edit-modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .edit-modal-header h3 { font-size: 16px; font-weight: 700; }
 .edit-modal-header button { background: none; border: none; color: var(--text-faint); cursor: pointer; font-size: 20px; }
 .edit-modal-header p { font-size: 12px; color: var(--text-faint); }
-.edit-modal-body { padding: 20px; }
+.edit-modal-body { padding: 20px; overflow-y: auto; flex: 1; }
 .edit-field { margin-bottom: 16px; }
 .edit-field label {
   display: block;
@@ -800,6 +805,7 @@ body {
   display: flex; gap: 12px;
   padding: 16px 20px;
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .edit-modal-footer button {
   flex: 1;

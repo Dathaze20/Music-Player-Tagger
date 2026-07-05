@@ -417,7 +417,9 @@ function saveLibrary() {
     });
     localStorage.setItem('muzio_library', JSON.stringify(data));
     localStorage.setItem('muzio_library_count', songs.length.toString());
-  } catch (e) {}
+  } catch (e) {
+    showToast('Warning: library could not be saved (' + (e && e.name ? e.name : 'storage error') + ')');
+  }
 }
 
 function loadLibrary() {
@@ -2490,14 +2492,11 @@ function openEditModal(albumName, artistName) {
     var newYear        = document.getElementById('editYear').value.trim();
     var newGenre       = document.getElementById('editGenre').value.trim();
 
-    // Collect the songs that belong to this album before we rename anything
-    var affected = songs.filter(function(s) {
-      return s.album === albumName && s.artist === artistName;
-    });
-
-    affected.forEach(function(s) {
+    // albumSongs is already computed in the outer openEditModal scope — use it
+    // directly so we update exactly the same songs that were shown in the dialog.
+    albumSongs.forEach(function(s) {
       if (newArtist)      s.artist      = newArtist;
-      s.albumArtist = newAlbumArtist;   // always set (allow clearing too)
+      s.albumArtist = newAlbumArtist;
       if (newAlbum)       s.album       = newAlbum;
       if (newYear)        s.year        = newYear;
       if (newGenre)       s.genre       = newGenre;
@@ -2515,7 +2514,7 @@ function openEditModal(albumName, artistName) {
     var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
     if (!isNat) return;
 
-    var toWrite = affected.filter(function(s) { return s.contentUri; });
+    var toWrite = albumSongs.filter(function(s) { return s.contentUri; });
     if (!toWrite.length) return;
 
     showToast('Writing tags to ' + toWrite.length + ' files…');

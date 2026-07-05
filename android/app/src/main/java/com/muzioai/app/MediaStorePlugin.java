@@ -6,6 +6,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -292,6 +293,20 @@ public class MediaStorePlugin extends Plugin {
         if (cv.size() > 0) {
             resolver.update(uri, cv, null, null);
         }
+
+        // Notify the system that this file's metadata changed so other music
+        // apps (e.g. the real Muzio) pick up the update without needing a
+        // manual rescan.
+        resolver.notifyChange(uri, null);
+        String[] dataCol = { MediaStore.Audio.Media.DATA };
+        try (Cursor dc = resolver.query(uri, dataCol, null, null, null)) {
+            if (dc != null && dc.moveToFirst()) {
+                String filePath = dc.getString(0);
+                if (filePath != null) {
+                    MediaScannerConnection.scanFile(ctx, new String[]{filePath}, null, null);
+                }
+            }
+        } catch (Exception ignored) {}
 
         JSObject result = new JSObject();
         result.put("success", true);
