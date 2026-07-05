@@ -132,8 +132,12 @@ public class MediaStorePlugin extends Plugin {
             if (is == null) { call.reject("null stream"); return; }
             android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
             opts.inSampleSize = reqSize <= 256 ? 2 : 1;
-            android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(is, null, opts);
-            is.close();
+            android.graphics.Bitmap bmp;
+            try {
+                bmp = android.graphics.BitmapFactory.decodeStream(is, null, opts);
+            } finally {
+                try { is.close(); } catch (Exception ignored) {}
+            }
             if (bmp == null) { call.reject("decode failed"); return; }
             android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, reqSize, reqSize, true);
             if (scaled != bmp) bmp.recycle();
@@ -209,6 +213,10 @@ public class MediaStorePlugin extends Plugin {
         try {
             doWriteFileTags(call, uri);
         } catch (android.app.RecoverableSecurityException rse) {
+            if (savedWriteCall != null) {
+                savedWriteCall.setKeepAlive(false);
+                savedWriteCall.reject("Cancelled by concurrent write");
+            }
             savedWriteCall = call;
             pendingWriteUri = uri;
             try {
@@ -322,10 +330,22 @@ public class MediaStorePlugin extends Plugin {
         // Get real file path (for format detection and SD card check)
         String filePath = getFilePath(mediaUri);
         String ext = "";
-        if (filePath.contains(".")) {
+        if (!filePath.isEmpty() && filePath.contains(".")) {
             ext = filePath.substring(filePath.lastIndexOf('.') + 1).toLowerCase();
         }
-        if (ext.isEmpty()) ext = "mp3"; // fallback
+        if (ext.isEmpty()) {
+            // Android 10+: DATA column may be null; fall back to DISPLAY_NAME for extension
+            String[] proj2 = { MediaStore.Audio.Media.DISPLAY_NAME };
+            try (Cursor dc = getContext().getContentResolver().query(mediaUri, proj2, null, null, null)) {
+                if (dc != null && dc.moveToFirst()) {
+                    String name = dc.getString(0);
+                    if (name != null && name.contains(".")) {
+                        ext = name.substring(name.lastIndexOf('.') + 1).toLowerCase();
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        if (ext.isEmpty()) ext = "mp3"; // last-resort fallback
 
         boolean isSdCard = isPortableSdCard(filePath);
 
@@ -390,6 +410,7 @@ public class MediaStorePlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("success",     true);
             result.put("fileWritten", true);
+            call.setKeepAlive(false);
             call.resolve(result);
 
         } finally {

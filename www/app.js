@@ -190,9 +190,6 @@ function loadLazyEl(el) {
 function initLazyArt(container) {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
 
-  // Disconnect previous observer so stale elements don't hold memory
-  if (_lazyArtObs) { _lazyArtObs.disconnect(); _lazyArtObs = null; }
-
   var lazies = container.querySelectorAll('.art-lazy[data-lazy-uri]');
   if (!lazies.length) return;
 
@@ -200,9 +197,12 @@ function initLazyArt(container) {
     lazies.forEach(loadLazyEl);
     return;
   }
-  _lazyArtObs = new IntersectionObserver(function(entries) {
+
+  // Use a per-container observer so that initLazyArt calls for different
+  // containers (vsRows batches, album headers, etc.) never cancel each other.
+  var obs = new IntersectionObserver(function(entries) {
     entries.forEach(function(entry) {
-      if (entry.isIntersecting) { _lazyArtObs.unobserve(entry.target); loadLazyEl(entry.target); }
+      if (entry.isIntersecting) { obs.unobserve(entry.target); loadLazyEl(entry.target); }
     });
   }, { rootMargin: '2400px' });
 
@@ -211,7 +211,7 @@ function initLazyArt(container) {
     if (uris.length && uris.every(function(u) { return artCache[u]; })) {
       applyArt(el, uris.map(function(u) { return artCache[u]; }));
     } else {
-      _lazyArtObs.observe(el);
+      obs.observe(el);
     }
   });
 }
@@ -219,7 +219,7 @@ function initLazyArt(container) {
 // ─── Virtual Scroll (Songs Tab) ───
 // Only renders the visible window (~60 rows) to keep 15k song lists instant.
 
-var VS_ROW_H = 72;   // px per song row — must match CSS .song-row height
+var VS_ROW_H = 73;   // px per song row — padding(12+12) + art(48) + border-bottom(1)
 var VS_BUFFER = 25;  // extra rows rendered above and below the viewport
 var _vsData = null;
 var _vsRenderedStart = 0;
@@ -263,13 +263,17 @@ function renderVsWindow(start) {
   rows.innerHTML = parts.join('');
   rows.style.top = (start * VS_ROW_H) + 'px';
   initLazyArt(rows);
-  initSwipeGestures(rows);
 }
 
 // ─── Swipe Gestures (song rows) ───
 // Swipe right → add to queue  |  swipe left → toggle favorite
 
+var _swipeGestureEls = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
 function initSwipeGestures(el) {
+  if (_swipeGestureEls) {
+    if (_swipeGestureEls.has(el)) return;
+    _swipeGestureEls.add(el);
+  }
   var startX = 0, startY = 0, activeEl = null, decided = false, swipeDx = 0;
 
   el.addEventListener('touchstart', function(e) {
@@ -285,6 +289,7 @@ function initSwipeGestures(el) {
 
   el.addEventListener('touchmove', function(e) {
     if (!activeEl) return;
+    if (activeEl.isConnected === false) { activeEl = null; return; }
     var tdx = e.touches[0].clientX - startX;
     var tdy = e.touches[0].clientY - startY;
     if (!decided) {
@@ -341,8 +346,16 @@ function openArtViewer(src) {
   if (!src) return;
   var overlay = document.createElement('div');
   overlay.className = 'art-viewer-overlay';
-  overlay.innerHTML = '<img class="art-viewer-img" src="' + src + '" alt="Album art">'
-    + '<button class="art-viewer-close" aria-label="Close">&times;</button>';
+  var img = document.createElement('img');
+  img.className = 'art-viewer-img';
+  img.src = src;
+  img.alt = 'Album art';
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'art-viewer-close';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.textContent = '×';
+  overlay.appendChild(img);
+  overlay.appendChild(closeBtn);
   overlay.addEventListener('click', function(e) {
     if (e.target === overlay || e.target.classList.contains('art-viewer-close')) overlay.remove();
   });
@@ -805,7 +818,7 @@ var songMap = (function() { var m = Object.create(null); songs.forEach(function(
 var _countsCache = null;
 
 // IntersectionObserver singleton — disconnected before each new render
-var _lazyArtObs = null;
+// _lazyArtObs removed — initLazyArt now uses per-container observers
 
 // Now Playing DOM element refs — cached after renderNowPlaying, cleared on close
 var _npSeekEl = null, _npFillEl = null, _npTime0El = null;
@@ -1245,7 +1258,7 @@ function _posScrollInd() {
   var mc  = document.getElementById('mainContent');
   if (!ind || !mc) return false;
   var sh = mc.scrollHeight, ch = mc.clientHeight, st = mc.scrollTop;
-  if (sh <= ch + 4) return false;
+  if (sh <= ch + 4) { ind.style.opacity = '0'; return false; }
   var topOff = 108, botOff = 72;
   var trackH = window.innerHeight - topOff - botOff;
   var thumbH = Math.max(40, Math.floor(trackH * ch / sh));
@@ -1459,6 +1472,7 @@ function renderSongs(el) {
   var vsRows = document.getElementById('vsRows');
   bindSongRows(vsRows, sorted);
 
+  initSwipeGestures(vsRows);
   initVirtualScroll(vsRows, sorted);
   initScrollIndicator();
 }
@@ -2841,8 +2855,8 @@ function openEditModal(albumName, artistName) {
       }).catch(function(err) {
         failed++;
         var msg = err && err.message ? err.message : String(err);
-        if (msg.indexOf('SD_CARD_ACCESS_REQUIRED') !== -1 && done + failed === 1) {
-          // First failure is SD card access — prompt once and abort the rest
+        if (msg.indexOf('SD_CARD_ACCESS_REQUIRED') !== -1) {
+          // SD card access required — prompt once and abort the rest
           showToast('SD card access needed — grant it in AI Settings', 5000);
           promptSdCardAccess();
           return;
@@ -3034,6 +3048,8 @@ function doSearch(q) {
 
   var songMatches = songs.filter(function(s) {
     return s.title.toLowerCase().indexOf(ql) !== -1
+      || (s.artist && s.artist.toLowerCase().indexOf(ql) !== -1)
+      || (s.album && s.album.toLowerCase().indexOf(ql) !== -1)
       || (s.feat && s.feat.toLowerCase().indexOf(ql) !== -1);
   }).slice(0, 5);
 
