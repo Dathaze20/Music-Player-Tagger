@@ -82,6 +82,7 @@ function safeArtUrl(url) {
 function applyArt(el, dataUrls) {
   var valid = dataUrls.filter(Boolean);
   if (!valid.length || !el.parentNode) return;
+  el.dataset.loaded = '1';
   var fill  = el.dataset.fill  === '1';
   var round = el.dataset.round === '1';
   var size  = parseInt(el.dataset.size) || 56;
@@ -1010,10 +1011,16 @@ function render() {
 
   var counts = getSongCounts();
   var tabs = tabBar.querySelectorAll('button');
-  tabs[0].innerHTML = 'Artists<span class="tab-count">' + counts.artists + '</span>';
-  tabs[1].innerHTML = 'Songs<span class="tab-count">' + counts.songs + '</span>';
-  tabs[2].innerHTML = 'Albums<span class="tab-count">' + counts.albums + '</span>';
-  tabs[3].innerHTML = 'Playlists';
+  var _TI = {
+    artists:   '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>',
+    songs:     '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
+    albums:    '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z"/></svg>',
+    playlists: '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>'
+  };
+  tabs[0].innerHTML = _TI.artists   + '<span class="tab-label">Artists<span class="tab-count"> ' + counts.artists + '</span></span>';
+  tabs[1].innerHTML = _TI.songs     + '<span class="tab-label">Songs<span class="tab-count"> '   + counts.songs   + '</span></span>';
+  tabs[2].innerHTML = _TI.albums    + '<span class="tab-label">Albums<span class="tab-count"> '  + counts.albums  + '</span></span>';
+  tabs[3].innerHTML = _TI.playlists + '<span class="tab-label">Playlists</span>';
 
   if (selectedAlbum) {
     tabBar.classList.add('hidden');
@@ -1939,14 +1946,24 @@ function updateMiniPlayer() {
     document.getElementById('miniArtist').textContent = currentSong.artist;
     var cached = uri && artCache[uri];
     document.getElementById('miniArt').innerHTML = cached
-      ? '<img src="' + cached + '" style="width:48px;height:48px;object-fit:cover;border-radius:6px;flex-shrink:0;">'
-      : artHTML(currentSong.album || currentSong.title, 48);
+      ? '<img src="' + cached + '" style="width:44px;height:44px;object-fit:cover;border-radius:10px;flex-shrink:0;">'
+      : artHTML(currentSong.album || currentSong.title, 44);
     if (uri && !cached) loadCurrentSongArt(currentSong);
   }
 
   document.getElementById('miniPlayBtn').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
   var pct = duration > 0 ? (currentTime / duration * 100) : 0;
   document.getElementById('miniProgressBar').style.width = pct + '%';
+
+  var miniEq = document.getElementById('miniEqBars');
+  if (miniEq) {
+    if (isPlaying) {
+      miniEq.classList.remove('hidden', 'paused');
+    } else {
+      miniEq.classList.remove('hidden');
+      miniEq.classList.add('paused');
+    }
+  }
 }
 
 // ─── Synced Lyrics ───
