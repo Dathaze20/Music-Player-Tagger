@@ -185,7 +185,9 @@ function loadLazyEl(el) {
     applyArt(el, uris.map(function(u) { return artCache[u]; }));
     return;
   }
-  Promise.all(uris.map(fetchThumbnail)).then(function(dataUrls) { applyArt(el, dataUrls); });
+  Promise.all(uris.map(fetchThumbnail)).then(function(dataUrls) {
+    if (!el.dataset.loaded) applyArt(el, dataUrls);
+  });
 }
 
 function initLazyArt(container) {
@@ -974,6 +976,14 @@ function getSongCounts() {
 
 // ─── Render ───
 
+var _TI = {
+  artists:   '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>',
+  songs:     '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
+  albums:    '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z"/></svg>',
+  playlists: '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>'
+};
+var _lastTabCounts = { artists: -1, songs: -1, albums: -1 };
+
 function render() {
   cleanupVirtualScroll();
   var main = document.getElementById('mainContent');
@@ -1011,16 +1021,13 @@ function render() {
 
   var counts = getSongCounts();
   var tabs = tabBar.querySelectorAll('button');
-  var _TI = {
-    artists:   '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>',
-    songs:     '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
-    albums:    '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z"/></svg>',
-    playlists: '<svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>'
-  };
-  tabs[0].innerHTML = _TI.artists   + '<span class="tab-label">Artists<span class="tab-count"> ' + counts.artists + '</span></span>';
-  tabs[1].innerHTML = _TI.songs     + '<span class="tab-label">Songs<span class="tab-count"> '   + counts.songs   + '</span></span>';
-  tabs[2].innerHTML = _TI.albums    + '<span class="tab-label">Albums<span class="tab-count"> '  + counts.albums  + '</span></span>';
-  tabs[3].innerHTML = _TI.playlists + '<span class="tab-label">Playlists</span>';
+  if (counts.artists !== _lastTabCounts.artists || counts.songs !== _lastTabCounts.songs || counts.albums !== _lastTabCounts.albums) {
+    _lastTabCounts = { artists: counts.artists, songs: counts.songs, albums: counts.albums };
+    tabs[0].innerHTML = _TI.artists   + '<span class="tab-label">Artists<span class="tab-count"> ' + counts.artists + '</span></span>';
+    tabs[1].innerHTML = _TI.songs     + '<span class="tab-label">Songs<span class="tab-count"> '   + counts.songs   + '</span></span>';
+    tabs[2].innerHTML = _TI.albums    + '<span class="tab-label">Albums<span class="tab-count"> '  + counts.albums  + '</span></span>';
+    tabs[3].innerHTML = _TI.playlists + '<span class="tab-label">Playlists</span>';
+  }
 
   if (selectedAlbum) {
     tabBar.classList.add('hidden');
@@ -1270,7 +1277,10 @@ function initScrollIndicator() {
       _scrollInd.style.opacity = '1';
       clearTimeout(_scrollIndTimer);
       _scrollIndTimer = setTimeout(function() {
-        if (_scrollInd && !_scrollIndTouching) _scrollInd.style.opacity = '0';
+        if (_scrollInd && !_scrollIndTouching) {
+          _scrollInd.style.opacity = '0';
+          _scrollInd.style.pointerEvents = 'none';
+        }
       }, 2000);
     }
   });
@@ -1296,10 +1306,14 @@ function _posScrollInd() {
 function _onScrollInd() {
   if (!_posScrollInd()) return;
   _scrollInd.style.opacity = '1';
+  _scrollInd.style.pointerEvents = 'auto';
   if (!_scrollIndTouching) {
     clearTimeout(_scrollIndTimer);
     _scrollIndTimer = setTimeout(function() {
-      if (_scrollInd && !_scrollIndTouching) _scrollInd.style.opacity = '0';
+      if (_scrollInd && !_scrollIndTouching) {
+        _scrollInd.style.opacity = '0';
+        _scrollInd.style.pointerEvents = 'none';
+      }
     }, 2500);
   }
 }
@@ -1316,7 +1330,10 @@ function _onIndTouchEnd() {
   _scrollIndTouching = false;
   clearTimeout(_scrollIndTimer);
   _scrollIndTimer = setTimeout(function() {
-    if (_scrollInd && !_scrollIndTouching) _scrollInd.style.opacity = '0';
+    if (_scrollInd && !_scrollIndTouching) {
+      _scrollInd.style.opacity = '0';
+      _scrollInd.style.pointerEvents = 'none';
+    }
   }, 2500);
 }
 
@@ -1346,6 +1363,7 @@ function _onIndDragMove(e) {
   var botOff = (mini && !mini.classList.contains('hidden')) ? 72 : 8;
   var trackH = window.innerHeight - topOff - botOff;
   var thumbH = Math.max(44, Math.floor(trackH * ch / sh));
+  if (trackH <= thumbH) return;
   var dy = e.touches[0].clientY - _scrollIndDragY;
   mc.scrollTop = _scrollIndDragST + dy * (sh - ch) / (trackH - thumbH);
   _posScrollInd();
@@ -1359,7 +1377,10 @@ function _onIndDragEnd() {
   document.removeEventListener('touchcancel', _onIndDragEnd,  false);
   clearTimeout(_scrollIndTimer);
   _scrollIndTimer = setTimeout(function() {
-    if (_scrollInd && !_scrollIndTouching) _scrollInd.style.opacity = '0';
+    if (_scrollInd && !_scrollIndTouching) {
+      _scrollInd.style.opacity = '0';
+      _scrollInd.style.pointerEvents = 'none';
+    }
   }, 2500);
 }
 
@@ -1933,7 +1954,12 @@ function bindSongRows(el, songList) {
 
 function updateMiniPlayer() {
   var mp = document.getElementById('miniPlayer');
-  if (!currentSong) { mp.classList.add('hidden'); return; }
+  if (!currentSong) {
+    mp.classList.add('hidden');
+    var miniEqHide = document.getElementById('miniEqBars');
+    if (miniEqHide) miniEqHide.classList.add('hidden');
+    return;
+  }
   if (showNowPlaying) { mp.classList.add('hidden'); return; }
   mp.classList.remove('hidden');
 

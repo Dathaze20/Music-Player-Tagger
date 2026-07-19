@@ -131,7 +131,7 @@ public class MediaStorePlugin extends Plugin {
             InputStream is = getContext().getContentResolver().openInputStream(artUri);
             if (is == null) { call.reject("null stream"); return; }
             android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
-            opts.inSampleSize = reqSize <= 256 ? 2 : 1;
+            opts.inSampleSize = 1; // avoid upscaling blur from premature sub-sampling
             android.graphics.Bitmap bmp;
             try {
                 bmp = android.graphics.BitmapFactory.decodeStream(is, null, opts);
@@ -139,7 +139,14 @@ public class MediaStorePlugin extends Plugin {
                 try { is.close(); } catch (Exception ignored) {}
             }
             if (bmp == null) { call.reject("decode failed"); return; }
-            android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, reqSize, reqSize, true);
+            android.graphics.Bitmap scaled;
+            try {
+                scaled = android.graphics.Bitmap.createScaledBitmap(bmp, reqSize, reqSize, true);
+            } catch (OutOfMemoryError oom) {
+                bmp.recycle();
+                call.reject("OOM scaling bitmap");
+                return;
+            }
             if (scaled != bmp) bmp.recycle();
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             int quality = reqSize <= 256 ? 78 : 90;
@@ -320,10 +327,14 @@ public class MediaStorePlugin extends Plugin {
         String lyrics      = nvl(call.getString("lyrics",      ""));
         String artBase64   = nvl(call.getString("artBase64",   ""));
 
+        String artMimeType = "image/jpeg";
         byte[] artBytes = null;
         if (!artBase64.isEmpty()) {
             int comma = artBase64.indexOf(',');
             String b64 = comma >= 0 ? artBase64.substring(comma + 1) : artBase64;
+            if (artBase64.startsWith("data:") && artBase64.contains(";")) {
+                artMimeType = artBase64.substring(5, artBase64.indexOf(';'));
+            }
             try { artBytes = Base64.decode(b64, Base64.DEFAULT); } catch (Exception ignored) {}
         }
 
@@ -349,8 +360,9 @@ public class MediaStorePlugin extends Plugin {
 
         boolean isSdCard = isPortableSdCard(filePath);
 
-        // Copy the source file to a temp file so jaudiotagger has a real File to work with
-        File tempFile = new File(ctx.getCacheDir(), "muzio_tag_edit." + ext);
+        // Copy the source file to a temp file so jaudiotagger has a real File to work with.
+        // Use a unique name per call to prevent concurrent writes corrupting each other.
+        File tempFile = new File(ctx.getCacheDir(), "muzio_tag_edit_" + java.util.UUID.randomUUID() + "." + ext);
         try {
             // --- Phase 1: Read source → temp file ---
             try (InputStream is = resolver.openInputStream(mediaUri);
@@ -374,7 +386,7 @@ public class MediaStorePlugin extends Plugin {
             if (artBytes != null && artBytes.length > 0) {
                 Artwork artwork = ArtworkFactory.getNew();
                 artwork.setBinaryData(artBytes);
-                artwork.setMimeType("image/jpeg");
+                artwork.setMimeType(artMimeType);
                 artwork.setPictureType(3); // front cover
                 tag.deleteArtworkField();
                 tag.setField(artwork);

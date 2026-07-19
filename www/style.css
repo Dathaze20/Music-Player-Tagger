@@ -2491,28 +2491,10 @@ body {
 .mini-progress { height: 2px; background: rgba(255,255,255,0.06); }
 .mini-progress-bar { background: var(--gradient-primary); }
 
-/* ─── Mini EQ bars ─── */
-.mini-eq-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 18px;
-  width: 18px;
-  flex-shrink: 0;
-}
-.mini-eq-bars span {
-  display: block;
-  width: 3px;
-  background: var(--primary);
-  border-radius: 2px;
-  box-shadow: 0 0 6px rgba(0,168,158,0.5);
-  animation: eqBounce 1.0s ease-in-out infinite;
-  min-height: 3px;
-}
-.mini-eq-bars span:nth-child(1) { animation-delay: 0s;    animation-duration: 0.9s; }
-.mini-eq-bars span:nth-child(2) { animation-delay: 0.18s; animation-duration: 1.1s; }
-.mini-eq-bars span:nth-child(3) { animation-delay: 0.36s; animation-duration: 0.85s; }
-.mini-eq-bars.paused span { animation-play-state: paused; height: 5px; }
+/* ─── Mini EQ bars: glow addition on top of .eq-bars base styles ─── */
+/* Uses higher specificity (.eq-bars.mini-eq-bars) to reliably win over .eq-bars.paused span */
+.eq-bars.mini-eq-bars span { box-shadow: 0 0 6px rgba(0,168,158,0.5); }
+.eq-bars.mini-eq-bars.paused span { height: 5px; }
 
 /* ─── Now playing art & controls ─── */
 .np-art-full {
