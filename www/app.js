@@ -596,6 +596,7 @@ function saveLibrary() {
         year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track, art: s.art,
         lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
         dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
+        playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
         nativePath:  s.nativePath  || '',
         contentUri:  s.contentUri  || '',
         albumArtUri: s.albumArtUri || '',
@@ -611,8 +612,9 @@ function saveLibrary() {
       var slim = songs.map(function(s) {
         return {
           fn: s.fn, title: s.title, artist: s.artist, album: s.album,
-          year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track,
+          year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track, art: s.art,
           dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
+          playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
           nativePath:  s.nativePath  || '',
           contentUri:  s.contentUri  || '',
           albumArtUri: s.albumArtUri || '',
@@ -641,6 +643,18 @@ function loadLibrary() {
       return s;
     });
   } catch (e) { return []; }
+}
+
+function loadPlaylists() {
+  try {
+    var raw = localStorage.getItem('muzio_playlists');
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch (e) { return []; }
+}
+
+function savePlaylists() {
+  try { localStorage.setItem('muzio_playlists', JSON.stringify(playlists)); } catch (e) {}
 }
 
 // ─── Art Cache Persistence (IndexedDB) ───
@@ -868,6 +882,11 @@ var artistSortMode = 'az';
 var albumSortMode = 'az';
 var artistViewMode = 'list';   // 'list' | 'grid2' | 'grid3'
 var albumArtistsOnly = true;
+var playlists = loadPlaylists();
+var currentPlaylistId = null;
+var sleepTimerEnd = 0;
+var _sleepTimerTimeout = null;
+var _sleepTimerDisplayInt = null;
 var nativeScanning = false;
 var nativeScanCount = 0;
 var nativeScanError = '';
@@ -1072,6 +1091,8 @@ function render() {
       renderAlbums(main);
     } else if (currentTab === 'playlists') {
       renderPlaylists(main);
+    } else if (currentTab === 'playlist') {
+      renderPlaylistSongs(main);
     } else if (currentTab === 'favorites') {
       renderFavorites(main);
     }
@@ -1591,6 +1612,7 @@ function renderSongs(el) {
   if (sortMode === 'title') sorted.sort(function(a, b) { return a.title.localeCompare(b.title); });
   else if (sortMode === 'artist') sorted.sort(function(a, b) { return a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title); });
   else if (sortMode === 'recent') sorted.reverse();
+  else if (sortMode === 'played') sorted.sort(function(a, b) { return (b.lastPlayed || 0) - (a.lastPlayed || 0); });
 
   var totalH = sorted.length * VS_ROW_H;
   el.innerHTML = '<div class="sort-bar">'
@@ -1599,6 +1621,7 @@ function renderSongs(el) {
     + '<button class="sort-btn' + (sortMode==='title'?' active':'') + '" data-sort="title">A-Z</button>'
     + '<button class="sort-btn' + (sortMode==='artist'?' active':'') + '" data-sort="artist">Artist</button>'
     + '<button class="sort-btn' + (sortMode==='recent'?' active':'') + '" data-sort="recent">Recent</button>'
+    + '<button class="sort-btn' + (sortMode==='played'?' active':'') + '" data-sort="played">Played</button>'
     + '</div></div>'
     + '<div id="vsOuter" style="position:relative;height:' + totalH + 'px;">'
     + '<div id="vsRows" style="position:absolute;left:0;right:0;top:0;"></div>'
@@ -1701,22 +1724,100 @@ function renderAlbums(el) {
 
 function renderPlaylists(el) {
   var favCount = getFavorites().length;
-  el.innerHTML = '<div style="padding:16px;">'
+  var html = '<div style="padding:16px;">'
     + '<div class="playlist-item" id="goFavs">'
     + '<div class="playlist-icon fav-icon">&#10084;</div>'
     + '<div class="song-info"><div class="artist-name">Favorites</div><div class="artist-meta">' + favCount + ' songs</div></div>'
     + '<span style="color:var(--text-faint);">&#8250;</span>'
-    + '</div>'
-    + '</div>'
-    + '<div class="empty-state" style="padding-top:40px;">'
-    + '<div class="empty-icon">&#9835;</div>'
-    + '<p>More playlists coming soon</p>'
-    + '<p class="sub">Use Favorites to save your top tracks</p>'
     + '</div>';
-  document.getElementById('goFavs').onclick = function() {
-    currentTab = 'favorites';
+  playlists.forEach(function(pl) {
+    html += '<div class="playlist-item" data-plid="' + pl.id + '">'
+      + '<div class="playlist-icon pl-icon">&#9835;</div>'
+      + '<div class="song-info"><div class="artist-name">' + escHtml(pl.name) + '</div><div class="artist-meta">' + pl.songIds.length + ' songs</div></div>'
+      + '<button class="pl-delete-btn" data-dplid="' + pl.id + '">&#215;</button>'
+      + '</div>';
+  });
+  html += '<button class="create-pl-btn" id="createPlBtn">&#43; New Playlist</button>'
+    + '</div>';
+  el.innerHTML = html;
+
+  document.getElementById('goFavs').onclick = function() { currentTab = 'favorites'; render(); };
+
+  el.querySelectorAll('.playlist-item[data-plid]').forEach(function(row) {
+    row.onclick = function(e) {
+      if (e.target.closest('.pl-delete-btn')) return;
+      currentPlaylistId = row.dataset.plid;
+      currentTab = 'playlist';
+      render();
+    };
+  });
+
+  el.querySelectorAll('.pl-delete-btn').forEach(function(btn) {
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      var id = btn.dataset.dplid;
+      var pl = playlists.find(function(p) { return p.id === id; });
+      if (!pl) return;
+      if (!confirm('Delete playlist "' + pl.name + '"?')) return;
+      playlists = playlists.filter(function(p) { return p.id !== id; });
+      savePlaylists();
+      render();
+    };
+  });
+
+  var createBtn = document.getElementById('createPlBtn');
+  if (createBtn) createBtn.onclick = function() {
+    var name = prompt('Playlist name:');
+    if (!name || !name.trim()) return;
+    var pl = { id: 'pl_' + Date.now(), name: name.trim(), songIds: [] };
+    playlists.push(pl);
+    savePlaylists();
     render();
   };
+}
+
+function renderPlaylistSongs(el) {
+  var pl = playlists.find(function(p) { return p.id === currentPlaylistId; });
+  if (!pl) { currentTab = 'playlists'; render(); return; }
+  var plSongs = pl.songIds.map(function(id) { return songMap[id]; }).filter(Boolean);
+  var html = '<div class="section-header">'
+    + '<h3>&#9835; ' + escHtml(pl.name) + '</h3>'
+    + '<span class="section-count">' + plSongs.length + ' songs</span>'
+    + '</div>';
+  if (plSongs.length === 0) {
+    html += '<div class="empty-state"><div class="empty-icon">&#9835;</div>'
+      + '<p>No songs yet</p><p class="sub">Use the &#8942; menu on any song to add it here</p></div>';
+  } else {
+    plSongs.forEach(function(s) {
+      html += '<div class="song-row' + (currentSong && currentSong.id === s.id ? ' playing' : '') + '" data-id="' + s.id + '">'
+        + imgOrArt(s.art, s.album || s.title, 48)
+        + '<div class="song-info"><div class="song-title">' + escHtml(s.title) + '</div>'
+        + '<div class="song-meta">' + escHtml(s.artist) + '</div></div>'
+        + '<span class="song-duration">' + fmtTime(s.dur) + '</span>'
+        + '<button class="pl-remove-btn" data-rmid="' + s.id + '">&#215;</button>'
+        + '</div>';
+    });
+  }
+  el.innerHTML = html;
+
+  el.querySelectorAll('.song-row[data-id]').forEach(function(row) {
+    row.onclick = function(e) {
+      if (e.target.closest('.pl-remove-btn')) return;
+      var s = songMap[row.dataset.id];
+      if (s) playSong(s, plSongs);
+    };
+  });
+
+  el.querySelectorAll('.pl-remove-btn').forEach(function(btn) {
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      var sid = btn.dataset.rmid;
+      pl.songIds = pl.songIds.filter(function(id) { return id !== sid; });
+      savePlaylists();
+      renderPlaylistSongs(el);
+    };
+  });
+  initScrollIndicator();
 }
 
 function renderFavorites(el) {
@@ -2134,7 +2235,15 @@ function renderNowPlaying() {
     + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '" style="font-size:20px;">&#8644;</button>'
     + '</div>'
     + '<div class="np-bottom">'
+    + '<div class="np-vol-row"><span class="np-vol-icon">&#128264;</span>'
+    + '<input type="range" id="npVol" class="np-vol-slider" min="0" max="1" step="0.02" value="' + volume + '">'
+    + '<span class="np-vol-icon">&#128266;</span></div>'
+    + '<div class="np-bottom-row1">'
     + '<button id="npSpeed" class="np-ctrl' + (playbackRate !== 1.0 ? ' active' : '') + '" style="font-size:13px;font-weight:700;min-width:40px;">' + playbackRate + 'x</button>'
+    + '<button id="npSleepBtn" class="np-ctrl' + (sleepTimerEnd > Date.now() ? ' active' : '') + '">'
+    + (sleepTimerEnd > Date.now() ? '&#9203;' + Math.ceil((sleepTimerEnd - Date.now()) / 60000) + 'm' : '&#9203;') + '</button>'
+    + '<button id="npAddPlBtn" class="np-ctrl" style="font-size:16px;" title="Add to playlist">&#9835;+</button>'
+    + '</div>'
     + '</div>';
 
   if (currentSong.genre || currentSong.year || currentSong.type) {
@@ -2234,6 +2343,31 @@ function renderNowPlaying() {
     if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && duration > 0) {
       try { navigator.mediaSession.setPositionState({ duration: duration, playbackRate: playbackRate, position: currentTime }); } catch(e) {}
     }
+  };
+
+  var npVolEl = document.getElementById('npVol');
+  if (npVolEl) npVolEl.oninput = function() {
+    volume = parseFloat(npVolEl.value);
+    audio.volume = volume;
+  };
+
+  var SLEEP_STEPS = [15, 30, 45, 60, 0];
+  document.getElementById('npSleepBtn').onclick = function() {
+    var remaining = sleepTimerEnd > Date.now() ? Math.ceil((sleepTimerEnd - Date.now()) / 60000) : 0;
+    var nextStep;
+    if (remaining === 0) nextStep = SLEEP_STEPS[0];
+    else {
+      var cur = sleepTimerEnd > 0 ? Math.ceil((sleepTimerEnd - Date.now()) / 60000) : 0;
+      var closestIdx = SLEEP_STEPS.indexOf(SLEEP_STEPS.reduce(function(a, b) { return Math.abs(b - cur) < Math.abs(a - cur) ? b : a; }));
+      nextStep = SLEEP_STEPS[(closestIdx + 1) % SLEEP_STEPS.length];
+    }
+    setSleepTimer(nextStep);
+    if (nextStep === 0) showToast('Sleep timer off');
+    else showToast('Sleep in ' + nextStep + ' min');
+  };
+
+  document.getElementById('npAddPlBtn').onclick = function() {
+    if (currentSong) showAddToPlaylistSheet(currentSong);
   };
 
   // Wire synced lyric line clicks if already showing (re-open NP case)
@@ -2409,6 +2543,74 @@ function showAlbumMenu(album) {
   ]);
 }
 
+function showAddToPlaylistSheet(song) {
+  var items = playlists.map(function(pl) {
+    return {
+      icon: '&#9835;',
+      label: pl.name + ' (' + pl.songIds.length + ')',
+      action: function() {
+        if (pl.songIds.indexOf(song.id) === -1) { pl.songIds.push(song.id); savePlaylists(); }
+        showToast('Added to ' + pl.name);
+      }
+    };
+  });
+  items.push({
+    icon: '&#43;',
+    label: 'New playlist…',
+    action: function() {
+      var name = prompt('Playlist name:');
+      if (!name || !name.trim()) return;
+      var pl = { id: 'pl_' + Date.now(), name: name.trim(), songIds: [song.id] };
+      playlists.push(pl);
+      savePlaylists();
+      showToast('Added to ' + pl.name);
+    }
+  });
+  openBottomSheet('<div class="bs-info"><div class="bs-name">Add to playlist</div><div class="bs-meta">' + escHtml(song.title) + '</div></div>', items);
+}
+
+function setSleepTimer(minutes) {
+  if (_sleepTimerTimeout) { clearTimeout(_sleepTimerTimeout); _sleepTimerTimeout = null; }
+  if (_sleepTimerDisplayInt) { clearInterval(_sleepTimerDisplayInt); _sleepTimerDisplayInt = null; }
+  sleepTimerEnd = 0;
+  if (minutes === 0) {
+    var btn = document.getElementById('npSleepBtn');
+    if (btn) { btn.innerHTML = '&#9203;'; btn.classList.remove('active'); }
+    return;
+  }
+  sleepTimerEnd = Date.now() + minutes * 60000;
+  _sleepTimerTimeout = setTimeout(function() {
+    _sleepTimerTimeout = null;
+    sleepTimerEnd = 0;
+    if (_sleepTimerDisplayInt) { clearInterval(_sleepTimerDisplayInt); _sleepTimerDisplayInt = null; }
+    var origVol = audio.volume;
+    var steps = 30; var cnt = 0; var dec = origVol / steps;
+    var fadeInt = setInterval(function() {
+      cnt++;
+      audio.volume = Math.max(0, origVol - dec * cnt);
+      if (cnt >= steps) {
+        clearInterval(fadeInt);
+        audio.pause(); isPlaying = false;
+        audio.volume = origVol; volume = origVol;
+        render();
+      }
+    }, 100);
+    var btn = document.getElementById('npSleepBtn');
+    if (btn) { btn.innerHTML = '&#9203;'; btn.classList.remove('active'); }
+  }, minutes * 60000);
+  _sleepTimerDisplayInt = setInterval(function() {
+    if (!sleepTimerEnd) { clearInterval(_sleepTimerDisplayInt); return; }
+    var btn = document.getElementById('npSleepBtn');
+    if (btn) {
+      var mins = Math.ceil((sleepTimerEnd - Date.now()) / 60000);
+      btn.innerHTML = '&#9203;' + (mins > 0 ? mins + 'm' : '');
+      btn.classList.add('active');
+    }
+  }, 30000);
+  var btn = document.getElementById('npSleepBtn');
+  if (btn) { btn.innerHTML = '&#9203;' + minutes + 'm'; btn.classList.add('active'); }
+}
+
 function showSongMenu(songId, songList) {
   var song = songMap[songId];
   if (!song) return;
@@ -2431,10 +2633,22 @@ function showSongMenu(songId, songList) {
     { icon: '&#8644;', label: 'Add to queue',      action: function() { addToQueue([song]); } },
     { icon: isFav ? '&#10084;' : '&#9825;', label: isFav ? 'Remove from favorites' : 'Add to favorites',
       action: function() { song.fav = !song.fav; _countsCache = null; saveLibraryLater(); showToast(song.fav ? 'Added to favorites' : 'Removed from favorites'); } },
+    { icon: '&#9835;', label: 'Add to playlist',   action: function() { showAddToPlaylistSheet(song); } },
     'divider',
     { icon: '&#9998;', label: 'Tag editor',        action: function() { openSongEditModal(songId); } },
     { icon: '&#9835;', label: 'Go to album',       action: function() { selectedAlbum = { name: song.album, artist: song.artist }; render(); } },
     { icon: '&#9834;', label: 'Go to artist',      action: function() { selectedAlbum = null; selectedArtist = song.artist; render(); } },
+    'divider',
+    { icon: '&#128465;', label: 'Remove from library', action: function() {
+        songs = songs.filter(function(s) { return s.id !== song.id; });
+        songMap = Object.create(null); songs.forEach(function(s) { songMap[s.id] = s; });
+        _countsCache = null;
+        if (currentSong && currentSong.id === song.id) { currentSong = null; isPlaying = false; audio.pause(); }
+        saveLibrary();
+        render();
+        showToast('Removed from library');
+      }
+    },
   ]);
 }
 
@@ -2444,10 +2658,13 @@ document.getElementById('bsOverlay').onclick = closeBottomSheet;
 
 function playSong(song, songList) {
   currentSong = song;
+  song.playCount = (song.playCount || 0) + 1;
+  song.lastPlayed = Date.now();
   preloadedUrl = '';
   preloadedSong = null;
   _miniLastSongId = '';
   loadCurrentSongArt(song);
+  saveLibraryLater();
   queue = songList || songs;
   currentTime = 0;
   duration = song.dur || 0;
@@ -3512,6 +3729,7 @@ function saveUIState() {
       sortMode: sortMode,
       albumSortMode: albumSortMode,
       albumArtistsOnly: albumArtistsOnly,
+      currentPlaylistId: currentPlaylistId,
       scroll: document.getElementById('mainContent').scrollTop,
       time: currentTime,
       shuffled: isShuffled,
@@ -3541,6 +3759,7 @@ function restoreUIState() {
     if (state.sortMode) sortMode = state.sortMode;
     if (state.albumSortMode) albumSortMode = state.albumSortMode;
     if (typeof state.albumArtistsOnly === 'boolean') albumArtistsOnly = state.albumArtistsOnly;
+    if (state.currentPlaylistId) currentPlaylistId = state.currentPlaylistId;
     if (state.shuffled) isShuffled = state.shuffled;
     if (state.repeat) repeatMode = state.repeat;
     if (typeof state.vol === 'number') { volume = state.vol; audio.volume = volume; }
