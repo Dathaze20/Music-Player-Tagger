@@ -399,31 +399,48 @@ function loadCurrentSongArt(song) {
 
 // ─── LRClib Lyrics Fetch ───
 
-function fetchLRCLibLyrics(song) {
-  var artist = (song.albumArtist || song.artist || '').trim();
-  // Strip feat. from title for cleaner matching
-  var title = (song.title || '').replace(/\s+[\(\[]?(?:ft\.?|feat\.?|featuring)[^\)\]\n]*/i, '').trim();
-  if (!artist || !title) return Promise.resolve(null);
-  var url = 'https://lrclib.net/api/get'
-    + '?artist_name=' + encodeURIComponent(artist)
-    + '&track_name=' + encodeURIComponent(title)
-    + (song.dur ? '&duration=' + Math.round(song.dur) : '');
+function _lrcFetch(url) {
   var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, 8000) : null;
+  var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, 10000) : null;
   return fetch(url, ctrl ? { signal: ctrl.signal } : {})
     .then(function(res) {
       if (timer) clearTimeout(timer);
-      if (res.status === 404) return null;
       if (!res.ok) return null;
       return res.json();
     })
-    .then(function(data) {
-      if (!data) return null;
-      if (data.syncedLyrics) return { syncedLyrics: data.syncedLyrics, plainLyrics: data.plainLyrics || '' };
-      if (data.plainLyrics) return { syncedLyrics: '', plainLyrics: data.plainLyrics };
-      return null;
-    })
     .catch(function() { if (timer) clearTimeout(timer); return null; });
+}
+
+function _lrcResult(data) {
+  if (!data) return null;
+  if (data.syncedLyrics || data.plainLyrics) {
+    return { syncedLyrics: data.syncedLyrics || '', plainLyrics: data.plainLyrics || '' };
+  }
+  return null;
+}
+
+function fetchLRCLibLyrics(song) {
+  // Strip feat. from both artist and title for cleaner matching
+  var artist = (song.albumArtist || song.artist || '').replace(/\s+[\(\[]?(?:ft\.?|feat\.?|featuring)[^\)\]\n]*/i, '').trim();
+  var title  = (song.title  || '').replace(/\s+[\(\[]?(?:ft\.?|feat\.?|featuring)[^\)\]\n]*/i, '').trim();
+  if (!artist || !title) return Promise.resolve(null);
+
+  var params = '?artist_name=' + encodeURIComponent(artist) + '&track_name=' + encodeURIComponent(title);
+
+  // Step 1: exact get WITHOUT duration — duration mismatch causes silent 404 failures
+  return _lrcFetch('https://lrclib.net/api/get' + params).then(function(data) {
+    var r = _lrcResult(data);
+    if (r) return r;
+    // Step 2: fuzzy search — more lenient, returns ranked array
+    return _lrcFetch('https://lrclib.net/api/search' + params).then(function(results) {
+      if (!Array.isArray(results)) return null;
+      for (var i = 0; i < results.length; i++) {
+        var r2 = _lrcResult(results[i]);
+        if (r2) return r2;
+      }
+      return null;
+    });
+  });
 }
 
 // ─── NP Lyrics Panel Helpers ───
@@ -446,11 +463,24 @@ function noLyricsPanelHTML() {
   return '<div class="lyrics-empty-np">'
     + '<div class="lyrics-empty-icon">&#9835;</div>'
     + '<p>No lyrics found</p>'
-    + '<button class="add-lyrics-btn" id="addLyricsBtn">&#9998; Add Lyrics</button>'
+    + (apiKey ? '' : '<p class="sub" style="font-size:11px;margin-top:-4px;color:var(--text-faint);">Add Gemini API key in AI Settings<br>for automatic lyrics on any song</p>')
+    + (apiKey ? '<button class="add-lyrics-btn" id="fetchAiLyricsBtn" style="margin-bottom:6px;">&#10024; Fetch with AI</button>' : '')
+    + '<button class="add-lyrics-btn" id="addLyricsBtn" style="background:rgba(255,255,255,0.06);">&#9998; Add Manually</button>'
     + '</div>';
 }
 
 function bindAddLyricsBtn(panel, song) {
+  var aiBtn = panel.querySelector('#fetchAiLyricsBtn');
+  if (aiBtn) aiBtn.onclick = function() {
+    panel.innerHTML = '<div class="lyrics-empty-np"><div class="lyrics-empty-icon" style="animation:spin 1.5s linear infinite;display:inline-block;">&#9835;</div><p>Fetching AI lyrics...</p></div>';
+    callGeminiTag(song.fn).then(function(meta) {
+      if (meta.syncedLyrics) { song.syncedLyrics = meta.syncedLyrics; song.lyrics = ''; }
+      else if (meta.lyrics)  { song.lyrics = meta.lyrics; song.syncedLyrics = ''; }
+      saveLibraryLater();
+      applyLyricsToNPPanel(song);
+    }).catch(function() { applyLyricsToNPPanel(song); });
+  };
+
   var btn = panel.querySelector('#addLyricsBtn');
   if (!btn) return;
   btn.onclick = function() {
