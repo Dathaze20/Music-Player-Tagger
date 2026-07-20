@@ -3379,6 +3379,15 @@ document.getElementById('drawerOverlay').onclick = function() { toggleDrawer(fal
 
 document.getElementById('settingsBtn').onclick = function() { toggleDrawer(false); openSettings(); };
 document.getElementById('settingsClose').onclick = closeSettings;
+document.getElementById('apiKeyLink').onclick = function(e) {
+  e.preventDefault();
+  var url = 'https://aistudio.google.com/apikey';
+  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser) {
+    window.Capacitor.Plugins.Browser.open({ url: url });
+  } else {
+    window.open(url, '_blank');
+  }
+};
 document.getElementById('settingsOverlay').onclick = closeSettings;
 document.getElementById('settingsCancelBtn').onclick = closeSettings;
 document.getElementById('settingsSaveBtn').onclick = function() {

@@ -1675,7 +1675,7 @@ body {
   position: fixed;
   right: 0;
   width: 24px;
-  z-index: 200;
+  z-index: 15;
   pointer-events: none;
   touch-action: none;
   opacity: 0;
@@ -1785,6 +1785,17 @@ body {
   gap: 8px;
   font-size: 13px;
   color: var(--text);
+}
+.settings-guide-steps li span {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.settings-link {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(0,168,158,0.5);
 }
 .settings-guide-steps li::before {
   content: counter(step);
