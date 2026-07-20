@@ -2234,16 +2234,10 @@ function renderNowPlaying() {
     + '<button id="npNext" class="np-ctrl">&#9197;</button>'
     + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '" style="font-size:20px;">&#8644;</button>'
     + '</div>'
+    + '<div class="np-vol-ghost"><input type="range" id="npVol" class="np-vol-ghost-slider" min="0" max="1" step="0.02" value="' + volume + '"></div>'
     + '<div class="np-bottom">'
-    + '<div class="np-vol-row"><span class="np-vol-icon">&#128264;</span>'
-    + '<input type="range" id="npVol" class="np-vol-slider" min="0" max="1" step="0.02" value="' + volume + '">'
-    + '<span class="np-vol-icon">&#128266;</span></div>'
-    + '<div class="np-bottom-row1">'
     + '<button id="npSpeed" class="np-ctrl' + (playbackRate !== 1.0 ? ' active' : '') + '" style="font-size:13px;font-weight:700;min-width:40px;">' + playbackRate + 'x</button>'
-    + '<button id="npSleepBtn" class="np-ctrl' + (sleepTimerEnd > Date.now() ? ' active' : '') + '">'
-    + (sleepTimerEnd > Date.now() ? '&#9203;' + Math.ceil((sleepTimerEnd - Date.now()) / 60000) + 'm' : '&#9203;') + '</button>'
-    + '<button id="npAddPlBtn" class="np-ctrl" style="font-size:16px;" title="Add to playlist">&#9835;+</button>'
-    + '</div>'
+    + '<button id="npAddPlBtn" class="np-ctrl" style="font-size:15px;" title="Add to playlist">&#9835;+</button>'
     + '</div>';
 
   if (currentSong.genre || currentSong.year || currentSong.type) {
@@ -2314,10 +2308,10 @@ function renderNowPlaying() {
   var npArtEl = document.getElementById('npArtImg');
   if (npArtEl) {
     npArtEl.onclick = function() {
-      var src = artCacheHD[artUri] || artCache[artUri] || artData;
-      if (src) openArtViewer(src);
+      var content = document.querySelector('.np-content');
+      if (content) content.classList.toggle('lyrics-mode');
     };
-    npArtEl.style.cursor = 'zoom-in';
+    npArtEl.style.cursor = 'pointer';
   }
   document.getElementById('npPlay').onclick = togglePlay;
   document.getElementById('npPrev').onclick = handlePrev;
@@ -2349,21 +2343,6 @@ function renderNowPlaying() {
   if (npVolEl) npVolEl.oninput = function() {
     volume = parseFloat(npVolEl.value);
     audio.volume = volume;
-  };
-
-  var SLEEP_STEPS = [15, 30, 45, 60, 0];
-  document.getElementById('npSleepBtn').onclick = function() {
-    var remaining = sleepTimerEnd > Date.now() ? Math.ceil((sleepTimerEnd - Date.now()) / 60000) : 0;
-    var nextStep;
-    if (remaining === 0) nextStep = SLEEP_STEPS[0];
-    else {
-      var cur = sleepTimerEnd > 0 ? Math.ceil((sleepTimerEnd - Date.now()) / 60000) : 0;
-      var closestIdx = SLEEP_STEPS.indexOf(SLEEP_STEPS.reduce(function(a, b) { return Math.abs(b - cur) < Math.abs(a - cur) ? b : a; }));
-      nextStep = SLEEP_STEPS[(closestIdx + 1) % SLEEP_STEPS.length];
-    }
-    setSleepTimer(nextStep);
-    if (nextStep === 0) showToast('Sleep timer off');
-    else showToast('Sleep in ' + nextStep + ' min');
   };
 
   document.getElementById('npAddPlBtn').onclick = function() {

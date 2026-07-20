@@ -1414,7 +1414,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-height: 0;
+  min-height: 100px;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .lyrics-empty-np {
@@ -2705,42 +2705,51 @@ body {
   bottom: calc(120px + env(safe-area-inset-bottom, 0px));
 }
 
-/* ─── Now-playing volume row ─── */
-.np-vol-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 4px 6px;
+/* ─── Art height cap: prevents art from eating all lyrics space ─── */
+.np-art-full {
+  max-height: min(calc(100vw - 48px), 36vh);
 }
-.np-vol-icon { font-size: 16px; opacity: 0.55; flex-shrink: 0; }
-.np-vol-slider {
-  flex: 1;
+
+/* ─── Lyrics mode: tap art to toggle — art shrinks, lyrics fill the space ─── */
+.np-content.lyrics-mode .np-art-full {
+  max-height: 64px;
+  width: 64px;
+  margin: 2px auto 2px;
+  border-radius: 10px;
+  transition: max-height 0.3s ease, width 0.3s ease, margin 0.3s ease;
+}
+.np-content.lyrics-mode .np-info-row {
+  padding: 8px 20px 4px;
+}
+.np-art-full {
+  transition: max-height 0.3s ease, width 0.3s ease, margin 0.3s ease;
+}
+
+/* ─── Ghost volume slider: barely visible thin strip ─── */
+.np-vol-ghost {
+  padding: 0 24px;
+  margin-bottom: 2px;
+  opacity: 0.35;
+}
+.np-vol-ghost-slider {
+  display: block;
+  width: 100%;
   -webkit-appearance: none;
   appearance: none;
-  height: 3px;
-  border-radius: 3px;
-  background: rgba(255,255,255,0.18);
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.5);
   outline: none;
   cursor: pointer;
 }
-.np-vol-slider::-webkit-slider-thumb {
+.np-vol-ghost-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 14px; height: 14px;
+  width: 10px; height: 10px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+  background: rgba(255,255,255,0.9);
   cursor: pointer;
 }
-.np-bottom { flex-direction: column; gap: 0; align-items: stretch; }
-.np-bottom-row1 {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* ─── Sleep timer button active state ─── */
-#npSleepBtn.active { color: var(--primary) !important; }
-#npSleepBtn { font-size: 18px; min-width: 44px; }
+.np-vol-ghost:focus-within { opacity: 0.85; }
 
 /* ─── Playlist system ─── */
 .pl-icon { background: rgba(0,168,158,0.15); color: var(--primary); }
