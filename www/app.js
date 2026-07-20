@@ -606,8 +606,25 @@ function saveLibrary() {
     localStorage.setItem('muzio_library_count', songs.length.toString());
     localStorage.setItem('muzio_library_saved', Date.now().toString());
   } catch (e) {
-    // Keep the error toast visible longer so the user notices it
-    showToast('⚠ Edits could not be saved (' + (e && e.name ? e.name : 'storage full?') + '). Try clearing unused data.', 6000);
+    // Quota exceeded — retry without large fields (lyrics can be hundreds of KB)
+    try {
+      var slim = songs.map(function(s) {
+        return {
+          fn: s.fn, title: s.title, artist: s.artist, album: s.album,
+          year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track,
+          dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
+          nativePath:  s.nativePath  || '',
+          contentUri:  s.contentUri  || '',
+          albumArtUri: s.albumArtUri || '',
+          albumArtist: s.albumArtist || ''
+        };
+      });
+      localStorage.setItem('muzio_library', JSON.stringify(slim));
+      localStorage.setItem('muzio_library_count', songs.length.toString());
+      localStorage.setItem('muzio_library_saved', Date.now().toString());
+    } catch (e2) {
+      // Still over quota — silently skip rather than disrupting playback
+    }
   }
 }
 
