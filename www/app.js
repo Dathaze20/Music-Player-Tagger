@@ -3998,20 +3998,20 @@ function startInlineCf(albums) {
   var stageH = (stage && stage.clientHeight > 80) ? stage.clientHeight
              : Math.max(80, window.innerHeight - 110);
 
-  // Album art: 52% of stage in portrait, 60% in landscape — min 140px, max 320px
-  _cfItemSize = Math.max(140, Math.min(Math.round(stageH * (isLandscape ? 0.60 : 0.52)), 320));
+  // Album art: 62% of screen WIDTH in portrait (CD-sized), 48% in landscape — max 260px
+  _cfItemSize = Math.max(160, Math.min(Math.round(window.innerWidth * (isLandscape ? 0.48 : 0.62)), 260));
 
-  // Floor line: 62% from top in portrait, 70% in landscape
-  _cfFloorY = Math.round(stageH * (isLandscape ? 0.70 : 0.62));
+  // Floor line: 60% from top in portrait, 68% in landscape
+  _cfFloorY = Math.round(stageH * (isLandscape ? 0.68 : 0.60));
 
   // Space above album art so bottom edge lands on the floor line
   _cfTopPad = Math.max(0, _cfFloorY - _cfItemSize);
 
-  // Reflection: 42% of art height, capped at 130px
-  _cfRefH = Math.min(Math.round(_cfItemSize * 0.42), 130);
+  // Reflection: 38% of art height, capped at 100px
+  _cfRefH = Math.min(Math.round(_cfItemSize * 0.38), 100);
 
-  // Horizontal pad to centre first and last items
-  _cfGap = 20;
+  // Tight gap — classic iPod CF packs albums closely
+  _cfGap = 6;
   _cfPad = Math.round((window.innerWidth - _cfItemSize) / 2);
 
   // Position floor gradient and specular line at the floor line
@@ -4171,12 +4171,13 @@ function updateCfTransforms() {
     var item = items[i];
     var idx = parseInt(item.getAttribute('data-cf-idx'), 10);
     var itemCenter = _cfPad + idx * stride + _cfItemSize * 0.5;
-    var dist = (itemCenter - vpCenter) / (_cfItemSize * 0.85);
-    var angle = -dist * 52;
-    var tz = -Math.abs(dist) * 60;
-    var sc = Math.max(0.82, 1 - Math.abs(dist) * 0.09);
-    var op = Math.max(0.25, 1 - Math.abs(dist) * 0.25);
-    var xform = 'rotateY(' + angle + 'deg) translateZ(' + tz + 'px) scale(' + sc + ')';
+    // dist=1 = immediately adjacent album; normalize by stride so neighbors always hit ~68°
+    var dist = (itemCenter - vpCenter) / stride;
+    // Classic iPod CF: ~68° per step, hard-capped so albums never flip past 90°
+    var angle = (dist < 0 ? 1 : -1) * Math.min(80, Math.abs(dist) * 68);
+    // Pure rotateY — perspective on parent handles all depth; no scale needed
+    var xform = 'rotateY(' + angle + 'deg)';
+    var op = Math.max(0.15, 1 - Math.abs(dist) * 0.32);
     item.style.webkitTransform = xform;
     item.style.transform = xform;
     item.style.opacity = op;

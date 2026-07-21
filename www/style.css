@@ -2903,8 +2903,8 @@ body {
   align-items: flex-start;
   -ms-overflow-style: none;
   scrollbar-width: none;
-  -webkit-perspective: 1100px;
-  perspective: 1100px;
+  -webkit-perspective: 800px;
+  perspective: 800px;
   z-index: 1;
 }
 .cf-scroll::-webkit-scrollbar { display: none; }
