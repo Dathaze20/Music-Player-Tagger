@@ -1720,6 +1720,9 @@ function renderAlbums(el) {
 
   el.innerHTML = '<div class="cf-stage" id="cfStage">'
     + '<div class="cf-glow" id="cfGlow"></div>'
+    + '<div class="cf-floor" id="cfFloor"></div>'
+    + '<div class="cf-specular" id="cfSpecular"></div>'
+    + '<div class="cf-center-shadow" id="cfCenterShadow"></div>'
     + '<div class="cf-scroll" id="cfScrollWrap"><div class="cf-track" id="cfTrack"></div></div>'
     + '<div class="cf-top-glass" id="cfTopGlass">' + chipsHtml + '</div>'
     + '<div class="cf-bot-glass">'
@@ -3961,7 +3964,10 @@ initMediaSession();
 
 var _cfAlbums = [];
 var _cfCenterIdx = 0;
-var _cfItemSize = 0;
+var _cfItemSize = 0;  // album art square side length (px)
+var _cfRefH = 0;      // reflection height (px)
+var _cfFloorY = 0;    // stage-relative Y of the floor line (px)
+var _cfTopPad = 0;    // track padding-top so bottom-of-art == _cfFloorY (px)
 var _cfGap = 20;
 var _cfPad = 0;
 var _cfScrollWrap = null;
@@ -3973,13 +3979,58 @@ function startInlineCf(albums) {
   if (!_cfAlbums.length) return;
 
   var isLandscape = window.innerWidth > window.innerHeight;
-  // Item height = 48% of screen height in portrait, 40% in landscape — capped at 280px
-  _cfItemSize = Math.min(Math.round(window.innerHeight * (isLandscape ? 0.40 : 0.48)), 280);
+
+  // Use actual stage height so the art is correctly proportioned
+  var stage = document.getElementById('cfStage');
+  var stageH = (stage && stage.clientHeight > 80) ? stage.clientHeight
+             : Math.max(80, window.innerHeight - 110);
+
+  // Album art: 52% of stage in portrait, 60% in landscape — min 140px, max 320px
+  _cfItemSize = Math.max(140, Math.min(Math.round(stageH * (isLandscape ? 0.60 : 0.52)), 320));
+
+  // Floor line: 62% from top in portrait, 70% in landscape
+  _cfFloorY = Math.round(stageH * (isLandscape ? 0.70 : 0.62));
+
+  // Space above album art so bottom edge lands on the floor line
+  _cfTopPad = Math.max(0, _cfFloorY - _cfItemSize);
+
+  // Reflection: 42% of art height, capped at 130px
+  _cfRefH = Math.min(Math.round(_cfItemSize * 0.42), 130);
+
+  // Horizontal pad to centre first and last items
+  _cfGap = 20;
   _cfPad = Math.round((window.innerWidth - _cfItemSize) / 2);
+
+  // Position floor gradient and specular line at the floor line
+  var floor = document.getElementById('cfFloor');
+  if (floor) floor.style.top = _cfFloorY + 'px';
+
+  var spec = document.getElementById('cfSpecular');
+  if (spec) spec.style.top = _cfFloorY + 'px';
+
+  // Centre-album contact shadow sits just above the floor line
+  var csh = document.getElementById('cfCenterShadow');
+  if (csh) {
+    var shW = Math.round(_cfItemSize * 0.78);
+    csh.style.top = (_cfFloorY - 14) + 'px';
+    csh.style.width = shW + 'px';
+    csh.style.left = '50%';
+    csh.style.marginLeft = '-' + Math.round(shW / 2) + 'px';
+  }
+
+  // Reposition glow to the vertical centre of the album art
+  var glow = document.getElementById('cfGlow');
+  if (glow) {
+    var glowY = Math.round(_cfFloorY - _cfItemSize * 0.5);
+    glow.style.top = glowY + 'px';
+    glow.style.left = '50%';
+    glow.style.transform = 'translate(-50%, -50%)';
+    glow.style.webkitTransform = 'translate(-50%, -50%)';
+  }
 
   buildCfItems();
 
-  // Snap to currently playing album, or first
+  // Snap to the currently playing album, or first
   var startIdx = 0;
   if (currentSong) {
     for (var k = 0; k < _cfAlbums.length; k++) {
@@ -4007,8 +4058,15 @@ function cleanupCf() {
 function buildCfItems() {
   var track = document.getElementById('cfTrack');
   var s = _cfItemSize;
+  var ref = _cfRefH;
   var half = Math.round(_cfGap / 2);
-  var refH = Math.round(s * 0.25);
+  var totalH = s + ref; // outer item div contains art + reflection
+
+  // Items sit at top of their flex line; padding-top positions the floor line correctly
+  track.style.paddingTop = _cfTopPad + 'px';
+  track.style.webkitAlignItems = 'flex-start';
+  track.style.alignItems = 'flex-start';
+
   var html = '<div style="width:' + _cfPad + 'px;-webkit-flex-shrink:0;flex-shrink:0;"></div>';
 
   _cfAlbums.forEach(function(a, i) {
@@ -4022,15 +4080,22 @@ function buildCfItems() {
       : '<div class="cf-item-placeholder" style="background:' + gradCss + ';">' + init + '</div>';
     var refHtml = cached
       ? '<img class="cf-reflection-img" src="' + cached + '" alt="" style="height:' + s + 'px;">'
-      : '<div style="height:' + s + 'px;background:' + gradCss + ';"></div>';
+      : '<div class="cf-item-placeholder" style="height:' + s + 'px;background:' + gradCss + ';-webkit-transform:scaleY(-1);transform:scaleY(-1);opacity:0.4;"></div>';
 
-    html += '<div class="cf-item" data-cf-idx="' + i + '" style="width:' + s + 'px;height:' + s + 'px;margin:0 ' + half + 'px;">'
-      + '<div class="cf-item-inner">' + artHtml + '</div>'
-      + '<div class="cf-reflection-wrap" style="top:' + s + 'px;height:' + refH + 'px;">' + refHtml + '</div>'
+    // Outer div height = art + reflection; both live inside, no overflow needed
+    html += '<div class="cf-item" data-cf-idx="' + i + '" style="width:' + s + 'px;height:' + totalH + 'px;margin:0 ' + half + 'px;">'
+      + '<div class="cf-item-inner" style="height:' + s + 'px;">' + artHtml + '</div>'
+      + '<div class="cf-item-shadow" style="top:' + (s - 12) + 'px;width:' + s + 'px;"></div>'
+      + '<div class="cf-reflection-wrap" style="top:' + s + 'px;height:' + ref + 'px;">' + refHtml + '</div>'
       + '</div>';
   });
   html += '<div style="width:' + _cfPad + 'px;-webkit-flex-shrink:0;flex-shrink:0;"></div>';
   track.innerHTML = html;
+
+  // Re-apply layout styles after innerHTML (which resets track content)
+  track.style.paddingTop = _cfTopPad + 'px';
+  track.style.webkitAlignItems = 'flex-start';
+  track.style.alignItems = 'flex-start';
 
   // Lazy-load art for any placeholder items
   _cfAlbums.forEach(function(a, i) {
@@ -4043,7 +4108,6 @@ function buildCfItems() {
       if (inner) inner.innerHTML = '<img class="cf-item-art" src="' + data + '" alt="">';
       var rw = el.querySelector('.cf-reflection-wrap');
       if (rw) rw.innerHTML = '<img class="cf-reflection-img" src="' + data + '" alt="" style="height:' + _cfItemSize + 'px;">';
-      // Update glow if this became the center item
       if (i === _cfCenterIdx) updateCfGlow(i);
     });
   });

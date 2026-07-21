@@ -2800,36 +2800,93 @@ body {
   flex-direction: column;
 }
 
-/* Stage fills all remaining space */
+/* Stage fills all remaining main-content space */
 .cf-stage {
   -webkit-box-flex: 1;
   -webkit-flex: 1;
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: #07090f;
+  background: #050710;  /* near-black base, very dark */
 }
 
-/* Ambient glow — blurred gradient blob matching center album color */
+/* Ambient glow — JS sets top/left position and background color */
 .cf-glow {
   position: absolute;
-  width: 320px;
-  height: 320px;
+  width: 340px;
+  height: 340px;
   border-radius: 50%;
-  top: 50%;
-  left: 50%;
-  -webkit-transform: translate(-50%, -60%);
-  transform: translate(-50%, -60%);
-  -webkit-filter: blur(90px);
-  filter: blur(90px);
-  opacity: 0.45;
+  -webkit-filter: blur(100px);
+  filter: blur(100px);
+  opacity: 0.40;
   pointer-events: none;
   z-index: 0;
   -webkit-transition: background 0.55s ease;
   transition: background 0.55s ease;
 }
 
-/* Horizontal scroll carousel — fills the full stage */
+/* Glass stage floor — JS sets top (= floor line), extends to bottom */
+.cf-floor {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 2;
+  pointer-events: none;
+  /* Dark gradient from transparent at the floor line to solid black at bottom */
+  background: -webkit-linear-gradient(top,
+    rgba(0,0,0,0) 0%,
+    rgba(0,0,0,0.55) 35%,
+    rgba(0,0,0,0.85) 65%,
+    #000 100%);
+  background: linear-gradient(to bottom,
+    rgba(0,0,0,0) 0%,
+    rgba(0,0,0,0.55) 35%,
+    rgba(0,0,0,0.85) 65%,
+    #000 100%);
+}
+
+/* Specular shine — 1px horizontal highlight at the glass floor line */
+/* JS sets top position */
+.cf-specular {
+  position: absolute;
+  left: 0; right: 0;
+  height: 1px;
+  z-index: 4;
+  pointer-events: none;
+  background: -webkit-linear-gradient(left,
+    transparent 0%,
+    rgba(255,255,255,0.06) 10%,
+    rgba(255,255,255,0.22) 30%,
+    rgba(255,255,255,0.38) 50%,
+    rgba(255,255,255,0.22) 70%,
+    rgba(255,255,255,0.06) 90%,
+    transparent 100%);
+  background: linear-gradient(to right,
+    transparent 0%,
+    rgba(255,255,255,0.06) 10%,
+    rgba(255,255,255,0.22) 30%,
+    rgba(255,255,255,0.38) 50%,
+    rgba(255,255,255,0.22) 70%,
+    rgba(255,255,255,0.06) 90%,
+    transparent 100%);
+}
+
+/* Contact shadow ellipse sitting on the floor under the center album */
+/* JS sets top, width, left, marginLeft */
+.cf-center-shadow {
+  position: absolute;
+  height: 28px;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center top,
+    rgba(0,0,0,0.85) 0%,
+    rgba(0,0,0,0.5) 40%,
+    transparent 75%);
+  -webkit-filter: blur(5px);
+  filter: blur(5px);
+}
+
+/* Horizontal scroll carousel — fills full stage, perspective from viewer */
 .cf-scroll {
   position: absolute;
   inset: 0;
@@ -2841,22 +2898,23 @@ body {
   display: -webkit-box;
   display: -webkit-flex;
   display: flex;
-  -webkit-box-align: center;
-  align-items: center;
+  -webkit-box-align: flex-start;
+  align-items: flex-start;
   -ms-overflow-style: none;
   scrollbar-width: none;
-  -webkit-perspective: 1000px;
-  perspective: 1000px;
+  -webkit-perspective: 1100px;
+  perspective: 1100px;
   z-index: 1;
 }
 .cf-scroll::-webkit-scrollbar { display: none; }
 
+/* Track: items sit at the top; JS sets padding-top to land bottom edge on the floor line */
 .cf-track {
   display: -webkit-box;
   display: -webkit-flex;
   display: flex;
-  -webkit-box-align: center;
-  align-items: center;
+  -webkit-box-align: flex-start;
+  align-items: flex-start;
   height: 100%;
   -webkit-flex-shrink: 0;
   flex-shrink: 0;
@@ -2864,25 +2922,25 @@ body {
   transform-style: preserve-3d;
 }
 
-/* Filter chips overlaid at top with gradient fade */
+/* Filter chips float at top with gradient veil */
 .cf-top-glass {
   position: absolute;
   top: 0; left: 0; right: 0;
   z-index: 10;
-  background: -webkit-linear-gradient(top, rgba(7,9,15,0.88) 55%, transparent);
-  background: linear-gradient(to bottom, rgba(7,9,15,0.88) 55%, transparent);
+  background: -webkit-linear-gradient(top, rgba(5,7,16,0.92) 60%, transparent);
+  background: linear-gradient(to bottom, rgba(5,7,16,0.92) 60%, transparent);
   pointer-events: none;
 }
 .cf-top-glass .cf-chip-row { pointer-events: auto; }
 
-/* Info + action panel overlaid at bottom */
+/* Info + action panel floats at bottom */
 .cf-bot-glass {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  z-index: 10;
-  background: -webkit-linear-gradient(bottom, rgba(7,9,15,0.96) 55%, transparent);
-  background: linear-gradient(to top, rgba(7,9,15,0.96) 55%, transparent);
-  padding: 24px 22px 16px;
+  z-index: 11;
+  background: -webkit-linear-gradient(bottom, rgba(0,0,0,0.98) 55%, transparent);
+  background: linear-gradient(to top, rgba(0,0,0,0.98) 55%, transparent);
+  padding: 28px 22px 16px;
   text-align: center;
 }
 
@@ -2894,11 +2952,11 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: -0.3px;
-  text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+  text-shadow: 0 1px 10px rgba(0,0,0,0.8);
 }
 .cf-info-meta {
   font-size: 13px;
-  color: rgba(255,255,255,0.55);
+  color: rgba(255,255,255,0.50);
   margin: 4px 0 14px;
 }
 
@@ -2929,9 +2987,9 @@ body {
 .cf-btn-open {
   padding: 13px 18px;
   border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.07);
-  color: rgba(255,255,255,0.85);
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.82);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
@@ -2939,12 +2997,10 @@ body {
   white-space: nowrap;
   -webkit-transition: background 0.1s;
   transition: background 0.1s;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
 }
-.cf-btn-open:active { background: rgba(255,255,255,0.14); }
+.cf-btn-open:active { background: rgba(255,255,255,0.13); }
 
-/* Album art items */
+/* Each album item: outer div contains art + contact shadow + reflection */
 .cf-item {
   -webkit-flex-shrink: 0;
   flex-shrink: 0;
@@ -2956,12 +3012,16 @@ body {
   will-change: transform, opacity;
 }
 
+/* Album art square — height set inline by JS */
 .cf-item-inner {
   width: 100%;
-  height: 100%;
-  border-radius: 12px;
+  border-radius: 4px;
   overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.85), 0 2px 8px rgba(0,0,0,0.5);
+  /* Deep shadow + warm rim light on the bottom edge */
+  box-shadow:
+    0 6px 24px rgba(0,0,0,0.8),
+    0 18px 50px rgba(0,0,0,0.9),
+    0 1px 0 rgba(255,255,255,0.08) inset;
 }
 
 .cf-item-art {
@@ -2986,21 +3046,41 @@ body {
   color: rgba(255,255,255,0.9);
 }
 
-/* Reflection */
+/* Per-item contact shadow between art bottom and reflection */
+.cf-item-shadow {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 20px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0.9) 0%, transparent 80%);
+  -webkit-filter: blur(4px);
+  filter: blur(4px);
+  z-index: 1;
+}
+
+/* Reflection: immediately contacts the bottom edge of the art */
 .cf-reflection-wrap {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 0; right: 0;
   overflow: hidden;
   pointer-events: none;
-  -webkit-mask-image: -webkit-linear-gradient(top, rgba(0,0,0,0.28) 0%, transparent 100%);
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 100%);
+  /* Stronger opacity at contact (0.40), fades to 0 over ~45% of height */
+  -webkit-mask-image: -webkit-linear-gradient(top,
+    rgba(0,0,0,0.40) 0%,
+    rgba(0,0,0,0.18) 40%,
+    transparent 70%);
+  mask-image: linear-gradient(to bottom,
+    rgba(0,0,0,0.40) 0%,
+    rgba(0,0,0,0.18) 40%,
+    transparent 70%);
 }
 .cf-reflection-img {
   width: 100%;
   display: block;
   -webkit-transform: scaleY(-1);
   transform: scaleY(-1);
-  -webkit-filter: blur(1px);
-  filter: blur(1px);
+  -webkit-filter: blur(0.5px);
+  filter: blur(0.5px);
 }
