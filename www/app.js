@@ -2168,6 +2168,21 @@ function parseLRC(lrc) {
   return parsed;
 }
 
+function _lyricsScrollTo(container, targetTop) {
+  var start = container.scrollTop;
+  var change = Math.max(0, targetTop) - start;
+  if (Math.abs(change) < 2) return;
+  var startTime = null;
+  function step(ts) {
+    if (!startTime) startTime = ts;
+    var p = Math.min((ts - startTime) / 380, 1);
+    var ease = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p;
+    container.scrollTop = start + change * ease;
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
 function updateSyncedLyrics(time) {
   if (!lyricsVisible || lyricsLines.length === 0) return;
   var newIdx = -1;
@@ -2182,18 +2197,16 @@ function updateSyncedLyrics(time) {
   var items = container.querySelectorAll('.lyric-line');
   for (var j = 0; j < items.length; j++) {
     if (j === currentLyricIdx) {
-      items[j].classList.add('active');
-      items[j].classList.remove('past', 'future');
+      items[j].className = 'lyric-line active';
     } else if (j < currentLyricIdx) {
-      items[j].classList.add('past');
-      items[j].classList.remove('active', 'future');
+      items[j].className = 'lyric-line past';
     } else {
-      items[j].classList.add('future');
-      items[j].classList.remove('active', 'past');
+      items[j].className = 'lyric-line future';
     }
   }
   if (currentLyricIdx >= 0 && items[currentLyricIdx]) {
-    items[currentLyricIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    var el = items[currentLyricIdx];
+    _lyricsScrollTo(container, el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2);
   }
 }
 
