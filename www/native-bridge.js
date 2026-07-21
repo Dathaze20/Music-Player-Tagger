@@ -46,6 +46,7 @@ var NativeBridge = (function() {
           title:       f.title  || '',
           artist:      f.artist || 'Unknown Artist',
           album:       f.album  || 'Unknown Album',
+          disc:        f.disc   || 1,
           track:       f.track  || 0,
           year:        f.year   || '',
           genre:       f.genre  || '',
@@ -172,6 +173,7 @@ var NativeBridge = (function() {
       title:       title  || fileInfo.name.replace(/\.[^/.]+$/, ''),
       artist:      artist || 'Unknown Artist',
       album:       fileInfo.album || 'Unknown Album',
+      disc:        fileInfo.disc  || 1,
       track:       fileInfo.track || 0,
       year:        fileInfo.year  || '',
       genre:       fileInfo.genre || '',
@@ -192,5 +194,46 @@ var NativeBridge = (function() {
     }).catch(function() { return ''; });
   }
 
-  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong, requestPermissions: requestPermissions, openAppSettings: openAppSettings, readAlbumArt: readAlbumArt };
+  // Write tags to a physical music file on the device.
+  // Supports MP3, FLAC, M4A/AAC, OGG via jaudiotagger.
+  // For SD card files, requestSdCardAccess() must be called first.
+  // Returns a promise that resolves to { success, fileWritten }.
+  function writeFileTags(params) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin) return Promise.reject(new Error('MediaStore plugin not available'));
+    if (!params || !params.contentUri) return Promise.reject(new Error('contentUri required'));
+    return plugin.writeFileTags({
+      contentUri:  String(params.contentUri  || ''),
+      title:       String(params.title       || ''),
+      artist:      String(params.artist      || ''),
+      album:       String(params.album       || ''),
+      year:        String(params.year        || ''),
+      genre:       String(params.genre       || ''),
+      albumArtist: String(params.albumArtist || ''),
+      lyrics:      String(params.lyrics      || ''),
+      artBase64:   String(params.artBase64   || ''),
+    });
+  }
+
+  // Request persistent write access to the SD card via SAF folder picker.
+  // Must be called once; the chosen folder is remembered across app restarts.
+  // Returns a promise resolving to { success, treeUri }.
+  function requestSdCardAccess() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin) return Promise.reject(new Error('MediaStore plugin not available'));
+    if (!plugin.requestSdCardAccess) return Promise.reject(new Error('requestSdCardAccess not available'));
+    return plugin.requestSdCardAccess();
+  }
+
+  // Returns the stored SAF tree URI if SD card access was previously granted.
+  function getSdCardTreeUri() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.getSdCardTreeUri) return Promise.resolve({ treeUri: '' });
+    return plugin.getSdCardTreeUri();
+  }
+
+  return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
+           requestPermissions: requestPermissions, openAppSettings: openAppSettings,
+           readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
+           requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri };
 })();
