@@ -2785,12 +2785,12 @@ body {
 }
 .pl-remove-btn:active { color: var(--red); }
 
-/* ─── 3D Cover Flow ─── */
-.cf-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
-  background: #080c16;
+/* ─── Albums tab: Inline 3D Cover Flow ─── */
+
+/* Main area becomes a full-height flex column with no vertical scroll */
+.main.albums-cf-mode {
+  overflow: hidden;
+  padding-bottom: 0;
   display: -webkit-box;
   display: -webkit-flex;
   display: flex;
@@ -2798,47 +2798,41 @@ body {
   -webkit-box-direction: normal;
   -webkit-flex-direction: column;
   flex-direction: column;
-  -webkit-box-align: stretch;
-  align-items: stretch;
-  overflow: hidden;
-  -webkit-tap-highlight-color: transparent;
 }
-.cf-overlay.hidden { display: none; }
 
-.cf-header {
-  display: -webkit-box;
-  display: -webkit-flex;
-  display: flex;
-  -webkit-box-align: center;
-  align-items: center;
-  -webkit-box-pack: justify;
-  justify-content: space-between;
-  padding: max(14px, env(safe-area-inset-top, 0px)) 8px 10px;
-  -webkit-flex-shrink: 0;
-  flex-shrink: 0;
-}
-.cf-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text);
-}
-.cf-close-btn {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-size: 28px;
-  padding: 4px 12px;
-  cursor: pointer;
-  line-height: 1;
-  min-width: 44px;
-  -webkit-tap-highlight-color: transparent;
-}
-.cf-close-btn:active { color: var(--text); opacity: 0.7; }
-
-.cf-scroll-wrap {
+/* Stage fills all remaining space */
+.cf-stage {
   -webkit-box-flex: 1;
   -webkit-flex: 1;
   flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #07090f;
+}
+
+/* Ambient glow — blurred gradient blob matching center album color */
+.cf-glow {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  -webkit-transform: translate(-50%, -60%);
+  transform: translate(-50%, -60%);
+  -webkit-filter: blur(90px);
+  filter: blur(90px);
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 0;
+  -webkit-transition: background 0.55s ease;
+  transition: background 0.55s ease;
+}
+
+/* Horizontal scroll carousel — fills the full stage */
+.cf-scroll {
+  position: absolute;
+  inset: 0;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
@@ -2851,12 +2845,11 @@ body {
   align-items: center;
   -ms-overflow-style: none;
   scrollbar-width: none;
-  -webkit-perspective: 1100px;
-  perspective: 1100px;
-  perspective-origin: 50% 50%;
-  min-height: 0;
+  -webkit-perspective: 1000px;
+  perspective: 1000px;
+  z-index: 1;
 }
-.cf-scroll-wrap::-webkit-scrollbar { display: none; }
+.cf-scroll::-webkit-scrollbar { display: none; }
 
 .cf-track {
   display: -webkit-box;
@@ -2871,6 +2864,87 @@ body {
   transform-style: preserve-3d;
 }
 
+/* Filter chips overlaid at top with gradient fade */
+.cf-top-glass {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
+  background: -webkit-linear-gradient(top, rgba(7,9,15,0.88) 55%, transparent);
+  background: linear-gradient(to bottom, rgba(7,9,15,0.88) 55%, transparent);
+  pointer-events: none;
+}
+.cf-top-glass .cf-chip-row { pointer-events: auto; }
+
+/* Info + action panel overlaid at bottom */
+.cf-bot-glass {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  z-index: 10;
+  background: -webkit-linear-gradient(bottom, rgba(7,9,15,0.96) 55%, transparent);
+  background: linear-gradient(to top, rgba(7,9,15,0.96) 55%, transparent);
+  padding: 24px 22px 16px;
+  text-align: center;
+}
+
+.cf-info-name {
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.3px;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+}
+.cf-info-meta {
+  font-size: 13px;
+  color: rgba(255,255,255,0.55);
+  margin: 4px 0 14px;
+}
+
+.cf-actions {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  gap: 12px;
+}
+.cf-btn-play {
+  -webkit-box-flex: 1;
+  -webkit-flex: 1;
+  flex: 1;
+  padding: 13px;
+  border-radius: 14px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 18px rgba(0,168,158,0.5);
+  -webkit-transition: opacity 0.1s, -webkit-transform 0.1s;
+  transition: opacity 0.1s, transform 0.1s;
+}
+.cf-btn-play:active { opacity: 0.8; -webkit-transform: scale(0.97); transform: scale(0.97); }
+.cf-btn-open {
+  padding: 13px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.85);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  -webkit-transition: background 0.1s;
+  transition: background 0.1s;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.cf-btn-open:active { background: rgba(255,255,255,0.14); }
+
+/* Album art items */
 .cf-item {
   -webkit-flex-shrink: 0;
   flex-shrink: 0;
@@ -2879,21 +2953,15 @@ body {
   position: relative;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  -webkit-transform-style: preserve-3d;
-  transform-style: preserve-3d;
-  will-change: transform;
-  -webkit-transition: opacity 0.05s;
-  transition: opacity 0.05s;
+  will-change: transform, opacity;
 }
-.cf-item:active { opacity: 0.85 !important; }
 
 .cf-item-inner {
   width: 100%;
   height: 100%;
-  position: relative;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.75);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.85), 0 2px 8px rgba(0,0,0,0.5);
 }
 
 .cf-item-art {
@@ -2913,82 +2981,26 @@ body {
   align-items: center;
   -webkit-box-pack: center;
   justify-content: center;
-  font-size: 56px;
+  font-size: 52px;
   font-weight: 800;
-  color: rgba(255,255,255,0.85);
+  color: rgba(255,255,255,0.9);
 }
 
+/* Reflection */
 .cf-reflection-wrap {
   position: absolute;
   left: 0;
   right: 0;
   overflow: hidden;
   pointer-events: none;
-  -webkit-mask-image: -webkit-linear-gradient(top, rgba(0,0,0,0.3), transparent);
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.3), transparent);
+  -webkit-mask-image: -webkit-linear-gradient(top, rgba(0,0,0,0.28) 0%, transparent 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 100%);
 }
 .cf-reflection-img {
   width: 100%;
   display: block;
   -webkit-transform: scaleY(-1);
   transform: scaleY(-1);
+  -webkit-filter: blur(1px);
+  filter: blur(1px);
 }
-
-.cf-info-panel {
-  -webkit-flex-shrink: 0;
-  flex-shrink: 0;
-  text-align: center;
-  padding: 10px 24px 6px;
-  min-height: 52px;
-}
-.cf-album-name {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cf-album-meta {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin-top: 3px;
-}
-
-.cf-play-btn {
-  -webkit-flex-shrink: 0;
-  flex-shrink: 0;
-  margin: 6px 40px;
-  margin-bottom: max(18px, env(safe-area-inset-bottom, 18px));
-  padding: 14px;
-  border-radius: 28px;
-  border: none;
-  background: var(--primary);
-  color: #fff;
-  font-size: 16px;
-  font-weight: 700;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  box-shadow: 0 4px 20px rgba(0,168,158,0.45);
-  -webkit-transition: -webkit-transform 0.12s, opacity 0.12s;
-  transition: transform 0.12s, opacity 0.12s;
-}
-.cf-play-btn:active { -webkit-transform: scale(0.96); transform: scale(0.96); opacity: 0.85; }
-
-/* Cover Flow button in albums tab header */
-.cf-open-btn {
-  background: rgba(0,168,158,0.15);
-  border: 1px solid rgba(0,168,158,0.3);
-  color: var(--primary);
-  border-radius: 20px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-transition: background 0.15s;
-  transition: background 0.15s;
-  margin-left: auto;
-}
-.cf-open-btn:active { background: rgba(0,168,158,0.28); }
