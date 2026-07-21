@@ -4175,7 +4175,13 @@ function updateCfTransforms() {
     var dist = (itemCenter - vpCenter) / stride;
     // Classic iPod CF: ~68° per step, hard-capped so albums never flip past 90°
     var angle = (dist < 0 ? 1 : -1) * Math.min(80, Math.abs(dist) * 68);
-    // Pure rotateY — perspective on parent handles all depth; no scale needed
+    // Inner-edge pivot: right-of-center albums hinge from their LEFT edge,
+    // left-of-center from their RIGHT edge — this is what makes side albums
+    // fan outward toward the screen edges instead of disappearing behind center
+    var clampedDist = Math.max(-1, Math.min(1, dist));
+    var originPct = Math.round(50 - 50 * clampedDist);
+    item.style.webkitTransformOrigin = originPct + '% 50%';
+    item.style.transformOrigin = originPct + '% 50%';
     var xform = 'rotateY(' + angle + 'deg)';
     var op = Math.max(0.15, 1 - Math.abs(dist) * 0.32);
     item.style.webkitTransform = xform;
