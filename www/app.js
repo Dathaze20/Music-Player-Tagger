@@ -164,12 +164,9 @@ function backgroundLoadAllArt() {
       uris.push(s.albumArtUri);
     }
   });
-  // Cap at 1200 unique album art URIs (unique albums, not songs — safe for 15k+ libraries)
-  if (uris.length > 1200) uris = uris.slice(0, 1200);
-
   var idx = 0;
   var active = 0;
-  var MAX = 20;
+  var MAX = 50; // 50 concurrent native reads fills cache ~2.5× faster
 
   function finish() { active--; pump(); }
   function pump() {
@@ -214,7 +211,7 @@ function initLazyArt(container) {
     entries.forEach(function(entry) {
       if (entry.isIntersecting) { obs.unobserve(entry.target); loadLazyEl(entry.target); }
     });
-  }, { rootMargin: '2400px' });
+  }, { rootMargin: '4000px' });
 
   lazies.forEach(function(el) {
     var uris = (el.dataset.lazyUri || '').split('|').filter(Boolean);
@@ -872,7 +869,7 @@ var artCache = {};     // content:// URI → 192px base64 thumbnail
 var artCacheHD = {};   // content:// URI → 600px base64 for Now Playing
 var artInFlight = {};  // content:// URI → Promise (deduplicates concurrent requests)
 var _artBgLoading = false; // true while backgroundLoadAllArt is pumping
-var _ART_CACHE_MAX = 500;  // max thumbnail entries kept in RAM (~25 MB cap)
+var _ART_CACHE_MAX = 5000; // cover 3600+ album libraries; ~50KB × 5000 ≈ 250 MB (fine on 4GB devices)
 
 // Playback speed
 var playbackRate = 1.0;
@@ -3945,9 +3942,12 @@ render();
 // instantly with no pop-in, no matter how fast the user scrolls.
 loadPersistedArt().then(function(cached) {
   var keys = Object.keys(cached);
-  if (keys.length === 0) return;
-  keys.forEach(function(k) { artCacheSet(k, cached[k]); });
-  render(); // re-render with full art cache — instantaneous, no more pop-in
+  if (keys.length > 0) {
+    keys.forEach(function(k) { artCacheSet(k, cached[k]); });
+    render(); // re-render with full art cache — no more pop-in
+  }
+  // Start filling any missing URIs immediately (bridge may already be ready)
+  backgroundLoadAllArt();
 }).catch(function() {});
 
 if (songs.length > 0 && !songs[0].url) {
