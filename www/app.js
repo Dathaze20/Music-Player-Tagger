@@ -3849,6 +3849,10 @@ document.addEventListener('visibilitychange', function() {
 window.addEventListener('beforeunload', saveUIState);
 window.addEventListener('pagehide', saveUIState);
 
+// ─── CF state (must be before first render() call) ───
+var _cfLastTap = { time: 0, idx: -1, timer: 0 };
+var _cfInfoTimer = 0;
+
 // ─── Init ───
 
 restoreUIState();
@@ -3993,8 +3997,6 @@ initMediaSession();
 var _cfAlbums = [];
 var _cfCenterIdx = 0;
 var _cfR = null; // runtime state; null when CF not active
-var _cfLastTap = { time: 0, idx: -1, timer: 0 };
-var _cfInfoTimer = 0;
 // rotateY degrees per slot distance; 65° for slot 1 gives the classic CF fan
 var _CF_ANGLES = [0, 65, 70, 72, 75];
 
@@ -4331,8 +4333,10 @@ function _cfSnapTo(target) {
 }
 
 function cleanupCf() {
-  if (_cfLastTap.timer) { clearTimeout(_cfLastTap.timer); _cfLastTap.timer = 0; }
-  _cfLastTap.time = 0; _cfLastTap.idx = -1;
+  if (_cfLastTap) {
+    if (_cfLastTap.timer) { clearTimeout(_cfLastTap.timer); _cfLastTap.timer = 0; }
+    _cfLastTap.time = 0; _cfLastTap.idx = -1;
+  }
   if (_cfInfoTimer) { clearTimeout(_cfInfoTimer); _cfInfoTimer = 0; }
   if (_cfR) {
     if (_cfR.raf) cancelAnimationFrame(_cfR.raf);
