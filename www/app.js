@@ -1025,7 +1025,7 @@ var selectedAlbum = null;
 var albumFilter = 'all';
 var albumGenreFilter = 'all';
 var queue = [];
-var tagging = { total: 0, done: 0, current: '', active: false, paused: false, queue: [] };
+var tagging = { total: 0, done: 0, current: '', active: false, paused: false, queue: [], label: 'Auto-tagging music...' };
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var sortMode = 'title';
 var artistSortMode = 'az';
@@ -3068,7 +3068,7 @@ function handleFileImport(files) {
 
   if (newSongs.length > 0 && apiKey) {
     newSongs.forEach(function(s) { s.tagging = true; });
-    tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs };
+    tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs, label: 'Auto-tagging music...' };
     updateTaggingBanner();
     tagNextSong(newSongs, 0);
   }
@@ -3116,6 +3116,8 @@ function updateTaggingBanner() {
   var banner = document.getElementById('taggingBanner');
   if (!tagging.active) { banner.classList.add('hidden'); return; }
   banner.classList.remove('hidden');
+  var lbl = document.getElementById('taggingLabel');
+  if (lbl) lbl.textContent = tagging.label || 'Auto-tagging music...';
   document.getElementById('taggingCurrent').textContent = tagging.current;
   document.getElementById('taggingCount').textContent = (tagging.done + 1) + ' / ' + tagging.total;
   document.getElementById('taggingBar').style.width = ((tagging.done + 1) / tagging.total * 100) + '%';
@@ -3927,10 +3929,98 @@ document.getElementById('retagLibBtn').onclick = function() {
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
   toTag.forEach(function(s) { s.tagging = true; });
-  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag };
+  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag, label: 'Auto-tagging music...' };
   updateTaggingBanner();
   tagNextSong(toTag, 0);
   showToast('Re-tagging ' + toTag.length + ' song' + (toTag.length !== 1 ? 's' : '') + '...');
+};
+
+// ── Fix Unknown Artists & Albums ──
+document.getElementById('fixUnknownBtn').onclick = function() {
+  var key = document.getElementById('apiKeyInput').value.trim() || apiKey;
+  if (!key) { showToast('Save an API key first'); return; }
+  if (tagging.active) { showToast('Tagging already in progress'); return; }
+  var toFix = songs.filter(function(s) {
+    return s.artist === 'Unknown Artist' || s.album === 'Unknown Album';
+  });
+  if (toFix.length === 0) { showToast('No unknown songs found!'); return; }
+  apiKey = key;
+  localStorage.setItem('gemini_api_key', apiKey);
+  closeSettings();
+  toFix.forEach(function(s) { s.tagging = true; });
+  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing unknown songs...' };
+  updateTaggingBanner();
+  tagNextSong(toFix, 0);
+  showToast('Fixing ' + toFix.length + ' unknown song' + (toFix.length !== 1 ? 's' : '') + '...');
+};
+
+// ── Fix Subgenres ──
+function callGeminiSubgenre(song) {
+  if (!apiKey) return Promise.resolve('');
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey;
+  var prompt = 'You are a hip-hop music expert.\n\n'
+    + 'Artist: ' + song.artist + '\nTitle: ' + song.title
+    + (song.album && song.album !== 'Unknown Album' ? '\nAlbum: ' + song.album : '') + '\n\n'
+    + 'Return ONLY the most accurate specific subgenre for this song as 1-3 words. Choose from:\n'
+    + 'Boom-Bap, Trap, Drill, G-Funk, Cloud Rap, Gangsta Rap, East Coast, West Coast, '
+    + 'Conscious Hip-Hop, Alternative Hip-Hop, Memphis Rap, New York Drill, UK Drill, '
+    + 'Chicago Drill, Crunk, Hyphy, Phonk, Trap-Soul, R&B, Neo-Soul, Jazz Rap, '
+    + 'Horrorcore, Chopped & Screwed, Hardcore Hip-Hop, Southern Hip-Hop, Midwest Hip-Hop\n\n'
+    + 'Return ONLY the subgenre, no quotes, no other text.';
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.candidates || !d.candidates[0]) return '';
+      return d.candidates[0].content.parts[0].text.trim().replace(/^["']|["']$/g, '');
+    });
+}
+
+function fixSubgenreNext(songList, idx) {
+  if (tagging.paused) return;
+  if (idx >= songList.length) {
+    tagging.active = false;
+    updateTaggingBanner();
+    saveLibrary();
+    render();
+    showToast('Subgenres updated!');
+    return;
+  }
+  var song = songList[idx];
+  tagging.current = song.title;
+  tagging.done = idx;
+  updateTaggingBanner();
+  callGeminiSubgenre(song).then(function(genre) {
+    if (genre) song.genre = genre;
+    song.tagging = false;
+    if (idx % 10 === 0) { saveLibrary(); render(); }
+    setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 200);
+  }).catch(function() {
+    song.tagging = false;
+    setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 500);
+  });
+}
+
+var GENERIC_GENRES = ['', 'hip-hop', 'rap', 'hip hop', 'r&b', 'music', 'other', 'unknown'];
+
+document.getElementById('fixSubgenreBtn').onclick = function() {
+  var key = document.getElementById('apiKeyInput').value.trim() || apiKey;
+  if (!key) { showToast('Save an API key first'); return; }
+  if (tagging.active) { showToast('Tagging already in progress'); return; }
+  var toFix = songs.filter(function(s) {
+    return GENERIC_GENRES.indexOf((s.genre || '').toLowerCase().trim()) !== -1;
+  });
+  if (toFix.length === 0) { showToast('All songs already have specific subgenres!'); return; }
+  apiKey = key;
+  localStorage.setItem('gemini_api_key', apiKey);
+  closeSettings();
+  toFix.forEach(function(s) { s.tagging = true; });
+  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing subgenres...' };
+  updateTaggingBanner();
+  fixSubgenreNext(toFix, 0);
+  showToast('Updating subgenres for ' + toFix.length + ' song' + (toFix.length !== 1 ? 's' : '') + '...');
 };
 
 document.getElementById('favoritesBtn').onclick = function() {

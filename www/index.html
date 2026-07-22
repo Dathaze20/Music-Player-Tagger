@@ -62,7 +62,7 @@
     <div class="tagging-content">
       <div class="tagging-spinner"></div>
       <div class="tagging-text">
-        <p>Auto-tagging music...</p>
+        <p id="taggingLabel">Auto-tagging music...</p>
         <p id="taggingCurrent"></p>
       </div>
       <span class="tagging-count" id="taggingCount"></span>
@@ -171,6 +171,12 @@
       <div class="settings-divider"></div>
       <button class="settings-retag-btn" id="retagLibBtn">&#9881; Re-tag Library</button>
       <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">Tags all songs missing genre, year, or art using AI</p>
+      <div class="settings-divider"></div>
+      <button class="settings-retag-btn" id="fixUnknownBtn">&#128269; Fix Unknown Artists &amp; Albums</button>
+      <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">AI identifies every song tagged as "Unknown Artist" or "Unknown Album"</p>
+      <div class="settings-divider"></div>
+      <button class="settings-retag-btn" id="fixSubgenreBtn">&#127925; Fix Subgenres</button>
+      <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">Replaces generic genre tags with specific subgenres (Boom-Bap, Drill, Trap, G-Funk&hellip;)</p>
       <div id="sdCardSection" style="display:none;">
         <div class="settings-divider"></div>
         <div id="sdCardStatus" style="font-size:12px;text-align:center;min-height:16px;margin-bottom:4px;"></div>
