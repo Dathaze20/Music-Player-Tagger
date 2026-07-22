@@ -2324,19 +2324,10 @@ function renderNowPlaying() {
     + '<button id="npNext" class="np-ctrl">&#9197;</button>'
     + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '" style="font-size:20px;">&#8644;</button>'
     + '</div>'
-    + '<div class="np-vol-ghost"><input type="range" id="npVol" class="np-vol-ghost-slider" min="0" max="1" step="0.02" value="' + volume + '"></div>'
     + '<div class="np-bottom">'
     + '<button id="npSpeed" class="np-ctrl' + (playbackRate !== 1.0 ? ' active' : '') + '" style="font-size:13px;font-weight:700;min-width:40px;">' + playbackRate + 'x</button>'
     + '<button id="npAddPlBtn" class="np-ctrl" style="font-size:15px;" title="Add to playlist">&#9835;+</button>'
     + '</div>';
-
-  if (currentSong.genre || currentSong.year || currentSong.type) {
-    html += '<div class="np-badges">';
-    if (currentSong.genre) html += '<span class="np-badge">' + escHtml(currentSong.genre) + '</span>';
-    if (currentSong.year) html += '<span class="np-badge">' + currentSong.year + '</span>';
-    if (currentSong.type && currentSong.type !== 'Album') html += '<span class="np-badge ' + (currentSong.type || '').toLowerCase() + '">' + currentSong.type + '</span>';
-    html += '</div>';
-  }
 
   html += '</div>';  // end np-controls
   html += '</div>';  // end np-content
@@ -2422,12 +2413,6 @@ function renderNowPlaying() {
     if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && duration > 0) {
       try { navigator.mediaSession.setPositionState({ duration: duration, playbackRate: playbackRate, position: currentTime }); } catch(e) {}
     }
-  };
-
-  var npVolEl = document.getElementById('npVol');
-  if (npVolEl) npVolEl.oninput = function() {
-    volume = parseFloat(npVolEl.value);
-    audio.volume = volume;
   };
 
   document.getElementById('npAddPlBtn').onclick = function() {
