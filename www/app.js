@@ -612,7 +612,7 @@ function showToast(msg, duration) {
   setTimeout(function() { t.classList.add('fade-out'); setTimeout(function() { t.remove(); }, 300); }, duration || 2500);
 }
 
-// ─── Persistence (localStorage) ───
+// ─── Persistence (localStorage + IndexedDB) ───
 
 var _saveLibraryTimer = null;
 function saveLibraryLater() {
@@ -620,10 +620,55 @@ function saveLibraryLater() {
   _saveLibraryTimer = setTimeout(saveLibrary, 1000);
 }
 
+// IndexedDB library store — much larger quota than localStorage (no 5 MB cap)
+var _libDb = null;
+var LIB_DB_NAME = 'muzio_library_idb';
+var LIB_STORE = 'songs';
+
+function openLibDb() {
+  if (_libDb) return Promise.resolve(_libDb);
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open(LIB_DB_NAME, 1);
+    req.onupgradeneeded = function() { req.result.createObjectStore(LIB_STORE); };
+    req.onsuccess = function() { _libDb = req.result; resolve(_libDb); };
+    req.onerror = function() { reject(req.error); };
+  });
+}
+
+function saveLibraryIDB() {
+  if (!songs.length) return;
+  var snapshot = songs.map(function(s) {
+    return {
+      fn: s.fn, title: s.title, artist: s.artist, album: s.album,
+      year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track, art: s.art,
+      lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
+      dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
+      playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
+      nativePath: s.nativePath || '', contentUri: s.contentUri || '',
+      albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || ''
+    };
+  });
+  openLibDb().then(function(db) {
+    var tx = db.transaction(LIB_STORE, 'readwrite');
+    tx.objectStore(LIB_STORE).put(snapshot, 'library');
+  }).catch(function() {});
+}
+
+function loadLibraryIDB() {
+  return openLibDb().then(function(db) {
+    return new Promise(function(resolve) {
+      var req = db.transaction(LIB_STORE, 'readonly').objectStore(LIB_STORE).get('library');
+      req.onsuccess = function() { resolve(req.result || []); };
+      req.onerror = function() { resolve([]); };
+    });
+  }).catch(function() { return []; });
+}
+
 function saveLibrary() {
   _countsCache = null;
   songMap = Object.create(null);
   songs.forEach(function(s) { songMap[s.id] = s; });
+  // Primary: try full save with lyrics
   try {
     var data = songs.map(function(s) {
       return {
@@ -642,7 +687,7 @@ function saveLibrary() {
     localStorage.setItem('muzio_library_count', songs.length.toString());
     localStorage.setItem('muzio_library_saved', Date.now().toString());
   } catch (e) {
-    // Quota exceeded — retry without large fields (lyrics can be hundreds of KB)
+    // Quota exceeded — retry without lyrics
     try {
       var slim = songs.map(function(s) {
         return {
@@ -660,9 +705,25 @@ function saveLibrary() {
       localStorage.setItem('muzio_library_count', songs.length.toString());
       localStorage.setItem('muzio_library_saved', Date.now().toString());
     } catch (e2) {
-      // Still over quota — silently skip rather than disrupting playback
+      // Still over quota — save bare minimum (paths only, no art/metadata strings)
+      try {
+        var bare = songs.map(function(s) {
+          return {
+            fn: s.fn, title: s.title, artist: s.artist, album: s.album,
+            disc: s.disc || 1, track: s.track, dur: s.dur,
+            fav: s.fav, playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
+            nativePath: s.nativePath || '', contentUri: s.contentUri || '',
+            albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || ''
+          };
+        });
+        localStorage.setItem('muzio_library', JSON.stringify(bare));
+        localStorage.setItem('muzio_library_count', songs.length.toString());
+        localStorage.setItem('muzio_library_saved', Date.now().toString());
+      } catch (e3) {}
     }
   }
+  // Always persist to IndexedDB as well (no quota limit, survives localStorage failures)
+  saveLibraryIDB();
 }
 
 function loadLibrary() {
@@ -3915,6 +3976,8 @@ function restoreUIState() {
 document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     saveUIState();
+    // Flush any pending debounced save so the library survives if the OS kills the process
+    if (_saveLibraryTimer) { clearTimeout(_saveLibraryTimer); _saveLibraryTimer = null; saveLibrary(); }
   } else {
     // App came to foreground — re-render so the UI matches current state
     // (handles cases where Android briefly destroys and recreates the activity)
@@ -3936,6 +3999,23 @@ restoreUIState();
 // Always render on startup — restoreUIState only calls render() when saved state exists,
 // so a cold first-launch (no saved state) would otherwise show a blank screen.
 render();
+
+// If localStorage was empty (quota failure on last session), recover from IndexedDB
+if (songs.length === 0) {
+  loadLibraryIDB().then(function(saved) {
+    if (saved && saved.length > 0 && songs.length === 0) {
+      songs = saved.map(function(s) {
+        s.id = genId();
+        s.url = '';
+        s.tagging = false;
+        s.fav = s.fav || false;
+        return s;
+      });
+      render();
+      nativeAutoScan();
+    }
+  }).catch(function() {});
+}
 
 // Load persisted art from IndexedDB — after the first session all thumbnails are
 // stored locally, so this fills artCache before the next render and art appears
@@ -3964,7 +4044,8 @@ function nativeAutoScan() {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
   if (nativeScanning) return;
 
-  // Already have songs — reconnect URLs using saved contentUri or nativePath
+  // Already have songs — reconnect playback URLs and return. NEVER fall through to a
+  // full rescan when the library is already in memory; that would wipe user edits.
   if (songs.length > 0) {
     var needsUrl = songs.filter(function(s) { return !s.url; });
     var reconnected = 0;
@@ -3979,47 +4060,33 @@ function nativeAutoScan() {
         }
       } catch(e) {}
     });
-    // Render and stop whether we reconnected some URLs or all songs already had them.
-    // Also stop if songs have saved native paths — reconnected===0 just means the
-    // Capacitor bridge isn't ready yet (100ms timer fires too early on some devices).
-    // The 500ms/2000ms retries will reconnect URLs. Never fall through to a full rescan
-    // in this case, which would wipe all user edits.
-    var hasNativePaths = songs.some(function(s) { return s.contentUri || s.nativePath; });
-    if (reconnected > 0 || needsUrl.length === 0 || hasNativePaths) {
-      render();
-      if (reconnected > 0 || needsUrl.length === 0) {
-        renderReconnectBanner();
-      }
+    render();
+    renderReconnectBanner();
+    backgroundLoadAllArt();
 
-      // Bridge is ready — start pre-warming the art cache so scrolling is instant
-      if (reconnected > 0 || needsUrl.length === 0) {
-        backgroundLoadAllArt();
-      }
-
-      // If library is missing album art metadata (old scan), refresh silently in background
-      var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
-      if (needsArtRefresh) {
-        NativeBridge.scanAllMusic(null).then(function(files) {
-          var byUri = {};
-          var byFn = {};
-          songs.forEach(function(s) {
-            if (s.contentUri) byUri[s.contentUri] = s;
-            byFn[s.fn] = s;
-          });
-          var updated = 0;
-          files.forEach(function(f) {
-            var s = byUri[f.contentUri] || byFn[f.name];
-            if (!s) return;
-            if (f.art && !s.art) { s.art = f.art; updated++; }
-            if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
-            if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
-            if (f.genre && !s.genre) s.genre = f.genre;
-          });
-          if (updated > 0) { saveLibrary(); render(); }
-        }).catch(function() {});
-      }
-      return;
+    // Silently refresh album-art metadata for songs that have none
+    var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
+    if (needsArtRefresh) {
+      NativeBridge.scanAllMusic(null).then(function(files) {
+        var byUri = {};
+        var byFn = {};
+        songs.forEach(function(s) {
+          if (s.contentUri) byUri[s.contentUri] = s;
+          byFn[s.fn] = s;
+        });
+        var updated = 0;
+        files.forEach(function(f) {
+          var s = byUri[f.contentUri] || byFn[f.name];
+          if (!s) return;
+          if (f.art && !s.art) { s.art = f.art; updated++; }
+          if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
+          if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
+          if (f.genre && !s.genre) s.genre = f.genre;
+        });
+        if (updated > 0) { saveLibrary(); render(); }
+      }).catch(function() {});
     }
+    return; // always stop here — library is loaded, no scan needed
   }
 
   // First launch or rescan — show scanning screen and auto-scan
