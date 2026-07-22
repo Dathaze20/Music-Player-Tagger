@@ -1779,26 +1779,78 @@ function renderAlbums(el) {
 }
 
 function renderPlaylists(el) {
-  var favCount = getFavorites().length;
-  var html = '<div style="padding:16px;">'
-    + '<div class="playlist-item" id="goFavs">'
-    + '<div class="playlist-icon fav-icon">&#10084;</div>'
-    + '<div class="song-info"><div class="artist-name">Favorites</div><div class="artist-meta">' + favCount + ' songs</div></div>'
-    + '<span style="color:var(--text-faint);">&#8250;</span>'
-    + '</div>';
-  playlists.forEach(function(pl) {
-    html += '<div class="playlist-item" data-plid="' + pl.id + '">'
-      + '<div class="playlist-icon pl-icon">&#9835;</div>'
-      + '<div class="song-info"><div class="artist-name">' + escHtml(pl.name) + '</div><div class="artist-meta">' + pl.songIds.length + ' songs</div></div>'
-      + '<button class="pl-delete-btn" data-dplid="' + pl.id + '">&#215;</button>'
+  // Build smart playlist song lists
+  var spTopTracks = songs.slice().sort(function(a, b) { return (b.playCount || 0) - (a.playCount || 0); }).slice(0, 100);
+  var spLastAdded = songs.slice().reverse().slice(0, 100);
+  var spRecent    = songs.filter(function(s) { return s.lastPlayed > 0; })
+    .sort(function(a, b) { return b.lastPlayed - a.lastPlayed; }).slice(0, 100);
+  var spFavs      = getFavorites();
+
+  function smartCell(cellId, title, list) {
+    var g = getGrad(title);
+    var firstUri = '';
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].albumArtUri) { firstUri = list[i].albumArtUri; break; }
+    }
+    var artEl = firstUri
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(firstUri) + '" data-fill="1" style="position:absolute;inset:0;"></div>'
+      : '';
+    var dimmed = list.length === 0 ? ' sp-cell-empty' : '';
+    return '<div class="smart-pl-cell' + dimmed + '" id="' + cellId + '">'
+      + '<div class="smart-pl-bg" style="background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');">' + artEl + '</div>'
+      + '<div class="smart-pl-overlay">'
+      + '<div class="smart-pl-info"><div class="smart-pl-title">' + title + '</div>'
+      + '<div class="smart-pl-count">' + list.length + ' Songs</div></div>'
+      + '<button class="smart-pl-play" aria-label="Play">&#9654;</button>'
+      + '</div>'
       + '</div>';
-  });
-  html += '<button class="create-pl-btn" id="createPlBtn">&#43; New Playlist</button>'
-    + '</div>';
+  }
+
+  var html = '<div class="smart-pl-grid">'
+    + smartCell('spTopTracks', 'Top Tracks',      spTopTracks)
+    + smartCell('spLastAdded', 'Last Added',       spLastAdded)
+    + smartCell('spRecent',    'Recently Played',  spRecent)
+    + smartCell('spFavs',      'Favorites',        spFavs)
+    + '</div>'
+    + '<div class="pl-section-label">'
+    + '<span>Playlist</span>'
+    + '<button class="pl-section-add" id="createPlBtn">&#43;</button>'
+    + '</div>'
+    + '<div class="pl-user-list">';
+
+  if (playlists.length === 0) {
+    html += '<div class="pl-empty-state">'
+      + '<div class="pl-empty-icon">&#9835;</div>'
+      + '<div class="pl-empty-text">No playlists</div>'
+      + '<button class="pl-create-btn" id="createPlBtn2">&#43; Create playlist</button>'
+      + '</div>';
+  } else {
+    playlists.forEach(function(pl) {
+      html += '<div class="playlist-item" data-plid="' + pl.id + '">'
+        + '<div class="playlist-icon pl-icon">&#9835;</div>'
+        + '<div class="song-info"><div class="artist-name">' + escHtml(pl.name) + '</div>'
+        + '<div class="artist-meta">' + pl.songIds.length + ' songs</div></div>'
+        + '<button class="pl-delete-btn" data-dplid="' + pl.id + '">&#215;</button>'
+        + '</div>';
+    });
+  }
+
+  html += '</div>';
   el.innerHTML = html;
+  initLazyArt(el);
 
-  document.getElementById('goFavs').onclick = function() { currentTab = 'favorites'; render(); };
+  // Wire smart playlist cells
+  function wireCell(cellId, list) {
+    var cell = document.getElementById(cellId);
+    if (!cell) return;
+    cell.onclick = function() { if (list.length) playSong(list[0], list); };
+  }
+  wireCell('spTopTracks', spTopTracks);
+  wireCell('spLastAdded', spLastAdded);
+  wireCell('spRecent',    spRecent);
+  wireCell('spFavs',      spFavs);
 
+  // User playlist rows
   el.querySelectorAll('.playlist-item[data-plid]').forEach(function(row) {
     row.onclick = function(e) {
       if (e.target.closest('.pl-delete-btn')) return;
@@ -1807,7 +1859,6 @@ function renderPlaylists(el) {
       render();
     };
   });
-
   el.querySelectorAll('.pl-delete-btn').forEach(function(btn) {
     btn.onclick = function(e) {
       e.stopPropagation();
@@ -1821,15 +1872,18 @@ function renderPlaylists(el) {
     };
   });
 
-  var createBtn = document.getElementById('createPlBtn');
-  if (createBtn) createBtn.onclick = function() {
+  function openCreatePlaylist() {
     var name = prompt('Playlist name:');
     if (!name || !name.trim()) return;
     var pl = { id: 'pl_' + Date.now(), name: name.trim(), songIds: [] };
     playlists.push(pl);
     savePlaylists();
     render();
-  };
+  }
+  var btn1 = document.getElementById('createPlBtn');
+  if (btn1) btn1.onclick = openCreatePlaylist;
+  var btn2 = document.getElementById('createPlBtn2');
+  if (btn2) btn2.onclick = openCreatePlaylist;
 }
 
 function renderPlaylistSongs(el) {
