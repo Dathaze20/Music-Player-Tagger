@@ -2089,8 +2089,9 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  z-index: 200;
+  z-index: 210;
   padding: 0;
+  transform: none;  /* override base translateY(-50%) */
 }
 .te-header {
   display: flex;
@@ -2268,6 +2269,32 @@ body {
   padding: 13px 8px;
   cursor: pointer;
 }
+/* AI fill button in tag editor header */
+.te-header { position: relative; }
+.te-ai-btn {
+  background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+  border: none;
+  border-radius: 20px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.te-ai-btn:disabled { opacity: 0.55; cursor: default; }
+.te-ai-hint {
+  display: none;
+  font-size: 12px;
+  color: var(--primary);
+  padding: 3px 0 2px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.te-ai-hint.visible { display: block; }
+@keyframes te-flash { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.te-ai-filled { animation: te-flash 0.6s ease; }
 
 /* ─── Disc Header ─── */
 .disc-header {
