@@ -1723,7 +1723,7 @@ function renderAlbums(el) {
     + '<div class="cf-floor" id="cfFloor"></div>'
     + '<div class="cf-specular" id="cfSpecular"></div>'
     + '<div class="cf-center-shadow" id="cfCenterShadow"></div>'
-    + '<div class="cf-scroll" id="cfScrollWrap"><div class="cf-track" id="cfTrack"></div></div>'
+    + '<div id="cfViewport"></div>'
     + '<div class="cf-top-glass" id="cfTopGlass">' + chipsHtml + '</div>'
     + '<div class="cf-bot-glass">'
     + '<div class="cf-info-name" id="cfAlbumName"></div>'
@@ -1744,14 +1744,13 @@ function renderAlbums(el) {
   });
 
   // Wire actions
-  el.querySelector('#cfBtnPlay').onclick = function() { playCfAlbum(_cfCenterIdx); };
+  el.querySelector('#cfBtnPlay').onclick = function() { playCfAlbum(_cfR ? Math.round(_cfR.pos) : _cfCenterIdx); };
   el.querySelector('#cfBtnOpen').onclick = function() {
-    var a = _cfAlbums[_cfCenterIdx];
+    var a = _cfAlbums[_cfR ? Math.round(_cfR.pos) : _cfCenterIdx];
     if (a) { cleanupCf(); selectedAlbum = { name: a.name, artist: a.artist }; render(); }
   };
 
   // Init inline cover flow
-  _cfScrollWrap = document.getElementById('cfScrollWrap');
   startInlineCf(filtered);
 }
 
@@ -3977,218 +3976,283 @@ initMediaSession();
 
 var _cfAlbums = [];
 var _cfCenterIdx = 0;
-var _cfItemSize = 0;  // album art square side length (px)
-var _cfRefH = 0;      // reflection height (px)
-var _cfFloorY = 0;    // stage-relative Y of the floor line (px)
-var _cfTopPad = 0;    // track padding-top so bottom-of-art == _cfFloorY (px)
-var _cfGap = 20;
-var _cfPad = 0;
-var _cfScrollWrap = null;
-var _cfScrollRaf = 0;
-var _cfSnapTimer = 0;
+var _cfR = null; // runtime state; null when CF not active
+var _CF_ANGLES = [0, 55, 70, 72, 72]; // rotateY degrees per slot distance 0-4
+var _CF_SCALES = [1.00, 0.80, 0.64, 0.51, 0.41]; // uniform scale per slot distance
+
+function _cfInterp(arr, absP) {
+  var lo = Math.floor(absP), hi = Math.min(lo + 1, arr.length - 1);
+  var t = absP - lo;
+  return arr[lo] * (1 - t) + arr[hi] * t;
+}
+
+function _cfBuildPositions(sz) {
+  // Returns center-x offsets from stage center for slot distances 0..4
+  // Each neighbor's inner edge (facing center) starts gap away from previous outer edge
+  var pos = [0], outerEdge = sz / 2;
+  for (var i = 1; i <= 4; i++) {
+    var visW = sz * Math.cos(_CF_ANGLES[i] * Math.PI / 180) * _CF_SCALES[i];
+    outerEdge += 5;
+    pos.push(outerEdge + visW / 2);
+    outerEdge += visW;
+  }
+  return pos;
+}
 
 function startInlineCf(albums) {
   _cfAlbums = albums;
   if (!_cfAlbums.length) return;
 
   var isLandscape = window.innerWidth > window.innerHeight;
+  var stageW = window.innerWidth;
+  var stageH = Math.max(80, window.innerHeight - 110);
 
-  // Use actual stage height so the art is correctly proportioned
-  var stage = document.getElementById('cfStage');
-  var stageH = (stage && stage.clientHeight > 80) ? stage.clientHeight
-             : Math.max(80, window.innerHeight - 110);
+  // CD-sized center album: ~43% of portrait width (A16: 360*0.43 ≈ 155px)
+  var sz = Math.max(130, Math.min(Math.round(stageW * (isLandscape ? 0.38 : 0.43)), 172));
+  var floorY = Math.round(stageH * (isLandscape ? 0.62 : 0.57));
+  var refH = Math.round(sz * 0.32);
 
-  // Album art: 62% of screen WIDTH in portrait (CD-sized), 48% in landscape — max 260px
-  _cfItemSize = Math.max(160, Math.min(Math.round(window.innerWidth * (isLandscape ? 0.48 : 0.62)), 260));
-
-  // Floor line: 60% from top in portrait, 68% in landscape
-  _cfFloorY = Math.round(stageH * (isLandscape ? 0.68 : 0.60));
-
-  // Space above album art so bottom edge lands on the floor line
-  _cfTopPad = Math.max(0, _cfFloorY - _cfItemSize);
-
-  // Reflection: 38% of art height, capped at 100px
-  _cfRefH = Math.min(Math.round(_cfItemSize * 0.38), 100);
-
-  // Tight gap — classic iPod CF packs albums closely
-  _cfGap = 6;
-  _cfPad = Math.round((window.innerWidth - _cfItemSize) / 2);
-
-  // Position floor gradient and specular line at the floor line
   var floor = document.getElementById('cfFloor');
-  if (floor) floor.style.top = _cfFloorY + 'px';
-
+  if (floor) floor.style.top = floorY + 'px';
   var spec = document.getElementById('cfSpecular');
-  if (spec) spec.style.top = _cfFloorY + 'px';
-
-  // Centre-album contact shadow sits just above the floor line
+  if (spec) spec.style.top = floorY + 'px';
   var csh = document.getElementById('cfCenterShadow');
   if (csh) {
-    var shW = Math.round(_cfItemSize * 0.78);
-    csh.style.top = (_cfFloorY - 14) + 'px';
+    var shW = Math.round(sz * 0.78);
+    csh.style.top = (floorY - 14) + 'px';
     csh.style.width = shW + 'px';
     csh.style.left = '50%';
     csh.style.marginLeft = '-' + Math.round(shW / 2) + 'px';
   }
-
-  // Reposition glow to the vertical centre of the album art
   var glow = document.getElementById('cfGlow');
   if (glow) {
-    var glowY = Math.round(_cfFloorY - _cfItemSize * 0.5);
-    glow.style.top = glowY + 'px';
+    glow.style.top = Math.round(floorY - sz * 0.5) + 'px';
     glow.style.left = '50%';
     glow.style.transform = 'translate(-50%, -50%)';
     glow.style.webkitTransform = 'translate(-50%, -50%)';
   }
 
-  buildCfItems();
+  var vp = document.getElementById('cfViewport');
+  if (!vp) return;
+  vp.innerHTML = '';
+  vp.style.cssText = 'position:absolute;inset:0;overflow:hidden;-webkit-perspective:700px;perspective:700px;';
+  var items = [];
+  for (var k = 0; k < 9; k++) {
+    var item = document.createElement('div');
+    item.className = 'cf-item';
+    item.style.cssText = 'position:absolute;cursor:pointer;-webkit-transform-style:preserve-3d;transform-style:preserve-3d;';
+    item._cfIdx = -1;
+    vp.appendChild(item);
+    items.push(item);
+  }
 
-  // Snap to the currently playing album, or first
   var startIdx = 0;
   if (currentSong) {
-    for (var k = 0; k < _cfAlbums.length; k++) {
-      if (_cfAlbums[k].name === currentSong.album && _cfAlbums[k].artist === currentSong.artist) {
-        startIdx = k; break;
+    for (var j = 0; j < _cfAlbums.length; j++) {
+      if (_cfAlbums[j].name === currentSong.album && _cfAlbums[j].artist === currentSong.artist) {
+        startIdx = j; break;
       }
     }
   }
   _cfCenterIdx = startIdx;
-  _cfScrollWrap.scrollLeft = startIdx * (_cfItemSize + _cfGap);
-  updateCfTransforms();
-  updateCfInfo(startIdx);
-  updateCfGlow(startIdx);
-}
 
-function cleanupCf() {
-  if (_cfScrollRaf) { cancelAnimationFrame(_cfScrollRaf); _cfScrollRaf = 0; }
-  clearTimeout(_cfSnapTimer);
-  if (_cfScrollWrap) { _cfScrollWrap.onscroll = null; _cfScrollWrap = null; }
-  _cfAlbums = [];
-  var main = document.getElementById('mainContent');
-  if (main) main.classList.remove('albums-cf-mode');
-}
-
-function buildCfItems() {
-  var track = document.getElementById('cfTrack');
-  var s = _cfItemSize;
-  var ref = _cfRefH;
-  var half = Math.round(_cfGap / 2);
-  var totalH = s + ref; // outer item div contains art + reflection
-
-  // Items sit at top of their flex line; padding-top positions the floor line correctly
-  track.style.paddingTop = _cfTopPad + 'px';
-  track.style.webkitAlignItems = 'flex-start';
-  track.style.alignItems = 'flex-start';
-
-  var html = '<div style="width:' + _cfPad + 'px;-webkit-flex-shrink:0;flex-shrink:0;"></div>';
-
-  _cfAlbums.forEach(function(a, i) {
-    var grad = getGrad(a.name);
-    var init = escHtml(a.name.split(' ').map(function(w) { return w[0] || ''; }).join('').substring(0, 2).toUpperCase());
-    var gradCss = 'linear-gradient(135deg,' + grad[0] + ',' + grad[1] + ')';
-    var cached = (a.albumArtUri && artCacheHD[a.albumArtUri]) ? artCacheHD[a.albumArtUri]
-               : (a.albumArtUri && artCache[a.albumArtUri]) ? artCache[a.albumArtUri] : '';
-    var artHtml = cached
-      ? '<img class="cf-item-art" src="' + cached + '" alt="">'
-      : '<div class="cf-item-placeholder" style="background:' + gradCss + ';">' + init + '</div>';
-    var refHtml = cached
-      ? '<img class="cf-reflection-img" src="' + cached + '" alt="" style="height:' + s + 'px;">'
-      : '<div class="cf-item-placeholder" style="height:' + s + 'px;background:' + gradCss + ';-webkit-transform:scaleY(-1);transform:scaleY(-1);opacity:0.4;"></div>';
-
-    // Outer div height = art + reflection; both live inside, no overflow needed
-    html += '<div class="cf-item" data-cf-idx="' + i + '" style="width:' + s + 'px;height:' + totalH + 'px;margin:0 ' + half + 'px;">'
-      + '<div class="cf-item-inner" style="height:' + s + 'px;">' + artHtml + '</div>'
-      + '<div class="cf-item-shadow" style="top:' + (s - 12) + 'px;width:' + s + 'px;"></div>'
-      + '<div class="cf-reflection-wrap" style="top:' + s + 'px;height:' + ref + 'px;">' + refHtml + '</div>'
-      + '</div>';
-  });
-  html += '<div style="width:' + _cfPad + 'px;-webkit-flex-shrink:0;flex-shrink:0;"></div>';
-  track.innerHTML = html;
-
-  // Re-apply layout styles after innerHTML (which resets track content)
-  track.style.paddingTop = _cfTopPad + 'px';
-  track.style.webkitAlignItems = 'flex-start';
-  track.style.alignItems = 'flex-start';
-
-  // Lazy-load art for any placeholder items
-  _cfAlbums.forEach(function(a, i) {
-    if (!a.albumArtUri || artCacheHD[a.albumArtUri] || artCache[a.albumArtUri]) return;
-    fetchThumbnail(a.albumArtUri).then(function(data) {
-      if (!data) return;
-      var el = track.querySelector('[data-cf-idx="' + i + '"]');
-      if (!el) return;
-      var inner = el.querySelector('.cf-item-inner');
-      if (inner) inner.innerHTML = '<img class="cf-item-art" src="' + data + '" alt="">';
-      var rw = el.querySelector('.cf-reflection-wrap');
-      if (rw) rw.innerHTML = '<img class="cf-reflection-img" src="' + data + '" alt="" style="height:' + _cfItemSize + 'px;">';
-      if (i === _cfCenterIdx) updateCfGlow(i);
-    });
-  });
-
-  _cfScrollWrap.onscroll = function() {
-    if (_cfScrollRaf) cancelAnimationFrame(_cfScrollRaf);
-    _cfScrollRaf = requestAnimationFrame(function() { _cfScrollRaf = 0; updateCfTransforms(); });
-    clearTimeout(_cfSnapTimer);
-    _cfSnapTimer = setTimeout(function() {
-      var ni = cfCenterIdx();
-      if (ni !== _cfCenterIdx) {
-        _cfCenterIdx = ni;
-        updateCfInfo(ni);
-        updateCfGlow(ni);
-      }
-    }, 160);
+  _cfR = {
+    pos: startIdx,
+    velocity: 0,
+    raf: 0,
+    snapRaf: 0,
+    items: items,
+    sz: sz,
+    refH: refH,
+    floorY: floorY,
+    stageW: stageW,
+    positions: _cfBuildPositions(sz)
   };
 
-  track.onclick = function(e) {
-    var item = e.target;
-    while (item && !item.classList.contains('cf-item')) item = item.parentElement;
-    if (!item) return;
-    var idx = parseInt(item.getAttribute('data-cf-idx'), 10);
+  _cfDoRender();
+  updateCfInfo(startIdx);
+  updateCfGlow(startIdx);
+  _cfAttachTouch();
+}
+
+function _cfDoRender() {
+  var r = _cfR;
+  if (!r || !r.items) return;
+  var sz = r.sz, refH = r.refH, stageW = r.stageW, floorY = r.floorY;
+  var topY = floorY - sz;
+  var centerIdx = Math.round(r.pos);
+
+  for (var k = 0; k < 9; k++) {
+    var slot = k - 4; // -4..+4
+    var albumIdx = centerIdx + slot;
+    var el = r.items[k];
+
+    if (albumIdx < 0 || albumIdx >= _cfAlbums.length) {
+      el.style.display = 'none';
+      continue;
+    }
+
+    var relPos = albumIdx - r.pos; // fractional visual distance from center
+    var absP = Math.abs(relPos);
+
+    if (absP > 3.6) { el.style.display = 'none'; continue; }
+
+    el.style.display = '';
+    var signP = relPos >= 0 ? 1 : -1;
+    var xOff = signP * _cfInterp(r.positions, absP);
+    el.style.left = Math.round(stageW / 2 + xOff - sz / 2) + 'px';
+    el.style.top = topY + 'px';
+    el.style.width = sz + 'px';
+    el.style.height = (sz + refH) + 'px';
+    el.style.zIndex = Math.round(100 - absP * 10);
+
+    var absAngle = _cfInterp(_CF_ANGLES, absP);
+    var rotY = relPos >= 0 ? absAngle : -absAngle;
+    var clamp = Math.max(-1, Math.min(1, relPos));
+    var originPct = Math.round(50 - 50 * clamp); // right=0%, center=50%, left=100%
+    var sc = _cfInterp(_CF_SCALES, absP);
+    var op = Math.max(0.15, 1 - absP * 0.25);
+
+    el.style.webkitTransformOrigin = originPct + '% 50%';
+    el.style.transformOrigin = originPct + '% 50%';
+    var xf = 'rotateY(' + rotY.toFixed(1) + 'deg) scale(' + sc.toFixed(3) + ')';
+    el.style.webkitTransform = xf;
+    el.style.transform = xf;
+    el.style.opacity = op.toFixed(3);
+
+    if (el._cfIdx !== albumIdx) {
+      el._cfIdx = albumIdx;
+      _cfPaintItem(el, albumIdx, sz, refH);
+    }
+  }
+
+  var ni = Math.round(r.pos);
+  if (ni !== _cfCenterIdx) {
+    _cfCenterIdx = ni;
+    updateCfInfo(ni);
+    updateCfGlow(ni);
+  }
+}
+
+function _cfPaintItem(el, albumIdx, sz, refH) {
+  var a = _cfAlbums[albumIdx];
+  if (!a) return;
+  var grad = getGrad(a.name);
+  var init = escHtml(a.name.split(' ').map(function(w) { return w[0] || ''; }).join('').substring(0, 2).toUpperCase());
+  var gradCss = 'linear-gradient(135deg,' + grad[0] + ',' + grad[1] + ')';
+  var cached = (a.albumArtUri && artCacheHD[a.albumArtUri]) ? artCacheHD[a.albumArtUri]
+             : (a.albumArtUri && artCache[a.albumArtUri]) ? artCache[a.albumArtUri] : '';
+  var artHtml = cached
+    ? '<img class="cf-item-art" src="' + cached + '" alt="" style="width:' + sz + 'px;height:' + sz + 'px;object-fit:cover;">'
+    : '<div class="cf-item-placeholder" style="width:' + sz + 'px;height:' + sz + 'px;background:' + gradCss + ';display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;font-size:' + Math.round(sz * 0.3) + 'px;font-weight:700;color:rgba(255,255,255,0.8);">' + init + '</div>';
+  var refHtml = cached
+    ? '<img src="' + cached + '" alt="" style="width:' + sz + 'px;height:' + sz + 'px;object-fit:cover;">'
+    : '<div style="width:' + sz + 'px;height:' + sz + 'px;background:' + gradCss + ';"></div>';
+
+  el.innerHTML = '<div class="cf-item-inner" style="width:' + sz + 'px;height:' + sz + 'px;overflow:hidden;border-radius:4px;">' + artHtml + '</div>'
+    + '<div style="position:absolute;bottom:' + refH + 'px;left:0;right:0;height:16px;background:-webkit-linear-gradient(top,transparent,rgba(0,0,0,0.6));background:linear-gradient(to bottom,transparent,rgba(0,0,0,0.6));"></div>'
+    + '<div class="cf-reflection-wrap" style="position:absolute;top:' + sz + 'px;left:0;width:' + sz + 'px;height:' + refH + 'px;overflow:hidden;-webkit-transform:scaleY(-1);transform:scaleY(-1);opacity:0.32;-webkit-mask-image:-webkit-linear-gradient(top,rgba(0,0,0,0.9),transparent);mask-image:linear-gradient(to bottom,rgba(0,0,0,0.9),transparent);">' + refHtml + '</div>';
+
+  if (a.albumArtUri && !cached) {
+    (function(capturedEl, capturedIdx, capturedSz, capturedRefH, capturedA) {
+      fetchThumbnail(capturedA.albumArtUri).then(function(data) {
+        if (!data || capturedEl._cfIdx !== capturedIdx) return;
+        var inner = capturedEl.querySelector('.cf-item-inner');
+        if (inner) inner.innerHTML = '<img class="cf-item-art" src="' + data + '" alt="" style="width:' + capturedSz + 'px;height:' + capturedSz + 'px;object-fit:cover;">';
+        var rw = capturedEl.querySelector('.cf-reflection-wrap');
+        if (rw) rw.innerHTML = '<img src="' + data + '" alt="" style="width:' + capturedSz + 'px;height:' + capturedSz + 'px;object-fit:cover;">';
+        if (_cfCenterIdx === capturedIdx) updateCfGlow(capturedIdx);
+      });
+    })(el, albumIdx, sz, refH, a);
+  }
+}
+
+function _cfAttachTouch() {
+  var vp = document.getElementById('cfViewport');
+  if (!vp) return;
+  var r = _cfR;
+  var startX, lastX, lastT, startPos;
+
+  vp.addEventListener('touchstart', function(e) {
+    if (r.snapRaf) { cancelAnimationFrame(r.snapRaf); r.snapRaf = 0; }
+    if (r.raf) { cancelAnimationFrame(r.raf); r.raf = 0; }
+    r.velocity = 0;
+    startX = lastX = e.touches[0].clientX;
+    lastT = Date.now();
+    startPos = r.pos;
+    e.preventDefault();
+  }, { passive: false });
+
+  vp.addEventListener('touchmove', function(e) {
+    var x = e.touches[0].clientX;
+    var dt = Math.max(1, Date.now() - lastT);
+    r.velocity = -(x - lastX) / dt; // px/ms; negative = swipe left → go right
+    lastX = x;
+    lastT = Date.now();
+    r.pos = Math.max(0, Math.min(_cfAlbums.length - 1, startPos - (x - startX) / r.sz));
+    _cfDoRender();
+    e.preventDefault();
+  }, { passive: false });
+
+  vp.addEventListener('touchend', function(e) {
+    r.velocity = r.velocity * 16 / r.sz; // convert px/ms → albums/frame at 60fps
+    _cfMomentum();
+    e.preventDefault();
+  }, { passive: false });
+
+  vp.addEventListener('click', function(e) {
+    var el = e.target;
+    while (el && !el.classList.contains('cf-item')) el = el.parentElement;
+    if (!el || el._cfIdx === undefined || el._cfIdx < 0) return;
+    var idx = el._cfIdx;
     if (idx === _cfCenterIdx) {
-      // Double-tap center = open album detail
       cleanupCf();
       selectedAlbum = { name: _cfAlbums[idx].name, artist: _cfAlbums[idx].artist };
       render();
     } else {
-      scrollCfToIndex(idx);
+      _cfSnapTo(idx);
     }
-  };
+  });
 }
 
-function cfCenterIdx() {
-  if (!_cfScrollWrap) return 0;
-  var idx = Math.round(_cfScrollWrap.scrollLeft / (_cfItemSize + _cfGap));
-  return Math.max(0, Math.min(idx, _cfAlbums.length - 1));
-}
-
-function updateCfTransforms() {
-  if (!_cfScrollWrap) return;
-  var items = document.querySelectorAll('#cfTrack .cf-item');
-  if (!items.length) return;
-  var vpCenter = _cfScrollWrap.scrollLeft + _cfScrollWrap.clientWidth * 0.5;
-  var stride = _cfItemSize + _cfGap;
-  for (var i = 0; i < items.length; i++) {
-    var item = items[i];
-    var idx = parseInt(item.getAttribute('data-cf-idx'), 10);
-    var itemCenter = _cfPad + idx * stride + _cfItemSize * 0.5;
-    // dist=1 = immediately adjacent album; normalize by stride so neighbors always hit ~68°
-    var dist = (itemCenter - vpCenter) / stride;
-    // Classic iPod CF: ~68° per step, hard-capped so albums never flip past 90°
-    var angle = (dist < 0 ? 1 : -1) * Math.min(80, Math.abs(dist) * 68);
-    // Inner-edge pivot: right-of-center albums hinge from their LEFT edge,
-    // left-of-center from their RIGHT edge — this is what makes side albums
-    // fan outward toward the screen edges instead of disappearing behind center
-    var clampedDist = Math.max(-1, Math.min(1, dist));
-    var originPct = Math.round(50 - 50 * clampedDist);
-    item.style.webkitTransformOrigin = originPct + '% 50%';
-    item.style.transformOrigin = originPct + '% 50%';
-    var xform = 'rotateY(' + angle + 'deg)';
-    var op = Math.max(0.15, 1 - Math.abs(dist) * 0.32);
-    item.style.webkitTransform = xform;
-    item.style.transform = xform;
-    item.style.opacity = op;
-    item.style.zIndex = Math.round(100 - Math.abs(dist) * 10);
+function _cfMomentum() {
+  var r = _cfR;
+  if (!r) return;
+  if (Math.abs(r.velocity) < 0.008) {
+    r.velocity = 0;
+    _cfSnapTo(Math.round(r.pos));
+    return;
   }
+  r.pos = Math.max(0, Math.min(_cfAlbums.length - 1, r.pos + r.velocity));
+  r.velocity *= 0.87;
+  _cfDoRender();
+  r.raf = requestAnimationFrame(_cfMomentum);
+}
+
+function _cfSnapTo(target) {
+  var r = _cfR;
+  if (!r) return;
+  target = Math.max(0, Math.min(_cfAlbums.length - 1, target));
+  var diff = target - r.pos;
+  if (Math.abs(diff) < 0.003) {
+    r.pos = target;
+    _cfDoRender();
+    return;
+  }
+  r.pos += diff * 0.22;
+  _cfDoRender();
+  r.snapRaf = requestAnimationFrame(function() { _cfSnapTo(target); });
+}
+
+function cleanupCf() {
+  if (_cfR) {
+    if (_cfR.raf) cancelAnimationFrame(_cfR.raf);
+    if (_cfR.snapRaf) cancelAnimationFrame(_cfR.snapRaf);
+    _cfR = null;
+  }
+  _cfAlbums = [];
+  var main = document.getElementById('mainContent');
+  if (main) main.classList.remove('albums-cf-mode');
 }
 
 function updateCfInfo(idx) {
@@ -4212,14 +4276,6 @@ function updateCfGlow(idx) {
   if (!a) return;
   var g = getGrad(a.name);
   glow.style.background = 'radial-gradient(ellipse at center, ' + g[0] + ' 0%, ' + g[1] + ' 60%, transparent 100%)';
-}
-
-function scrollCfToIndex(idx) {
-  if (!_cfScrollWrap) return;
-  _cfCenterIdx = idx;
-  updateCfInfo(idx);
-  updateCfGlow(idx);
-  _cfScrollWrap.scrollTo({ left: idx * (_cfItemSize + _cfGap), behavior: 'smooth' });
 }
 
 function playCfAlbum(idx) {
