@@ -119,13 +119,20 @@ function applyArt(el, dataUrls) {
   }
 }
 
+function artCacheSet(uri, data) {
+  if (!data || artCache[uri]) return;
+  var keys = Object.keys(artCache);
+  if (keys.length >= _ART_CACHE_MAX) delete artCache[keys[0]];
+  artCache[uri] = data;
+}
+
 function fetchThumbnail(uri) {
   if (artCache[uri]) return Promise.resolve(artCache[uri]);
   if (artInFlight[uri]) return artInFlight[uri];
   var p = NativeBridge.readAlbumArt(uri).then(function(data) {
     delete artInFlight[uri];
     if (data) {
-      artCache[uri] = data;
+      artCacheSet(uri, data);
       persistArt(uri, data); // save to IndexedDB for instant load next session
       // Apply art to any DOM elements currently waiting for this URI
       // (handles the case where render() rebuilt the DOM while fetch was in-flight)
@@ -719,11 +726,10 @@ function loadPersistedArt() {
       var tx = db.transaction(ART_STORE_NAME, 'readonly');
       var result = {};
       var count = 0;
-      // Cap at 300 entries at startup to prevent slow startup on large libraries
       var req = tx.objectStore(ART_STORE_NAME).openCursor();
       req.onsuccess = function(e) {
         var cur = e.target.result;
-        if (cur && count < 800) { result[cur.key] = cur.value; count++; cur.continue(); }
+        if (cur && count < _ART_CACHE_MAX) { result[cur.key] = cur.value; count++; cur.continue(); }
         else resolve(result);
       };
       req.onerror = function() { resolve({}); };
@@ -866,6 +872,7 @@ var artCache = {};     // content:// URI → 192px base64 thumbnail
 var artCacheHD = {};   // content:// URI → 600px base64 for Now Playing
 var artInFlight = {};  // content:// URI → Promise (deduplicates concurrent requests)
 var _artBgLoading = false; // true while backgroundLoadAllArt is pumping
+var _ART_CACHE_MAX = 500;  // max thumbnail entries kept in RAM (~25 MB cap)
 
 // Playback speed
 var playbackRate = 1.0;
@@ -3885,7 +3892,7 @@ render();
 loadPersistedArt().then(function(cached) {
   var keys = Object.keys(cached);
   if (keys.length === 0) return;
-  keys.forEach(function(k) { if (!artCache[k]) artCache[k] = cached[k]; });
+  keys.forEach(function(k) { artCacheSet(k, cached[k]); });
   render(); // re-render with full art cache — instantaneous, no more pop-in
 }).catch(function() {});
 
