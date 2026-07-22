@@ -2942,11 +2942,15 @@ body {
   text-overflow: ellipsis;
   letter-spacing: -0.3px;
   text-shadow: 0 1px 10px rgba(0,0,0,0.8);
+  -webkit-transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease;
 }
 .cf-info-meta {
   font-size: 13px;
   color: rgba(255,255,255,0.50);
   margin: 4px 0 14px;
+  -webkit-transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease;
 }
 
 .cf-actions {
@@ -2988,6 +2992,53 @@ body {
   transition: background 0.1s;
 }
 .cf-btn-open:active { background: rgba(255,255,255,0.13); }
+.cf-btn-shuffle {
+  padding: 13px 15px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.82);
+  font-size: 17px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: background 0.1s;
+  transition: background 0.1s;
+}
+.cf-btn-shuffle:active { background: rgba(255,255,255,0.13); }
+
+/* Thin progress bar at bottom of stage showing collection position */
+.cf-collection-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--primary);
+  opacity: 0.55;
+  z-index: 12;
+  pointer-events: none;
+  border-radius: 0 1px 1px 0;
+  -webkit-transition: width 0.35s ease;
+  transition: width 0.35s ease;
+}
+
+/* Non-album type badge (EP / Single / Mixtape) */
+.cf-type-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0,0,0,0.70);
+  color: rgba(255,255,255,0.88);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 2;
+  text-transform: uppercase;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
 
 /* Each album item: outer div contains art + contact shadow + reflection */
 .cf-item {
@@ -2999,6 +3050,8 @@ body {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   will-change: transform, opacity;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 /* Album art square — height set inline by JS */
