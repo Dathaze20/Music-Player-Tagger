@@ -480,6 +480,7 @@ body {
   min-height: 0;
   max-height: calc(100vw - 48px);
   box-shadow: 0 12px 40px rgba(0,0,0,0.65);
+  position: relative;
 }
 .np-art-full img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .np-art-full .art-placeholder { width: 100% !important; height: 100% !important; font-size: 80px !important; border-radius: 0 !important; }
@@ -2708,25 +2709,60 @@ body {
   bottom: calc(120px + env(safe-area-inset-bottom, 0px));
 }
 
-/* ─── Art height cap: prevents art from eating all lyrics space ─── */
-.np-art-full {
-  max-height: min(calc(100vw - 48px), 36vh);
+/* ─── Lyrics overlay inside album art ─── */
+.np-art-lyrics {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.6) 25%, rgba(0,0,0,0.6) 75%, rgba(0,0,0,0.2) 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.4s ease;
+  transition: opacity 0.25s ease;
 }
+.np-art-lyrics-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.np-art-lyrics .synced-lyrics-scroll {
+  width: 100%;
+  height: 100%;
+  flex: none;
+}
+.np-art-lyrics .plain-lyrics-scroll {
+  width: 100%;
+  height: 100%;
+  padding: 16px 20px;
+}
+.np-art-lyrics .lyrics-spacer { height: 28%; }
+.np-art-lyrics .lyric-line {
+  font-size: 12.5px;
+  color: rgba(255,255,255,0.38);
+  padding: 7px 4px;
+}
+.np-art-lyrics .lyric-line.active {
+  font-size: 15px;
+  color: rgba(255,255,255,0.97);
+  font-weight: 700;
+}
+.np-art-lyrics .lyric-line.past { color: rgba(255,255,255,0.26); }
 
-/* ─── Lyrics mode: tap art to toggle — art shrinks, lyrics fill the space ─── */
-.np-content.lyrics-mode .np-art-full {
-  max-height: 64px;
-  width: 64px;
-  margin: 2px auto 2px;
-  border-radius: 10px;
-  transition: max-height 0.3s ease, width 0.3s ease, margin 0.3s ease;
+/* ─── Disney-style SVG heart for fav button ─── */
+.np-fav-btn {
+  background: none;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.np-content.lyrics-mode .np-info-row {
-  padding: 8px 20px 4px;
-}
-.np-art-full {
-  transition: max-height 0.3s ease, width 0.3s ease, margin 0.3s ease;
-}
+.np-heart-svg { display: block; }
+.np-heart-svg.fav-filled { filter: drop-shadow(0 2px 8px rgba(255,45,85,0.55)); }
 
 /* ─── Ghost volume slider: barely visible thin strip ─── */
 .np-vol-ghost {

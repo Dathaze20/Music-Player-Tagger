@@ -515,23 +515,24 @@ function bindAddLyricsBtn(panel, song) {
 
 function applyLyricsToNPPanel(song) {
   if (!showNowPlaying || !currentSong || currentSong.id !== song.id) return;
-  var panel = document.querySelector('.np-lyrics-panel');
-  if (!panel) return;
+  var overlay = document.getElementById('npArtLyrics');
+  if (!overlay) return;
   var newLines = parseLRC(song.syncedLyrics);
   lyricsLines = newLines;
   currentLyricIdx = -1;
   lyricsVisible = newLines.length > 0;
   if (newLines.length > 0) {
-    panel.innerHTML = buildSyncedLyricsHTML();
-    bindSyncedLyricsClicks(panel);
+    overlay.innerHTML = buildSyncedLyricsHTML();
+    overlay.classList.remove('np-art-lyrics-hidden');
+    bindSyncedLyricsClicks(overlay);
     updateSyncedLyrics(currentTime);
   } else if (song.lyrics && song.lyrics.trim()) {
-    panel.innerHTML = '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
+    overlay.innerHTML = '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
       + escHtml(song.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
       + '</div></div>';
+    overlay.classList.remove('np-art-lyrics-hidden');
   } else {
-    panel.innerHTML = noLyricsPanelHTML();
-    bindAddLyricsBtn(panel, song);
+    overlay.classList.add('np-art-lyrics-hidden');
   }
 }
 
@@ -2240,6 +2241,19 @@ function buildSyncedLyricsHTML() {
 
 // ─── Now Playing ───
 
+function heartSvg(filled) {
+  var p = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z';
+  if (filled) {
+    return '<svg class="np-heart-svg fav-filled" viewBox="0 0 24 24" width="28" height="28">'
+      + '<path d="' + p + '" fill="#ff2d55"/>'
+      + '<ellipse cx="8.2" cy="7.8" rx="2.4" ry="1.5" fill="rgba(255,255,255,0.3)" transform="rotate(-35 8.2 7.8)"/>'
+      + '</svg>';
+  }
+  return '<svg class="np-heart-svg" viewBox="0 0 24 24" width="28" height="28">'
+    + '<path d="' + p + '" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="1.5"/>'
+    + '</svg>';
+}
+
 function renderNowPlaying() {
   if (!currentSong) return;
   var np = document.getElementById('nowPlaying');
@@ -2256,8 +2270,18 @@ function renderNowPlaying() {
               : (artUri && artCache[artUri]) ? artCache[artUri]
               : '';
   var artContent = artData
-    ? '<img src="' + artData + '" style="width:100%;height:100%;object-fit:cover;display:block;">'
+    ? '<img id="npArtImgEl" src="' + artData + '" style="width:100%;height:100%;object-fit:cover;display:block;">'
     : artHTML(currentSong.album || currentSong.title, 300, false, 'xxl');
+
+  var hasLyrics = lyricsLines.length > 0 || !!(currentSong.lyrics && currentSong.lyrics.trim());
+  var lyricsOverlayHtml = '';
+  if (lyricsLines.length > 0) {
+    lyricsOverlayHtml = buildSyncedLyricsHTML();
+  } else if (currentSong.lyrics && currentSong.lyrics.trim()) {
+    lyricsOverlayHtml = '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
+      + escHtml(currentSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
+      + '</div></div>';
+  }
 
   var html = '<div class="np-bg-blur" id="npBgBlur"' + (artData ? ' style="background-image:url(' + artData + ')"' : '') + '></div>'
     + '<div class="np-content">'
@@ -2267,9 +2291,14 @@ function renderNowPlaying() {
     + '<div class="np-header-album">' + escHtml(currentSong.album && currentSong.album !== 'Unknown Album' ? currentSong.album : currentSong.artist) + '</div></div>'
     + '<button id="npEditBtn">&#9998;</button>'
     + '</div>'
-    + '<div class="np-art-full" id="npArtImg">' + artContent + '</div>'
+    + '<div class="np-art-full" id="npArtImg">'
+    + artContent
+    + '<div class="np-art-lyrics' + (hasLyrics ? '' : ' np-art-lyrics-hidden') + '" id="npArtLyrics">'
+    + lyricsOverlayHtml
+    + '</div>'
+    + '</div>'
     + '<div class="np-info-row">'
-    + '<button id="npFav" class="' + (currentSong.fav ? 'fav-active' : '') + '">' + (currentSong.fav ? '&#10084;' : '&#9825;') + '</button>'
+    + '<button id="npFav" class="np-fav-btn' + (currentSong.fav ? ' fav-active' : '') + '">' + heartSvg(currentSong.fav) + '</button>'
     + '<div class="np-info-text">'
     + '<div class="np-title-marquee" id="npTitleMarquee"><span class="np-song-title" id="npTitleInner">' + escHtml(currentSong.title)
     + (currentSong.feat ? '<span class="feat"> ft. ' + escHtml(currentSong.feat) + '</span>' : '')
@@ -2310,25 +2339,6 @@ function renderNowPlaying() {
   }
 
   html += '</div>';  // end np-controls
-
-  // Inline lyrics panel — always visible, no button tap required
-  html += '<div class="np-lyrics-panel">';
-  if (lyricsLines.length > 0) {
-    html += buildSyncedLyricsHTML();
-  } else if (currentSong.lyrics && currentSong.lyrics.trim()) {
-    html += '<div class="plain-lyrics-scroll"><div class="lyrics-text">'
-      + escHtml(currentSong.lyrics).replace(/\\n/g, '<br>').replace(/\n/g, '<br>')
-      + '</div></div>';
-  } else if (!currentSong._lyricsFetched) {
-    // LRClib fetch will run after render (no API key needed)
-    html += '<div class="lyrics-empty-np" id="lyricsFetchMsg">'
-      + '<div class="lyrics-empty-icon" style="animation:spin 1.5s linear infinite;display:inline-block;">&#9835;</div>'
-      + '<p>Fetching lyrics...</p>'
-      + '</div>';
-  } else {
-    html += noLyricsPanelHTML();
-  }
-  html += '</div>';  // end np-lyrics-panel
   html += '</div>';  // end np-content
 
   np.innerHTML = html;
@@ -2353,8 +2363,22 @@ function renderNowPlaying() {
       if (!data) return;
       artCacheHD[artUri] = data;
       if (showNowPlaying && currentSong && currentSong.albumArtUri === artUri) {
-        var el = document.getElementById('npArtImg');
-        if (el) el.innerHTML = '<img src="' + data + '" style="width:100%;height:100%;object-fit:cover;display:block;">';
+        var imgEl = document.getElementById('npArtImgEl');
+        if (imgEl) {
+          imgEl.src = data;
+        } else {
+          // Was showing placeholder — insert img, preserve lyrics overlay
+          var artEl = document.getElementById('npArtImg');
+          if (artEl) {
+            var overlay = document.getElementById('npArtLyrics');
+            var newImg = document.createElement('img');
+            newImg.id = 'npArtImgEl';
+            newImg.src = data;
+            newImg.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+            Array.from(artEl.childNodes).forEach(function(c) { if (c !== overlay) artEl.removeChild(c); });
+            artEl.insertBefore(newImg, overlay || null);
+          }
+        }
         var bg = document.getElementById('npBgBlur');
         if (bg) bg.style.backgroundImage = 'url(' + data + ')';
       }
@@ -2369,8 +2393,8 @@ function renderNowPlaying() {
   var npArtEl = document.getElementById('npArtImg');
   if (npArtEl) {
     npArtEl.onclick = function() {
-      var content = document.querySelector('.np-content');
-      if (content) content.classList.toggle('lyrics-mode');
+      var ov = document.getElementById('npArtLyrics');
+      if (ov) ov.classList.toggle('np-art-lyrics-hidden');
     };
     npArtEl.style.cursor = 'pointer';
   }
@@ -2416,10 +2440,6 @@ function renderNowPlaying() {
     bindSyncedLyricsClicks(np);
     updateSyncedLyrics(currentTime);
   }
-
-  // Wire "Add Lyrics" button if already in no-lyrics state
-  var npPanel = np.querySelector('.np-lyrics-panel');
-  bindAddLyricsBtn(npPanel, currentSong);
 
   // Auto-fetch lyrics: LRClib first (free, no key), Gemini fallback if key set.
   // _lyricsFetched flag prevents re-firing on every renderNowPlaying() call.
