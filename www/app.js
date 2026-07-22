@@ -457,7 +457,7 @@ function bindSyncedLyricsClicks(container) {
       var t = parseFloat(line.dataset.time);
       if (!isNaN(t) && currentSong && currentSong.url) {
         audio.currentTime = t;
-        if (!isPlaying) { audio.play().then(function() { isPlaying = true; }).catch(function(){}); }
+        if (!isPlaying) { isPlaying = true; audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); }); syncPlaybackUI(); }
       }
     };
   });
@@ -2769,7 +2769,7 @@ function setSleepTimer(minutes) {
         clearInterval(fadeInt);
         audio.pause(); isPlaying = false;
         audio.volume = origVol; volume = origVol;
-        render();
+        syncPlaybackUI();
       }
     }, 100);
     var btn = document.getElementById('npSleepBtn');
@@ -2859,19 +2859,10 @@ function playSong(song, songList) {
   else render();
 }
 
-function togglePlay() {
-  if (!currentSong || !currentSong.url) return;
-  if (isPlaying) {
-    audio.pause();
-    isPlaying = false;
-  } else {
-    isPlaying = true; // set synchronously so the UI update below is correct
-    audio.play().catch(function() {
-      isPlaying = false; // roll back if play() fails
-      updateMiniPlayer();
-    });
-  }
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+// Update every play/pause indicator in the UI to match isPlaying.
+// Call this any time isPlaying changes — togglePlay, audio events, sleep timer, etc.
+function syncPlaybackUI() {
+  updateMiniPlayer();
   if (showNowPlaying) {
     var btn = document.getElementById('npPlay');
     if (btn) {
@@ -2882,7 +2873,19 @@ function togglePlay() {
   document.querySelectorAll('.eq-bars').forEach(function(el) {
     el.classList.toggle('paused', !isPlaying);
   });
-  updateMiniPlayer();
+  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+}
+
+function togglePlay() {
+  if (!currentSong || !currentSong.url) return;
+  if (isPlaying) {
+    audio.pause();
+    isPlaying = false;
+  } else {
+    isPlaying = true;
+    audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
+  }
+  syncPlaybackUI();
 }
 
 function handleNext() {
@@ -2950,6 +2953,24 @@ audio.addEventListener('loadedmetadata', function() {
   }
 });
 audio.addEventListener('ended', handleNext);
+
+// Sync UI when the OS changes playback state externally — phone call interruption,
+// Bluetooth disconnect, headphone unplug, media-session notification button, etc.
+audio.addEventListener('play', function() {
+  if (isPlaying) return; // already handled by our own code
+  isPlaying = true;
+  syncPlaybackUI();
+});
+audio.addEventListener('pause', function() {
+  if (!isPlaying) return;
+  isPlaying = false;
+  syncPlaybackUI();
+});
+audio.addEventListener('error', function() {
+  if (!isPlaying) return;
+  isPlaying = false;
+  syncPlaybackUI();
+});
 
 // ─── File Import ───
 
