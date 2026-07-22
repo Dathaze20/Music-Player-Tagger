@@ -1726,6 +1726,7 @@ function renderAlbums(el) {
     + '<div id="cfViewport"></div>'
     + '<div class="cf-top-glass" id="cfTopGlass">' + chipsHtml + '</div>'
     + '<div class="cf-bot-glass">'
+    + '<div class="cf-counter" id="cfCounter"></div>'
     + '<div class="cf-info-name" id="cfAlbumName"></div>'
     + '<div class="cf-info-meta" id="cfAlbumMeta"></div>'
     + '<div class="cf-actions">'
@@ -4002,18 +4003,35 @@ function _cfBuildPositions(sz) {
 }
 
 function startInlineCf(albums) {
-  _cfAlbums = albums;
+  // Deduplicate: group multi-artist variants of the same album (same name OR same art URI)
+  var seenArt = {}, seenName = {};
+  _cfAlbums = albums.filter(function(a) {
+    var nameKey = a.name.toLowerCase().trim();
+    if (a.albumArtUri && seenArt[a.albumArtUri]) return false;
+    if (seenName[nameKey]) return false;
+    if (a.albumArtUri) seenArt[a.albumArtUri] = true;
+    seenName[nameKey] = true;
+    return true;
+  });
   if (!_cfAlbums.length) return;
 
-  var isLandscape = window.innerWidth > window.innerHeight;
-  var stageW = window.innerWidth;
-  var stageH = Math.max(80, window.innerHeight - 110);
+  // Set viewport styles FIRST so offsetWidth/clientHeight give accurate values
+  var vp = document.getElementById('cfViewport');
+  if (!vp) return;
+  vp.innerHTML = '';
+  vp.style.cssText = 'position:absolute;inset:0;overflow:hidden;-webkit-perspective:700px;perspective:700px;';
 
-  // CD-sized center album: ~43% of portrait width (A16: 360*0.43 ≈ 155px)
-  var sz = Math.max(130, Math.min(Math.round(stageW * (isLandscape ? 0.38 : 0.43)), 172));
-  // Floor at 64% from top (portrait) → album sits roughly in the upper third; more glass floor below
-  var floorY = Math.round(stageH * (isLandscape ? 0.66 : 0.64));
-  var refH = Math.round(sz * 0.32);
+  // Read ACTUAL rendered dimensions (forces synchronous reflow)
+  var stage = document.getElementById('cfStage');
+  var stageW = Math.max(200, vp.offsetWidth || window.innerWidth);
+  var stageH = Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : Math.max(200, window.innerHeight - 160));
+  var isLandscape = stageW > stageH;
+
+  // CD-sized center album: ~43% of stage width; capped for large screens
+  var sz = Math.max(130, Math.min(Math.round(stageW * (isLandscape ? 0.38 : 0.43)), 180));
+  // Floor at 60% from stage top — album in upper half, generous glass floor below
+  var floorY = Math.round(stageH * (isLandscape ? 0.62 : 0.60));
+  var refH = Math.round(sz * 0.35);
 
   var floor = document.getElementById('cfFloor');
   if (floor) floor.style.top = floorY + 'px';
@@ -4035,10 +4053,6 @@ function startInlineCf(albums) {
     glow.style.webkitTransform = 'translate(-50%, -50%)';
   }
 
-  var vp = document.getElementById('cfViewport');
-  if (!vp) return;
-  vp.innerHTML = '';
-  vp.style.cssText = 'position:absolute;inset:0;overflow:hidden;-webkit-perspective:700px;perspective:700px;';
   var items = [];
   for (var k = 0; k < 9; k++) {
     var item = document.createElement('div');
@@ -4116,11 +4130,14 @@ function _cfDoRender() {
     var absAngle = _cfInterp(_CF_ANGLES, absP);
     // Right-side: rotateY(+) → left face toward viewer (inner face); Left-side: rotateY(-) → right face toward viewer
     var rotY = relPos >= 0 ? absAngle : -absAngle;
-    var op = Math.max(0.25, 1 - absP * 0.2);
+    var op = Math.max(0.28, 1 - absP * 0.18);
     var xf = 'rotateY(' + rotY.toFixed(1) + 'deg)';
     el.style.webkitTransform = xf;
     el.style.transform = xf;
     el.style.opacity = op.toFixed(3);
+    // Mark the active center album for the CSS glow ring
+    if (absP < 0.25) el.classList.add('cf-item-active');
+    else el.classList.remove('cf-item-active');
 
     if (el._cfIdx !== albumIdx) {
       el._cfIdx = albumIdx;
@@ -4262,6 +4279,7 @@ function updateCfInfo(idx) {
   if (!a) return;
   var ne = document.getElementById('cfAlbumName');
   var me = document.getElementById('cfAlbumMeta');
+  var ct = document.getElementById('cfCounter');
   if (ne) ne.textContent = a.name;
   if (me) {
     var parts = [a.artist];
@@ -4269,6 +4287,7 @@ function updateCfInfo(idx) {
     parts.push(a.songCount + ' song' + (a.songCount !== 1 ? 's' : ''));
     me.textContent = parts.join(' • ');
   }
+  if (ct) ct.textContent = (idx + 1) + ' / ' + _cfAlbums.length;
 }
 
 function updateCfGlow(idx) {
