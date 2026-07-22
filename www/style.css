@@ -2801,6 +2801,26 @@ body {
   flex-direction: column;
 }
 
+/* Compact tab bar in CF mode — save ~50px of vertical space */
+.main.albums-cf-mode .tabs {
+  padding: 2px 4px;
+}
+.main.albums-cf-mode .tabs button {
+  padding: 4px 2px;
+  -webkit-flex-direction: row;
+  flex-direction: row;
+  gap: 3px;
+  font-size: 8px;
+  border-radius: 6px;
+}
+.main.albums-cf-mode .tab-icon {
+  width: 13px;
+  height: 13px;
+}
+.main.albums-cf-mode .tab-count { display: none; }
+/* Hide filter chips in CF mode — chips are inside cfStage so they eat visual space not layout space */
+.main.albums-cf-mode .cf-top-glass { display: none; }
+
 /* Stage fills all remaining main-content space */
 .cf-stage {
   -webkit-box-flex: 1;

@@ -3977,8 +3977,8 @@ initMediaSession();
 var _cfAlbums = [];
 var _cfCenterIdx = 0;
 var _cfR = null; // runtime state; null when CF not active
-var _CF_ANGLES = [0, 55, 70, 72, 72]; // rotateY degrees per slot distance 0-4
-var _CF_SCALES = [1.00, 0.80, 0.64, 0.51, 0.41]; // uniform scale per slot distance
+// rotateY degrees per slot distance; 65° for slot 1 gives the classic CF fan
+var _CF_ANGLES = [0, 65, 70, 72, 75];
 
 function _cfInterp(arr, absP) {
   var lo = Math.floor(absP), hi = Math.min(lo + 1, arr.length - 1);
@@ -3987,16 +3987,18 @@ function _cfInterp(arr, absP) {
 }
 
 function _cfBuildPositions(sz) {
-  // Returns center-x offsets from stage center for slot distances 0..4
-  // Each neighbor's inner edge (facing center) starts gap away from previous outer edge
-  var pos = [0], outerEdge = sz / 2;
+  // Visual center-X offsets from stage center for slot distances 0..4.
+  // Uses center-pivot (50% 50%) — item positioned by its CSS center.
+  // visW = sz * cos(angle) = projected width of a rotated album.
+  var offsets = [0];
+  var rightEdge = sz / 2; // right visual edge of center album
   for (var i = 1; i <= 4; i++) {
-    var visW = sz * Math.cos(_CF_ANGLES[i] * Math.PI / 180) * _CF_SCALES[i];
-    outerEdge += 5;
-    pos.push(outerEdge + visW / 2);
-    outerEdge += visW;
+    var visW = sz * Math.cos(_CF_ANGLES[i] * Math.PI / 180);
+    var centerOff = rightEdge + 6 + visW / 2; // 6px gap, then half the visible width
+    offsets.push(centerOff);
+    rightEdge = centerOff + visW / 2;
   }
-  return pos;
+  return offsets;
 }
 
 function startInlineCf(albums) {
@@ -4009,7 +4011,8 @@ function startInlineCf(albums) {
 
   // CD-sized center album: ~43% of portrait width (A16: 360*0.43 ≈ 155px)
   var sz = Math.max(130, Math.min(Math.round(stageW * (isLandscape ? 0.38 : 0.43)), 172));
-  var floorY = Math.round(stageH * (isLandscape ? 0.62 : 0.57));
+  // Floor at 64% from top (portrait) → album sits roughly in the upper third; more glass floor below
+  var floorY = Math.round(stageH * (isLandscape ? 0.66 : 0.64));
   var refH = Math.round(sz * 0.32);
 
   var floor = document.getElementById('cfFloor');
@@ -4098,6 +4101,7 @@ function _cfDoRender() {
     if (absP > 3.6) { el.style.display = 'none'; continue; }
 
     el.style.display = '';
+    // Center-pivot positioning: r.positions gives visual center-X offset from stage center
     var signP = relPos >= 0 ? 1 : -1;
     var xOff = signP * _cfInterp(r.positions, absP);
     el.style.left = Math.round(stageW / 2 + xOff - sz / 2) + 'px';
@@ -4106,16 +4110,14 @@ function _cfDoRender() {
     el.style.height = (sz + refH) + 'px';
     el.style.zIndex = Math.round(100 - absP * 10);
 
+    // Center pivot for all items — position calculation and visual center both at CSS center
+    el.style.webkitTransformOrigin = '50% 50%';
+    el.style.transformOrigin = '50% 50%';
     var absAngle = _cfInterp(_CF_ANGLES, absP);
+    // Right-side: rotateY(+) → left face toward viewer (inner face); Left-side: rotateY(-) → right face toward viewer
     var rotY = relPos >= 0 ? absAngle : -absAngle;
-    var clamp = Math.max(-1, Math.min(1, relPos));
-    var originPct = Math.round(50 - 50 * clamp); // right=0%, center=50%, left=100%
-    var sc = _cfInterp(_CF_SCALES, absP);
-    var op = Math.max(0.15, 1 - absP * 0.25);
-
-    el.style.webkitTransformOrigin = originPct + '% 50%';
-    el.style.transformOrigin = originPct + '% 50%';
-    var xf = 'rotateY(' + rotY.toFixed(1) + 'deg) scale(' + sc.toFixed(3) + ')';
+    var op = Math.max(0.25, 1 - absP * 0.2);
+    var xf = 'rotateY(' + rotY.toFixed(1) + 'deg)';
     el.style.webkitTransform = xf;
     el.style.transform = xf;
     el.style.opacity = op.toFixed(3);
