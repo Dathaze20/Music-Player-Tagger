@@ -2865,7 +2865,11 @@ function togglePlay() {
     audio.pause();
     isPlaying = false;
   } else {
-    audio.play().then(function() { isPlaying = true; }).catch(function() {});
+    isPlaying = true; // set synchronously so the UI update below is correct
+    audio.play().catch(function() {
+      isPlaying = false; // roll back if play() fails
+      updateMiniPlayer();
+    });
   }
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
   if (showNowPlaying) {
