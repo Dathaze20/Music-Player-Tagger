@@ -328,7 +328,7 @@ function initSwipeGestures(el) {
         s.fav = !s.fav; _countsCache = null; saveLibraryLater();
         showToast(s.fav ? '❤ Favorited' : 'Removed from favorites');
         var favBtn = row.querySelector('[data-fav]');
-        if (favBtn) { favBtn.innerHTML = s.fav ? '&#10084;' : '&#9825;'; favBtn.className = 'song-fav' + (s.fav ? ' active' : ''); }
+        if (favBtn) { favBtn.innerHTML = heartSvg(s.fav, 20); favBtn.className = 'song-fav' + (s.fav ? ' active' : ''); }
       }
     }
   }, { passive: true });
@@ -1911,7 +1911,7 @@ function songRowHTML(s, playing, showEdit) {
     + '</div></div>'
     + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
     + (playing ? eqBarsHTML(!isPlaying) : '<span class="song-duration">' + fmtTime(s.dur) + '</span>')
-    + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + (s.fav ? '&#10084;' : '&#9825;') + '</button>'
+    + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + heartSvg(s.fav, 20) + '</button>'
     + (showEdit ? '<button class="song-edit" data-song-menu="' + s.id + '">&#8942;</button>' : '')
     + '</div>';
 }
@@ -2069,7 +2069,7 @@ function renderAlbumDetail(el) {
       + '<div class="song-meta">' + escHtml(s.artist) + ' &bull; ' + fmtTime(s.dur) + '</div>'
       + '</div>'
       + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
-      + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + (s.fav ? '&#10084;' : '&#9825;') + '</button>'
+      + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + heartSvg(s.fav, 20) + '</button>'
       + '<button class="song-edit" data-song-menu="' + s.id + '">&#8942;</button>'
       + '</div>');
   });
@@ -2241,16 +2241,17 @@ function buildSyncedLyricsHTML() {
 
 // ─── Now Playing ───
 
-function heartSvg(filled) {
+function heartSvg(filled, size) {
+  size = size || 28;
   var p = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z';
   if (filled) {
-    return '<svg class="np-heart-svg fav-filled" viewBox="0 0 24 24" width="28" height="28">'
+    return '<svg class="np-heart-svg fav-filled" viewBox="0 0 24 24" width="' + size + '" height="' + size + '">'
       + '<path d="' + p + '" fill="#ff2d55"/>'
       + '<ellipse cx="8.2" cy="7.8" rx="2.4" ry="1.5" fill="rgba(255,255,255,0.3)" transform="rotate(-35 8.2 7.8)"/>'
       + '</svg>';
   }
-  return '<svg class="np-heart-svg" viewBox="0 0 24 24" width="28" height="28">'
-    + '<path d="' + p + '" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="1.5"/>'
+  return '<svg class="np-heart-svg" viewBox="0 0 24 24" width="' + size + '" height="' + size + '">'
+    + '<path d="' + p + '" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="1.5"/>'
     + '</svg>';
 }
 
@@ -2395,12 +2396,24 @@ function renderNowPlaying() {
   document.getElementById('npEditBtn').onclick = function() { openSongEditModal(currentSong.id); };
   document.getElementById('npRepeat').onclick = function() {
     repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
-    renderNowPlaying();
+    var btn = document.getElementById('npRepeat');
+    if (!btn) return;
+    btn.classList.toggle('active', repeatMode !== 'off');
+    btn.innerHTML = repeatMode === 'off' ? '&#8594;'
+      : repeatMode === 'all' ? '&#8635;'
+      : '&#8635;<span style="font-size:11px;font-weight:700;vertical-align:super;margin-left:1px;">1</span>';
   };
-  document.getElementById('npShuffle').onclick = function() { isShuffled = !isShuffled; renderNowPlaying(); };
+  document.getElementById('npShuffle').onclick = function() {
+    isShuffled = !isShuffled;
+    var btn = document.getElementById('npShuffle');
+    if (btn) btn.classList.toggle('active', isShuffled);
+  };
   document.getElementById('npFav').onclick = function() {
     var s = songMap[currentSong.id];
-    if (s) { s.fav = !s.fav; currentSong.fav = s.fav; _countsCache = null; saveLibrary(); renderNowPlaying(); }
+    if (!s) return;
+    s.fav = !s.fav; currentSong.fav = s.fav; _countsCache = null; saveLibrary();
+    var btn = document.getElementById('npFav');
+    if (btn) { btn.innerHTML = heartSvg(s.fav); btn.classList.toggle('fav-active', s.fav); }
   };
   document.getElementById('npQueueBtn').onclick = function() { openQueuePanel(); };
   document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };

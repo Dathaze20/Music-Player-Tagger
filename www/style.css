@@ -185,10 +185,11 @@ body {
 .song-duration { font-size: 11px; color: var(--text-faint); flex-shrink: 0; }
 .song-fav {
   background: none; border: none; padding: 6px;
-  cursor: pointer; flex-shrink: 0; font-size: 16px;
-  color: var(--text-faint);
+  cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
 }
-.song-fav.active { color: var(--red); }
+.song-fav.active .np-heart-svg { filter: drop-shadow(0 1px 4px rgba(255,45,85,0.45)); }
 .tagging-spinner {
   width: 16px; height: 16px;
   border: 2px solid var(--primary);
