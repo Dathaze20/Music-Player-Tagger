@@ -3076,6 +3076,26 @@ function handleFileImport(files) {
 
 // ─── AI Auto-Tagging ───
 
+var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
+
+function needsAiMetadata(s) {
+  return !s.year
+    || !s.genre || GENERIC_GENRE.test(s.genre.trim())
+    || s.artist === 'Unknown Artist'
+    || s.album  === 'Unknown Album';
+}
+
+// Called automatically after library loads — quietly fills gaps in the background
+function autoFillMetadata() {
+  if (!apiKey || tagging.active) return;
+  var toFill = songs.filter(needsAiMetadata);
+  if (!toFill.length) return;
+  toFill.forEach(function(s) { s.tagging = true; });
+  tagging = { total: toFill.length, done: 0, current: toFill[0].title, active: true, paused: false, queue: toFill, label: 'AI filling metadata...' };
+  updateTaggingBanner();
+  tagNextSong(toFill, 0);
+}
+
 function tagNextSong(songList, idx) {
   if (tagging.paused) return;
   if (idx >= songList.length) {
@@ -3091,22 +3111,23 @@ function tagNextSong(songList, idx) {
   tagging.done = idx;
   updateTaggingBanner();
 
-  callGeminiTag(song.fn).then(function(meta) {
-    if (meta.title) song.title = meta.title;
-    if (meta.artist) song.artist = meta.artist;
-    if (meta.album) song.album = meta.album;
-    if (meta.year) song.year = String(meta.year);
-    if (meta.genre) song.genre = meta.genre;
-    if (meta.trackNumber) song.track = parseInt(meta.trackNumber) || 0;
-    if (meta.releaseType) song.type = meta.releaseType;
-    if (meta.featuredArtists) song.feat = meta.featuredArtists;
-    if (meta.albumArtUrl) song.art = meta.albumArtUrl;
-    if (meta.syncedLyrics) song.syncedLyrics = meta.syncedLyrics;
-    if (meta.lyrics) song.lyrics = meta.lyrics;
+  callGeminiTag(song).then(function(meta) {
+    // Only overwrite fields that AI actually returned something for
+    if (meta.title)          song.title  = meta.title;
+    if (meta.artist)         song.artist = meta.artist;
+    if (meta.album)          song.album  = meta.album;
+    if (meta.year)           song.year   = String(meta.year);
+    if (meta.genre)          song.genre  = meta.genre;
+    if (meta.trackNumber)    song.track  = parseInt(meta.trackNumber) || 0;
+    if (meta.releaseType)    song.type   = meta.releaseType;
+    if (meta.featuredArtists) song.feat  = meta.featuredArtists;
+    if (meta.albumArtUrl)    song.art    = meta.albumArtUrl;
+    if (meta.syncedLyrics)   song.syncedLyrics = meta.syncedLyrics;
+    if (meta.lyrics)         song.lyrics = meta.lyrics;
     song.tagging = false;
     if (idx % 10 === 0) { saveLibrary(); render(); }
     setTimeout(function() { tagNextSong(songList, idx + 1); }, 200);
-  }).catch(function(err) {
+  }).catch(function() {
     song.tagging = false;
     setTimeout(function() { tagNextSong(songList, idx + 1); }, 500);
   });
@@ -3125,22 +3146,38 @@ function updateTaggingBanner() {
 
 // ─── Gemini API ───
 
-function callGeminiTag(fileName) {
+function callGeminiTag(songOrFile) {
   if (!apiKey) return Promise.resolve({});
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey;
+
+  // Build context block from existing metadata so AI can confirm & fill gaps
+  var fileName = typeof songOrFile === 'string' ? songOrFile : (songOrFile.fn || '');
+  var ctx = '';
+  if (typeof songOrFile === 'object') {
+    var s = songOrFile;
+    if (s.title  && !/^unknown/i.test(s.title))  ctx += 'Title: '  + s.title  + '\n';
+    if (s.artist && !/^unknown/i.test(s.artist)) ctx += 'Artist: ' + s.artist + '\n';
+    if (s.album  && !/^unknown/i.test(s.album))  ctx += 'Album: '  + s.album  + '\n';
+    if (s.year)   ctx += 'Year: '  + s.year  + '\n';
+    if (s.genre && !/^(hip.hop|rap|r&b|music|unknown|other)$/i.test(s.genre.trim())) ctx += 'Genre: ' + s.genre + '\n';
+    if (s.track)  ctx += 'Track: ' + s.track + '\n';
+  }
+
   var prompt = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture.\n\n'
-    + 'You know underground and mainstream artists including: Stack Bundles, Max B, Chinx, Lloyd Banks (Cold Corner 1-3, Halloween Havoc), Styles P (Ghost stories), Jadakiss (Champ Is Here 1-3), Fabolous (Soul Tape, No Competition), Dave East (Kairi Chanel, Paranoia), Griselda (Westside Gunn, Conway, Benny), Roc Marciano, Chief Keef (Back From The Dead, Finally Rich), King Von, Pop Smoke, Lil Wayne (Da Drought 3, No Ceilings, Dedication), Future (Monster, 56 Nights, Beast Mode), Young Thug, Gucci Mane, Jeezy, T.I., Nipsey Hussle (Crenshaw, Victory Lap), Curren$y (Pilot Talk, Jet Files), Wiz Khalifa (Kush & OJ, Taylor Allderdice), Mac Miller (K.I.D.S., Faces), Kevin Gates (Luca Brasi), J. Cole (Friday Night Lights, Truly Yours), Drake (So Far Gone, Room for Improvement), Chance the Rapper (Acid Rap, 10 Day), and all major label releases.\n\n'
-    + 'Given this music file name, identify the song and return ONLY a JSON object:\n'
+    + 'You know underground and mainstream artists including: Stack Bundles, Max B, Chinx, Lloyd Banks (Cold Corner 1-3, Halloween Havoc), Styles P (Ghost Stories), Jadakiss (Champ Is Here 1-3), Fabolous (Soul Tape, No Competition), Dave East (Kairi Chanel, Paranoia), Griselda (Westside Gunn, Conway, Benny), Roc Marciano, Chief Keef (Back From The Dead, Finally Rich), King Von, Pop Smoke, Lil Wayne (Da Drought 3, No Ceilings, Dedication), Future (Monster, 56 Nights, Beast Mode), Young Thug, Gucci Mane, Jeezy, T.I., Nipsey Hussle (Crenshaw, Victory Lap), Curren$y (Pilot Talk, Jet Files), Wiz Khalifa (Kush & OJ, Taylor Allderdice), Mac Miller (K.I.D.S., Faces), Kevin Gates (Luca Brasi), J. Cole (Friday Night Lights, Truly Yours), Drake (So Far Gone, Room for Improvement), Chance the Rapper (Acid Rap, 10 Day), and all major label releases.\n\n'
+    + (ctx ? 'The song already has the following metadata — use it to confirm the song identity, then fill in any missing or incorrect fields:\n' + ctx + '\n' : '')
+    + 'Filename: ' + fileName + '\n\n'
+    + 'Return ONLY a JSON object with these fields:\n'
     + '{"title":"","artist":"","album":"","trackNumber":0,"albumArtUrl":"","year":"","genre":"","releaseType":"","featuredArtists":"","syncedLyrics":""}\n\n'
     + 'Rules:\n'
     + '- releaseType must be one of: Album, Mixtape, EP, Single\n'
     + '- For loosies/SoundCloud tracks not on any project, use "Single"\n'
     + '- For DJ-hosted tapes (Gangsta Grillz, Drama, etc), use "Mixtape"\n'
-    + '- albumArtUrl should be a real working image URL for the album cover if possible\n'
-    + '- genre should be specific: Hip-Hop, Trap, Drill, Boom-Bap, G-Funk, R&B, Cloud Rap, etc\n'
-    + '- syncedLyrics: provide the FULL song lyrics in LRC timed format. Each line must have a timestamp like [mm:ss.xx]. Example: "[00:12.50]First line\\n[00:16.20]Second line\\n[00:20.00]Third line". Estimate timestamps based on typical song structure and tempo. Use \\n between lines. If you do not know the lyrics, leave empty.\n'
-    + '- Return ONLY the JSON object, no markdown, no explanation\n\n'
-    + 'File: ' + fileName;
+    + '- genre must be specific: Boom-Bap, Trap, Drill, G-Funk, Cloud Rap, Gangsta Rap, East Coast, West Coast, Conscious Hip-Hop, Memphis Rap, Phonk, Crunk, R&B, Neo-Soul — never just "Hip-Hop" or "Rap"\n'
+    + '- albumArtUrl: a real image URL for the album cover if you know one, otherwise leave empty\n'
+    + '- syncedLyrics: full lyrics in LRC format [mm:ss.xx] per line. Leave empty if unknown.\n'
+    + '- If you are not confident about a field, leave it empty — do not guess\n'
+    + '- Return ONLY the JSON object, no markdown, no explanation';
 
   return fetch(url, {
     method: 'POST',
@@ -3998,7 +4035,7 @@ function fixSubgenreNext(songList, idx) {
   });
 }
 
-var GENERIC_GENRES = ['', 'hip-hop', 'rap', 'hip hop', 'r&b', 'music', 'other', 'unknown'];
+var GENERIC_GENRES = ['', 'hip-hop', 'rap', 'hip hop', 'r&b', 'music', 'other', 'unknown', 'pop'];
 
 document.getElementById('fixSubgenreBtn').onclick = function() {
   var key = document.getElementById('apiKeyInput').value.trim() || apiKey;
@@ -4243,6 +4280,9 @@ function nativeAutoScan() {
     renderReconnectBanner();
     backgroundLoadAllArt();
 
+    // Auto-fill missing metadata quietly in the background
+    if (apiKey && !tagging.active) { setTimeout(autoFillMetadata, 2000); }
+
     // Silently refresh album-art metadata for songs that have none
     var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
     if (needsArtRefresh) {
@@ -4292,13 +4332,7 @@ function nativeAutoScan() {
     backgroundLoadAllArt();
     showToast('Loaded ' + newSongs.length + ' songs!', 3000);
     if (newSongs.length > 0 && apiKey) {
-      var untagged = newSongs.filter(function(s) { return !s.genre && !s.art; });
-      if (untagged.length > 0) {
-        untagged.forEach(function(s) { s.tagging = true; });
-        tagging = { total: untagged.length, done: 0, current: untagged[0].title, active: true, paused: false, queue: untagged };
-        updateTaggingBanner();
-        tagNextSong(untagged, 0);
-      }
+      setTimeout(autoFillMetadata, 1000);
     }
   }).catch(function(e) {
     nativeScanning = false;
