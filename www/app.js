@@ -3132,20 +3132,23 @@ function tagNextSong(songList, idx) {
     if (meta.lyrics)          song.lyrics = meta.lyrics;
     song.tagging = false;
     song.aiAttempted = Date.now();
-    _geminiDelay = Math.max(200, _geminiDelay - 200);  // recover toward 200ms on success
-    saveLibraryIDB();
-    if (idx % 10 === 0) { saveLibrary(); render(); }
+    _geminiDelay = Math.max(200, _geminiDelay - 200);
+    saveLibrary();   // saves to both localStorage and IDB; render to show change immediately
+    render();
     setTimeout(function() { tagNextSong(songList, idx + 1); }, _geminiDelay);
   }).catch(function(err) {
     song.tagging = false;
     if (err && err.isRateLimit) {
-      // Gemini rate-limited us — back off and retry the SAME song
       _geminiDelay = Math.min(8000, _geminiDelay + 4000);
-      setTimeout(function() { tagNextSong(songList, idx); }, _geminiDelay);
+      tagging.label = 'Rate limited — slowing down (' + (_geminiDelay / 1000).toFixed(0) + 's)...';
+      updateTaggingBanner();
+      setTimeout(function() {
+        tagging.label = 'AI filling metadata...';
+        tagNextSong(songList, idx);
+      }, _geminiDelay);
     } else {
-      // AI didn't recognize this song — mark attempted so we skip it for 24h
       song.aiAttempted = Date.now();
-      saveLibraryIDB();
+      saveLibrary();
       setTimeout(function() { tagNextSong(songList, idx + 1); }, 500);
     }
   });
@@ -4050,13 +4053,19 @@ function fixSubgenreNext(songList, idx) {
     if (genre) song.genre = genre;
     song.tagging = false;
     _geminiDelay = Math.max(200, _geminiDelay - 200);
-    if (idx % 10 === 0) { saveLibrary(); render(); }
+    saveLibrary();
+    render();
     setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, _geminiDelay);
   }).catch(function(err) {
     song.tagging = false;
     if (err && err.isRateLimit) {
       _geminiDelay = Math.min(8000, _geminiDelay + 4000);
-      setTimeout(function() { fixSubgenreNext(songList, idx); }, _geminiDelay);
+      tagging.label = 'Rate limited — slowing down (' + (_geminiDelay / 1000).toFixed(0) + 's)...';
+      updateTaggingBanner();
+      setTimeout(function() {
+        tagging.label = 'Fixing subgenres...';
+        fixSubgenreNext(songList, idx);
+      }, _geminiDelay);
     } else {
       setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 500);
     }
