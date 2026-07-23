@@ -682,12 +682,15 @@ function saveLibrary() {
   _countsCache = null;
   songMap = Object.create(null);
   songs.forEach(function(s) { songMap[s.id] = s; });
-  // Lean localStorage tier: no lyrics (stored in IDB). Keeps quota usage low.
+  // Lean localStorage tier: no lyrics, no art (both stored in IDB; art also in art-cache IDB).
+  // Art must NOT go here — a single base64 image is ~50KB, so a library with album art
+  // easily exceeds the 5 MB localStorage quota. A silent quota failure returns [] on next
+  // startup, triggering a full rescan that wipes all saved edits.
   try {
     var lean = songs.map(function(s) {
       return {
         fn: s.fn, title: s.title, artist: s.artist, album: s.album,
-        year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track, art: s.art,
+        year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track,
         dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
         playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
         nativePath:  s.nativePath  || '',
@@ -2994,9 +2997,40 @@ function handleFileImport(files) {
 var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
 var _ONE_DAY_MS = 86400000;
 
+// Filenames/titles that give Gemini zero signal: track_01, audio_20230415, recording, etc.
+var _JUNK_TEXT_RE = /^(track|audio|recording|untitled|unknown|file|song|music|clip|temp|new\s*recording|whatsapp[\s_]audio|voice[\s_]?(memo|note|message)?|aud_?|vn_?|msg_?)[\s\d\-_.()]*/i;
+
+function _hasMeaningfulText(text) {
+  if (!text) return false;
+  var t = text.trim();
+  if (t.length < 4) return false;
+  if (_JUNK_TEXT_RE.test(t)) return false;
+  if (/^\d+$/.test(t)) return false;                       // pure number
+  if (/^\d{4}[\-_]\d{2}[\-_]\d{2}/.test(t)) return false; // date like 2023-01-15
+  return /[a-zA-Z]{3,}/.test(t);                           // at least 3 consecutive letters
+}
+
+// Strip extension and leading track-number prefix ("01 - ", "(02) ", "03. ")
+// then check if what's left is meaningful.
+function _hasMeaningfulFilename(fn) {
+  if (!fn) return false;
+  var name = fn.replace(/\.[^.]+$/, '').trim();
+  name = name.replace(/^[\[\(]?\d+[\]\)]?[\s.\-_]+/, '').trim();
+  return _hasMeaningfulText(name);
+}
+
+// Returns false when Gemini has nothing to identify the song — no artist tag,
+// no real title, and a generic/numeric filename. Burning an API call in that
+// case always returns empty strings and wastes both quota and time.
+function _hasGeminiContext(s) {
+  if (s.artist && s.artist !== 'Unknown Artist') return true; // artist lets Gemini fill year/genre/album
+  if (_hasMeaningfulText(s.title)) return true;               // real embedded title
+  return _hasMeaningfulFilename(s.fn);                        // meaningful filename
+}
+
 function needsAiMetadata(s) {
-  // If AI already attempted this song in the last 24h, skip it regardless of outcome
   if (s.aiAttempted && (Date.now() - s.aiAttempted) < _ONE_DAY_MS) return false;
+  if (!_hasGeminiContext(s)) return false;
   return !s.year
     || !s.genre || GENERIC_GENRE.test(s.genre.trim())
     || s.artist === 'Unknown Artist'
@@ -3037,18 +3071,33 @@ function autoFillMetadata() {
   tagNextBatch(toFill, 0);
 }
 
-// Starts at 6s between batches (safe for the free tier's ~10 req/min).
-// Backs off on 429; after 5 consecutive 429s assumes the daily quota is gone and pauses.
+// 6000ms = exactly 10 RPM (free tier limit). Backs off on 429 up to 20s.
 var _geminiDelay = 6000;
 var _rateLimitStreak = 0;
 var _transientStreak = 0;
 
-// Shared rate-limit handler used by both tagNextBatch and fixSubgenreBatch.
-// After 5 consecutive 429s we assume the daily quota (250 RPD) is exhausted
-// and pause tagging so the user isn't spammed with retries until midnight PT.
-function _handleRateLimit(songList, idx, resumeFn) {
+// Parse a 429 body to distinguish per-minute limiting from actual daily quota exhaustion.
+// Returns true only when the quota_id explicitly identifies a per-day limit.
+function _isDailyQuotaBody(body) {
+  try {
+    var details = body && body.error && body.error.details;
+    if (!details) return false;
+    for (var i = 0; i < details.length; i++) {
+      var qid = (details[i].metadata && details[i].metadata.quota_id) || '';
+      if (/perDay|PerDay|Daily/i.test(qid)) return true;
+    }
+  } catch(_) {}
+  return false;
+}
+
+// Shared rate-limit handler for tagNextBatch and fixSubgenreBatch.
+// isDailyQuota=true means the 429 body confirmed the daily (250 RPD) cap.
+// Streak >= 20 is the fallback for when body parsing fails or 429s persist
+// through multiple retry cycles — at that point the daily cap is the only
+// plausible explanation for sustained rejection.
+function _handleRateLimit(songList, idx, resumeFn, isDailyQuota) {
   _rateLimitStreak++;
-  if (_rateLimitStreak >= 5) {
+  if (isDailyQuota || _rateLimitStreak >= 20) {
     _rateLimitStreak = 0;
     _geminiDelay = 6000;
     tagging.active = true;
@@ -3162,16 +3211,18 @@ function tagNextBatch(songList, idx) {
     enrichTaggedSongs(modified, function() {
       saveLibrary();
       render();
-      tagging.active = false;
-      updateTaggingBanner();
       var toWrite = modified.filter(function(s) { return s.contentUri; });
-      if (isNat && toWrite.length > 0) writeTaggedToFiles(toWrite);
+      if (isNat && toWrite.length > 0) {
+        writeTaggedToFiles(toWrite); // keeps tagging.active=true during file writes
+      } else {
+        tagging.active = false;
+        updateTaggingBanner();
+      }
     });
     return;
   }
   var batch = songList.slice(idx, idx + BATCH_SIZE);
   tagging.current = batch[0].title + (batch.length > 1 ? ' +' + (batch.length - 1) + ' more' : '');
-  tagging.done = idx;
   updateTaggingBanner();
 
   callGeminiBatch(batch).then(function(results) {
@@ -3191,12 +3242,13 @@ function tagNextBatch(songList, idx) {
     _rateLimitStreak = 0;
     _transientStreak = 0;
     _geminiDelay = 6000;
+    tagging.done = idx + batch.length; // update AFTER batch completes — no more jumping
     saveLibrary();
     render();
     setTimeout(function() { tagNextBatch(songList, idx + batch.length); }, _geminiDelay);
   }).catch(function(err) {
     if (err && err.isRateLimit) {
-      _handleRateLimit(songList, idx, tagNextBatch);
+      _handleRateLimit(songList, idx, tagNextBatch, err.isDailyQuota);
     } else if (err && err.isTransient) {
       _rateLimitStreak = 0;
       _handleTransient(songList, idx, tagNextBatch);
@@ -3210,6 +3262,7 @@ function tagNextBatch(songList, idx) {
         song.aiAttempted = now;
         tagging.failedCount = (tagging.failedCount || 0) + 1;
       });
+      tagging.done = idx + batch.length;
       saveLibrary();
       setTimeout(function() { tagNextBatch(songList, idx + batch.length); }, 500);
     }
@@ -3228,16 +3281,18 @@ function fixSubgenreBatch(songList, idx) {
     var modified = tagging.modified || [];
     enrichTaggedSongs(modified, function() {
       saveLibrary();
-      tagging.active = false;
-      updateTaggingBanner();
       var toWrite = modified.filter(function(s) { return s.contentUri; });
-      if (isNat && toWrite.length > 0) writeTaggedToFiles(toWrite);
+      if (isNat && toWrite.length > 0) {
+        writeTaggedToFiles(toWrite);
+      } else {
+        tagging.active = false;
+        updateTaggingBanner();
+      }
     });
     return;
   }
   var batch = songList.slice(idx, idx + BATCH_SIZE);
   tagging.current = batch[0].title + (batch.length > 1 ? ' +' + (batch.length - 1) + ' more' : '');
-  tagging.done = idx;
   updateTaggingBanner();
 
   callGeminiSubgenreBatch(batch).then(function(genres) {
@@ -3256,12 +3311,13 @@ function fixSubgenreBatch(songList, idx) {
     _rateLimitStreak = 0;
     _transientStreak = 0;
     _geminiDelay = 6000;
+    tagging.done = idx + batch.length;
     saveLibrary();
     render();
     setTimeout(function() { fixSubgenreBatch(songList, idx + batch.length); }, _geminiDelay);
   }).catch(function(err) {
     if (err && err.isRateLimit) {
-      _handleRateLimit(songList, idx, fixSubgenreBatch);
+      _handleRateLimit(songList, idx, fixSubgenreBatch, err.isDailyQuota);
     } else if (err && err.isTransient) {
       _rateLimitStreak = 0;
       _handleTransient(songList, idx, fixSubgenreBatch);
@@ -3274,6 +3330,7 @@ function fixSubgenreBatch(songList, idx) {
         song.aiAttempted = now;
         tagging.failedCount = (tagging.failedCount || 0) + 1;
       });
+      tagging.done = idx + batch.length;
       saveLibrary();
       setTimeout(function() { fixSubgenreBatch(songList, idx + batch.length); }, 500);
     }
@@ -3287,8 +3344,8 @@ function updateTaggingBanner() {
   var lbl = document.getElementById('taggingLabel');
   if (lbl) lbl.textContent = tagging.label || 'Auto-tagging music...';
   document.getElementById('taggingCurrent').textContent = tagging.current;
-  document.getElementById('taggingCount').textContent = (tagging.done + 1) + ' / ' + tagging.total;
-  document.getElementById('taggingBar').style.width = ((tagging.done + 1) / tagging.total * 100) + '%';
+  document.getElementById('taggingCount').textContent = tagging.done + ' / ' + tagging.total;
+  document.getElementById('taggingBar').style.width = (tagging.done / tagging.total * 100) + '%';
   var pauseBtn = document.getElementById('taggingPauseBtn');
   if (pauseBtn) {
     pauseBtn.classList.toggle('paused', !!tagging.paused);
@@ -3380,8 +3437,16 @@ function callGeminiBatch(songList) {
       }
     })
   }).then(function(res) {
-    if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
-    if (res.status >= 500)  { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
+    if (res.status === 429) {
+      return res.json().then(function(body) {
+        var e = new Error('Rate limited'); e.isRateLimit = true;
+        if (_isDailyQuotaBody(body)) e.isDailyQuota = true;
+        throw e;
+      }, function() {
+        var e = new Error('Rate limited'); e.isRateLimit = true; throw e;
+      });
+    }
+    if (res.status >= 500) { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
     return res.json();
   }).then(function(data) {
     cleanup();
@@ -3450,8 +3515,16 @@ function callGeminiSubgenreBatch(songList) {
       }
     })
   }).then(function(res) {
-    if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
-    if (res.status >= 500)  { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
+    if (res.status === 429) {
+      return res.json().then(function(body) {
+        var e = new Error('Rate limited'); e.isRateLimit = true;
+        if (_isDailyQuotaBody(body)) e.isDailyQuota = true;
+        throw e;
+      }, function() {
+        var e = new Error('Rate limited'); e.isRateLimit = true; throw e;
+      });
+    }
+    if (res.status >= 500) { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
     return res.json();
   }).then(function(data) {
     cleanup();
@@ -4504,10 +4577,12 @@ document.getElementById('retagLibBtn').onclick = function() {
   var key = document.getElementById('apiKeyInput').value.trim() || apiKey;
   if (!key) { showToast('Save an API key first'); return; }
   if (tagging.active) { showToast('Tagging already in progress'); return; }
-  // Force re-tag: ignore 24h cooldown, filter on actual missing fields
+  // Force re-tag: ignore 24h cooldown, filter on actual missing fields.
+  // Still skip songs Gemini cannot identify (no artist, no real title, no real filename).
   var toTag = songs.filter(function(s) {
-    return !s.year || !s.genre || GENERIC_GENRE.test((s.genre || '').trim())
+    var needsTag = !s.year || !s.genre || GENERIC_GENRE.test((s.genre || '').trim())
       || s.artist === 'Unknown Artist' || s.album === 'Unknown Album';
+    return needsTag && _hasGeminiContext(s);
   });
   if (toTag.length === 0) { showToast('All songs already fully tagged!'); return; }
   apiKey = key;
@@ -4534,9 +4609,10 @@ document.getElementById('fixUnknownBtn').onclick = function() {
   if (!key) { showToast('Save an API key first'); return; }
   if (tagging.active) { showToast('Tagging already in progress'); return; }
   var toFix = songs.filter(function(s) {
-    return s.artist === 'Unknown Artist' || s.album === 'Unknown Album';
+    if (s.artist !== 'Unknown Artist' && s.album !== 'Unknown Album') return false;
+    return _hasGeminiContext(s); // skip songs with no filename/title Gemini can use
   });
-  if (toFix.length === 0) { showToast('No unknown songs found!'); return; }
+  if (toFix.length === 0) { showToast('No identifiable unknown songs found!'); return; }
   apiKey = key;
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
@@ -4867,7 +4943,26 @@ function nativeAutoScan() {
       return;
     }
     var newSongs = files.map(function(f) { return NativeBridge.toSong(f); });
-    songs = newSongs;
+
+    // Merge with whatever is already in memory (IDB data, user edits, AI tags, lyrics).
+    // Never replace — that wipes all saved metadata. MediaStore only owns: url, contentUri,
+    // nativePath, albumArtUri, dur. Everything else comes from the saved library.
+    var _byUri = Object.create(null), _byFn = Object.create(null);
+    songs.forEach(function(s) {
+      if (s.contentUri) _byUri[s.contentUri] = s;
+      if (s.fn)         _byFn[s.fn]          = s;
+    });
+    songs = newSongs.map(function(ns) {
+      var ex = _byUri[ns.contentUri] || _byFn[ns.fn];
+      if (!ex) return ns; // genuinely new file
+      ex.url         = ns.url         || ex.url;
+      ex.contentUri  = ns.contentUri  || ex.contentUri;
+      ex.nativePath  = ns.nativePath  || ex.nativePath;
+      ex.albumArtUri = ns.albumArtUri || ex.albumArtUri;
+      ex.dur         = ns.dur         || ex.dur;
+      return ex;
+    });
+
     saveLibrary();
     render();
     backgroundLoadAllArt();
