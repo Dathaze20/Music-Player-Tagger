@@ -3100,8 +3100,10 @@ function autoFillMetadata() {
   tagNextSong(toFill, 0);
 }
 
-// Adaptive inter-request delay — backs off on rate-limit, recovers on success
-var _geminiDelay = 200;
+// Start at the safe rate for the free tier (15 req/min = 1 per 4s).
+// Backs off further on 429; after 5 consecutive 429s pauses a full 60s to let quota reset.
+var _geminiDelay = 4500;
+var _rateLimitStreak = 0;
 
 function tagNextSong(songList, idx) {
   if (tagging.paused) return;
@@ -3132,21 +3134,36 @@ function tagNextSong(songList, idx) {
     if (meta.lyrics)          song.lyrics = meta.lyrics;
     song.tagging = false;
     song.aiAttempted = Date.now();
-    _geminiDelay = Math.max(200, _geminiDelay - 200);
-    saveLibrary();   // saves to both localStorage and IDB; render to show change immediately
+    _rateLimitStreak = 0;
+    _geminiDelay = 4500;
+    saveLibrary();
     render();
     setTimeout(function() { tagNextSong(songList, idx + 1); }, _geminiDelay);
   }).catch(function(err) {
     song.tagging = false;
     if (err && err.isRateLimit) {
-      _geminiDelay = Math.min(8000, _geminiDelay + 4000);
-      tagging.label = 'Rate limited — slowing down (' + (_geminiDelay / 1000).toFixed(0) + 's)...';
-      updateTaggingBanner();
-      setTimeout(function() {
-        tagging.label = 'AI filling metadata...';
-        tagNextSong(songList, idx);
-      }, _geminiDelay);
+      _rateLimitStreak++;
+      if (_rateLimitStreak >= 5) {
+        // Quota window is exhausted — wait a full minute for it to reset
+        _rateLimitStreak = 0;
+        _geminiDelay = 4500;
+        tagging.label = 'Quota reached — waiting 60s for reset...';
+        updateTaggingBanner();
+        setTimeout(function() {
+          tagging.label = 'AI filling metadata...';
+          tagNextSong(songList, idx);
+        }, 60000);
+      } else {
+        _geminiDelay = Math.min(20000, _geminiDelay + 5000);
+        tagging.label = 'Rate limited — waiting ' + Math.round(_geminiDelay / 1000) + 's...';
+        updateTaggingBanner();
+        setTimeout(function() {
+          tagging.label = 'AI filling metadata...';
+          tagNextSong(songList, idx);
+        }, _geminiDelay);
+      }
     } else {
+      _rateLimitStreak = 0;
       song.aiAttempted = Date.now();
       saveLibrary();
       setTimeout(function() { tagNextSong(songList, idx + 1); }, 500);
@@ -4052,21 +4069,35 @@ function fixSubgenreNext(songList, idx) {
   callGeminiSubgenre(song).then(function(genre) {
     if (genre) song.genre = genre;
     song.tagging = false;
-    _geminiDelay = Math.max(200, _geminiDelay - 200);
+    _rateLimitStreak = 0;
+    _geminiDelay = 4500;
     saveLibrary();
     render();
     setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, _geminiDelay);
   }).catch(function(err) {
     song.tagging = false;
     if (err && err.isRateLimit) {
-      _geminiDelay = Math.min(8000, _geminiDelay + 4000);
-      tagging.label = 'Rate limited — slowing down (' + (_geminiDelay / 1000).toFixed(0) + 's)...';
-      updateTaggingBanner();
-      setTimeout(function() {
-        tagging.label = 'Fixing subgenres...';
-        fixSubgenreNext(songList, idx);
-      }, _geminiDelay);
+      _rateLimitStreak++;
+      if (_rateLimitStreak >= 5) {
+        _rateLimitStreak = 0;
+        _geminiDelay = 4500;
+        tagging.label = 'Quota reached — waiting 60s for reset...';
+        updateTaggingBanner();
+        setTimeout(function() {
+          tagging.label = 'Fixing subgenres...';
+          fixSubgenreNext(songList, idx);
+        }, 60000);
+      } else {
+        _geminiDelay = Math.min(20000, _geminiDelay + 5000);
+        tagging.label = 'Rate limited — waiting ' + Math.round(_geminiDelay / 1000) + 's...';
+        updateTaggingBanner();
+        setTimeout(function() {
+          tagging.label = 'Fixing subgenres...';
+          fixSubgenreNext(songList, idx);
+        }, _geminiDelay);
+      }
     } else {
+      _rateLimitStreak = 0;
       setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 500);
     }
   });
