@@ -3177,10 +3177,13 @@ function tagNextBatch(songList, idx) {
     enrichTaggedSongs(modified, function() {
       saveLibrary();
       render();
-      tagging.active = false;
-      updateTaggingBanner();
       var toWrite = modified.filter(function(s) { return s.contentUri; });
-      if (isNat && toWrite.length > 0) writeTaggedToFiles(toWrite);
+      if (isNat && toWrite.length > 0) {
+        writeTaggedToFiles(toWrite); // keeps tagging.active=true during file writes
+      } else {
+        tagging.active = false;
+        updateTaggingBanner();
+      }
     });
     return;
   }
@@ -3243,10 +3246,13 @@ function fixSubgenreBatch(songList, idx) {
     var modified = tagging.modified || [];
     enrichTaggedSongs(modified, function() {
       saveLibrary();
-      tagging.active = false;
-      updateTaggingBanner();
       var toWrite = modified.filter(function(s) { return s.contentUri; });
-      if (isNat && toWrite.length > 0) writeTaggedToFiles(toWrite);
+      if (isNat && toWrite.length > 0) {
+        writeTaggedToFiles(toWrite);
+      } else {
+        tagging.active = false;
+        updateTaggingBanner();
+      }
     });
     return;
   }
