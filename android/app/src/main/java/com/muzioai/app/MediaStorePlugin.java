@@ -324,6 +324,7 @@ public class MediaStorePlugin extends Plugin {
         String year        = nvl(call.getString("year",        ""));
         String genre       = nvl(call.getString("genre",       ""));
         String albumArtist = nvl(call.getString("albumArtist", ""));
+        String track       = nvl(call.getString("track",       ""));
         String lyrics      = nvl(call.getString("lyrics",      ""));
         String artBase64   = nvl(call.getString("artBase64",   ""));
 
@@ -381,6 +382,7 @@ public class MediaStorePlugin extends Plugin {
             if (!year.isEmpty())        tag.setField(FieldKey.YEAR,         year);
             if (!genre.isEmpty())       tag.setField(FieldKey.GENRE,        genre);
             if (!albumArtist.isEmpty()) tag.setField(FieldKey.ALBUM_ARTIST, albumArtist);
+            if (!track.isEmpty())       tag.setField(FieldKey.TRACK,        track);
             if (!lyrics.isEmpty())      tag.setField(FieldKey.LYRICS,       lyrics);
 
             if (artBytes != null && artBytes.length > 0) {
@@ -411,7 +413,7 @@ public class MediaStorePlugin extends Plugin {
             }
 
             // --- Phase 4: Update MediaStore metadata cache ---
-            updateMediaStore(resolver, mediaUri, title, artist, album, year, genre, albumArtist);
+            updateMediaStore(resolver, mediaUri, title, artist, album, year, genre, albumArtist, track);
 
             // --- Phase 5: Trigger media scanner so Muzio and other apps see changes ---
             resolver.notifyChange(mediaUri, null);
@@ -461,13 +463,17 @@ public class MediaStorePlugin extends Plugin {
     /** Update MediaStore's cached metadata columns. */
     private void updateMediaStore(ContentResolver resolver, Uri mediaUri,
             String title, String artist, String album, String year,
-            String genre, String albumArtist) {
+            String genre, String albumArtist, String track) {
         ContentValues cv = new ContentValues();
         if (!title.isEmpty())  cv.put(MediaStore.Audio.Media.TITLE,  title);
         if (!artist.isEmpty()) cv.put(MediaStore.Audio.Media.ARTIST, artist);
         if (!album.isEmpty())  cv.put(MediaStore.Audio.Media.ALBUM,  album);
         if (!year.isEmpty()) {
             try { cv.put(MediaStore.Audio.Media.YEAR, Integer.parseInt(year)); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (!track.isEmpty()) {
+            try { cv.put(MediaStore.Audio.Media.TRACK, Integer.parseInt(track)); }
             catch (NumberFormatException ignored) {}
         }
         if (Build.VERSION.SDK_INT >= 30) {

@@ -210,6 +210,7 @@ var NativeBridge = (function() {
       year:        String(params.year        || ''),
       genre:       String(params.genre       || ''),
       albumArtist: String(params.albumArtist || ''),
+      track:       String(params.track != null ? params.track : ''),
       lyrics:      String(params.lyrics      || ''),
       artBase64:   String(params.artBase64   || ''),
     });

@@ -1,5 +1,5 @@
-const CACHE = 'muzio-ai-v1';
-const SHELL = ['./', './index.html', './app.js', './style.css', './icon.svg', './manifest.json'];
+const CACHE = 'muzio-ai-v2';
+const SHELL = ['./', './index.html', './app.js', './style.css', './icon.svg', './manifest.json', './text-utils.js', './native-bridge.js'];
 
 self.addEventListener('install', function(e) {
   e.waitUntil(caches.open(CACHE).then(function(c) { return c.addAll(SHELL); }));
