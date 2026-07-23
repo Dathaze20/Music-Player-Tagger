@@ -681,7 +681,8 @@ function saveLibraryIDB() {
       dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
       playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
       nativePath: s.nativePath || '', contentUri: s.contentUri || '',
-      albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || ''
+      albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || '',
+      aiAttempted: s.aiAttempted || 0
     };
   });
   openLibDb().then(function(db) {
@@ -3077,12 +3078,15 @@ function handleFileImport(files) {
 // ─── AI Auto-Tagging ───
 
 var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
+var _ONE_DAY_MS = 86400000;
 
 function needsAiMetadata(s) {
+  var isUnknown = s.artist === 'Unknown Artist' || s.album === 'Unknown Album';
+  // If AI tried this song in the last 24h and it's not a hard Unknown, don't re-queue
+  if (!isUnknown && s.aiAttempted && (Date.now() - s.aiAttempted) < _ONE_DAY_MS) return false;
   return !s.year
     || !s.genre || GENERIC_GENRE.test(s.genre.trim())
-    || s.artist === 'Unknown Artist'
-    || s.album  === 'Unknown Album';
+    || isUnknown;
 }
 
 // Called automatically after library loads — quietly fills gaps in the background
@@ -3095,6 +3099,9 @@ function autoFillMetadata() {
   updateTaggingBanner();
   tagNextSong(toFill, 0);
 }
+
+// Adaptive inter-request delay — backs off on rate-limit, recovers on success
+var _geminiDelay = 200;
 
 function tagNextSong(songList, idx) {
   if (tagging.paused) return;
@@ -3112,25 +3119,35 @@ function tagNextSong(songList, idx) {
   updateTaggingBanner();
 
   callGeminiTag(song).then(function(meta) {
-    // Only overwrite fields that AI actually returned something for
-    if (meta.title)          song.title  = meta.title;
-    if (meta.artist)         song.artist = meta.artist;
-    if (meta.album)          song.album  = meta.album;
-    if (meta.year)           song.year   = String(meta.year);
-    if (meta.genre)          song.genre  = meta.genre;
-    if (meta.trackNumber)    song.track  = parseInt(meta.trackNumber) || 0;
-    if (meta.releaseType)    song.type   = meta.releaseType;
-    if (meta.featuredArtists) song.feat  = meta.featuredArtists;
-    if (meta.albumArtUrl)    song.art    = meta.albumArtUrl;
-    if (meta.syncedLyrics)   song.syncedLyrics = meta.syncedLyrics;
-    if (meta.lyrics)         song.lyrics = meta.lyrics;
+    if (meta.title)           song.title  = meta.title;
+    if (meta.artist)          song.artist = meta.artist;
+    if (meta.album)           song.album  = meta.album;
+    if (meta.year)            song.year   = String(meta.year);
+    if (meta.genre)           song.genre  = meta.genre;
+    if (meta.trackNumber)     song.track  = parseInt(meta.trackNumber) || 0;
+    if (meta.releaseType)     song.type   = meta.releaseType;
+    if (meta.featuredArtists) song.feat   = meta.featuredArtists;
+    if (meta.albumArtUrl)     song.art    = meta.albumArtUrl;
+    if (meta.syncedLyrics)    song.syncedLyrics = meta.syncedLyrics;
+    if (meta.lyrics)          song.lyrics = meta.lyrics;
     song.tagging = false;
-    saveLibraryIDB();                                   // full data to IDB every song
-    if (idx % 10 === 0) { saveLibrary(); render(); }   // localStorage + UI every 10
-    setTimeout(function() { tagNextSong(songList, idx + 1); }, 200);
-  }).catch(function() {
+    song.aiAttempted = Date.now();
+    _geminiDelay = Math.max(200, _geminiDelay - 200);  // recover toward 200ms on success
+    saveLibraryIDB();
+    if (idx % 10 === 0) { saveLibrary(); render(); }
+    setTimeout(function() { tagNextSong(songList, idx + 1); }, _geminiDelay);
+  }).catch(function(err) {
     song.tagging = false;
-    setTimeout(function() { tagNextSong(songList, idx + 1); }, 500);
+    if (err && err.isRateLimit) {
+      // Gemini rate-limited us — back off and retry the SAME song
+      _geminiDelay = Math.min(8000, _geminiDelay + 4000);
+      setTimeout(function() { tagNextSong(songList, idx); }, _geminiDelay);
+    } else {
+      // AI didn't recognize this song — mark attempted so we skip it for 24h
+      song.aiAttempted = Date.now();
+      saveLibraryIDB();
+      setTimeout(function() { tagNextSong(songList, idx + 1); }, 500);
+    }
   });
 }
 
@@ -3184,8 +3201,10 @@ function callGeminiTag(songOrFile) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-  }).then(function(res) { return res.json(); })
-    .then(function(data) {
+  }).then(function(res) {
+    if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
+    return res.json();
+  }).then(function(data) {
       if (!data.candidates || !data.candidates[0]) throw new Error('No response');
       var text = data.candidates[0].content.parts[0].text.trim();
       text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
@@ -4004,8 +4023,10 @@ function callGeminiSubgenre(song) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-  }).then(function(r) { return r.json(); })
-    .then(function(d) {
+  }).then(function(r) {
+    if (r.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
+    return r.json();
+  }).then(function(d) {
       if (!d.candidates || !d.candidates[0]) return '';
       return d.candidates[0].content.parts[0].text.trim().replace(/^["']|["']$/g, '');
     });
@@ -4028,11 +4049,17 @@ function fixSubgenreNext(songList, idx) {
   callGeminiSubgenre(song).then(function(genre) {
     if (genre) song.genre = genre;
     song.tagging = false;
+    _geminiDelay = Math.max(200, _geminiDelay - 200);
     if (idx % 10 === 0) { saveLibrary(); render(); }
-    setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 200);
-  }).catch(function() {
+    setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, _geminiDelay);
+  }).catch(function(err) {
     song.tagging = false;
-    setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 500);
+    if (err && err.isRateLimit) {
+      _geminiDelay = Math.min(8000, _geminiDelay + 4000);
+      setTimeout(function() { fixSubgenreNext(songList, idx); }, _geminiDelay);
+    } else {
+      setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 500);
+    }
   });
 }
 
