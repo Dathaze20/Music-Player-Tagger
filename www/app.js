@@ -705,13 +705,12 @@ function saveLibrary() {
   _countsCache = null;
   songMap = Object.create(null);
   songs.forEach(function(s) { songMap[s.id] = s; });
-  // Primary: try full save with lyrics
+  // Lean localStorage tier: no lyrics (stored in IDB). Keeps quota usage low.
   try {
-    var data = songs.map(function(s) {
+    var lean = songs.map(function(s) {
       return {
         fn: s.fn, title: s.title, artist: s.artist, album: s.album,
         year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track, art: s.art,
-        lyrics: s.lyrics, syncedLyrics: s.syncedLyrics,
         dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
         playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
         nativePath:  s.nativePath  || '',
@@ -721,47 +720,10 @@ function saveLibrary() {
         aiAttempted: s.aiAttempted || 0
       };
     });
-    localStorage.setItem('muzio_library', JSON.stringify(data));
+    localStorage.setItem('muzio_library', JSON.stringify(lean));
     localStorage.setItem('muzio_library_count', songs.length.toString());
     localStorage.setItem('muzio_library_saved', Date.now().toString());
-  } catch (e) {
-    // Quota exceeded — retry without lyrics
-    try {
-      var slim = songs.map(function(s) {
-        return {
-          fn: s.fn, title: s.title, artist: s.artist, album: s.album,
-          year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track, art: s.art,
-          dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
-          playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
-          nativePath:  s.nativePath  || '',
-          contentUri:  s.contentUri  || '',
-          albumArtUri: s.albumArtUri || '',
-          albumArtist: s.albumArtist || '',
-          aiAttempted: s.aiAttempted || 0
-        };
-      });
-      localStorage.setItem('muzio_library', JSON.stringify(slim));
-      localStorage.setItem('muzio_library_count', songs.length.toString());
-      localStorage.setItem('muzio_library_saved', Date.now().toString());
-    } catch (e2) {
-      // Still over quota — save bare minimum (paths only, no art/metadata strings)
-      try {
-        var bare = songs.map(function(s) {
-          return {
-            fn: s.fn, title: s.title, artist: s.artist, album: s.album,
-            disc: s.disc || 1, track: s.track, dur: s.dur,
-            fav: s.fav, playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
-            nativePath: s.nativePath || '', contentUri: s.contentUri || '',
-            albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || '',
-            aiAttempted: s.aiAttempted || 0
-          };
-        });
-        localStorage.setItem('muzio_library', JSON.stringify(bare));
-        localStorage.setItem('muzio_library_count', songs.length.toString());
-        localStorage.setItem('muzio_library_saved', Date.now().toString());
-      } catch (e3) {}
-    }
-  }
+  } catch (e) {}
   // Always persist to IndexedDB as well (no quota limit, survives localStorage failures)
   saveLibraryIDB();
 }
@@ -3154,6 +3116,37 @@ function _handleRateLimit(songList, idx, resumeFn) {
   }
 }
 
+function writeTaggedToFiles(songList) {
+  var total = songList.length;
+  tagging.active = true;
+  function next(i) {
+    if (i >= songList.length) {
+      tagging.active = false;
+      updateTaggingBanner();
+      showToast('Tags written to ' + total + ' file' + (total !== 1 ? 's' : '') + ' ✓');
+      return;
+    }
+    var s = songList[i];
+    tagging.label = 'Writing file ' + (i + 1) + '/' + total + '…';
+    tagging.current = s.title || s.fn || '';
+    updateTaggingBanner();
+    NativeBridge.writeFileTags({
+      contentUri:  s.contentUri,
+      title:       s.title       || '',
+      artist:      s.artist      || '',
+      album:       s.album       || '',
+      year:        s.year        || '',
+      genre:       s.genre       || '',
+      albumArtist: s.albumArtist || '',
+      track:       s.track       || 0,
+      lyrics:      s.syncedLyrics || s.lyrics || '',
+      artBase64:   ''
+    }).then(function() { next(i + 1); })
+      .catch(function()  { next(i + 1); });
+  }
+  next(0);
+}
+
 function tagNextBatch(songList, idx) {
   if (tagging.paused) { tagging.idx = idx; return; }
   tagging.idx = idx;
@@ -3164,6 +3157,9 @@ function tagNextBatch(songList, idx) {
     render();
     var t = tagging.taggedCount || 0, f = tagging.failedCount || 0;
     showToast(t + ' song' + (t !== 1 ? 's' : '') + ' tagged' + (f > 0 ? ', ' + f + ' skipped' : '') + ' ✓');
+    var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+    var toWrite = (tagging.modified || []).filter(function(s) { return s.contentUri; });
+    if (isNat && toWrite.length > 0) writeTaggedToFiles(toWrite);
     return;
   }
   var batch = songList.slice(idx, idx + BATCH_SIZE);
@@ -3176,11 +3172,13 @@ function tagNextBatch(songList, idx) {
     results.forEach(function(meta, i) {
       var song = batch[i];
       if (!song) return;
-      applyMetaToSong(song, meta);
+      var changed = applyMetaToSong(song, meta);
       song.tagging = false;
       song.aiAttempted = now;
-      if (meta && (meta.title || meta.artist || meta.album || meta.year || meta.genre)) {
+      if (changed) {
         tagging.taggedCount = (tagging.taggedCount || 0) + 1;
+        if (!tagging.modified) tagging.modified = [];
+        tagging.modified.push(song);
       }
     });
     _rateLimitStreak = 0;
@@ -3286,19 +3284,22 @@ var _GEMINI_TAG_RULES = 'Rules:\n'
 var BATCH_SIZE = 20;
 
 // Apply AI result to a single song using fill-blanks-only rules.
+// Returns true if any field was actually changed (used to decide whether to write to file).
 function applyMetaToSong(song, meta) {
-  if (!meta || typeof meta !== 'object') return;
+  if (!meta || typeof meta !== 'object') return false;
   var ua = !song.artist || song.artist === 'Unknown Artist';
   var ub = !song.album  || song.album  === 'Unknown Album';
-  if (meta.title  && (!song.title  || /^unknown/i.test(song.title)))       song.title  = meta.title;
-  if (meta.artist && ua)                                                    song.artist = meta.artist;
-  if (meta.album  && ub)                                                    song.album  = meta.album;
-  if (meta.albumArtist && !song.albumArtist)                                song.albumArtist = meta.albumArtist;
-  if (meta.year  && !song.year)                                             song.year   = String(meta.year);
-  if (meta.genre && (!song.genre || GENERIC_GENRE.test(song.genre.trim()))) song.genre  = meta.genre;
-  if (meta.trackNumber && !song.track)                                      song.track  = parseInt(meta.trackNumber) || 0;
-  if (meta.releaseType && !song.type)                                       song.type   = meta.releaseType;
-  if (meta.featuredArtists && !song.feat)                                   song.feat   = meta.featuredArtists;
+  var n = 0;
+  if (meta.title  && (!song.title  || /^unknown/i.test(song.title)))       { song.title  = meta.title; n++; }
+  if (meta.artist && ua)                                                    { song.artist = meta.artist; n++; }
+  if (meta.album  && ub)                                                    { song.album  = meta.album; n++; }
+  if (meta.albumArtist && !song.albumArtist)                                { song.albumArtist = meta.albumArtist; n++; }
+  if (meta.year  && !song.year)                                             { song.year   = String(meta.year); n++; }
+  if (meta.genre && (!song.genre || GENERIC_GENRE.test(song.genre.trim()))) { song.genre  = meta.genre; n++; }
+  if (meta.trackNumber && !song.track) { var t = parseInt(meta.trackNumber) || 0; if (t) { song.track = t; n++; } }
+  if (meta.releaseType && !song.type)                                       { song.type   = meta.releaseType; n++; }
+  if (meta.featuredArtists && !song.feat)                                   { song.feat   = meta.featuredArtists; n++; }
+  return n > 0;
 }
 
 // Send one request to tag a batch of up to BATCH_SIZE songs.
@@ -3335,8 +3336,16 @@ function callGeminiBatch(songList) {
     if (!data.candidates || !data.candidates[0]) throw new Error('No response');
     var text = data.candidates[0].content.parts[0].text.trim();
     text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
-    var arr = JSON.parse(text);
-    if (!Array.isArray(arr)) arr = [arr];
+    var arr;
+    try { arr = JSON.parse(text); } catch(e) { arr = []; }
+    if (!Array.isArray(arr)) {
+      var found = null;
+      if (arr && typeof arr === 'object') {
+        Object.keys(arr).forEach(function(k) { if (!found && Array.isArray(arr[k])) found = arr[k]; });
+      }
+      arr = found || [];
+    }
+    arr = arr.slice(0, songList.length);
     while (arr.length < songList.length) arr.push({});
     return arr;
   });
@@ -3378,8 +3387,10 @@ function callGeminiSubgenreBatch(songList) {
     if (!data.candidates || !data.candidates[0]) throw new Error('No response');
     var text = data.candidates[0].content.parts[0].text.trim();
     text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
-    var arr = JSON.parse(text);
+    var arr;
+    try { arr = JSON.parse(text); } catch(e) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
+    arr = arr.slice(0, songList.length);
     while (arr.length < songList.length) arr.push('');
     return arr;
   });
