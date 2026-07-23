@@ -3147,18 +3147,21 @@ function tagNextSong(songList, idx) {
   updateTaggingBanner();
 
   callGeminiTag(song).then(function(meta) {
-    if (meta.title)           song.title  = meta.title;
-    if (meta.artist)          song.artist = meta.artist;
-    if (meta.album)           song.album  = meta.album;
-    if (meta.year)            song.year   = String(meta.year);
-    if (meta.genre)           song.genre  = meta.genre;
-    if (meta.trackNumber)     song.track  = parseInt(meta.trackNumber) || 0;
-    if (meta.releaseType)     song.type   = meta.releaseType;
-    if (meta.featuredArtists) song.feat   = meta.featuredArtists;
-    if (meta.albumArtUrl)     song.art        = meta.albumArtUrl;
-    if (meta.albumArtist)     song.albumArtist = meta.albumArtist;
-    if (meta.syncedLyrics)    song.syncedLyrics = meta.syncedLyrics;
-    if (meta.lyrics)          song.lyrics = meta.lyrics;
+    // Fill-blanks-only: never overwrite metadata that is already correct.
+    // AI only fills fields that are empty or flagged as unknown.
+    var ua = !song.artist || song.artist === 'Unknown Artist';
+    var ub = !song.album  || song.album  === 'Unknown Album';
+    if (meta.title  && (!song.title  || /^unknown/i.test(song.title)))  song.title  = meta.title;
+    if (meta.artist && ua)                                               song.artist = meta.artist;
+    if (meta.album  && ub)                                               song.album  = meta.album;
+    if (meta.albumArtist && !song.albumArtist)                           song.albumArtist = meta.albumArtist;
+    if (meta.year  && !song.year)                                        song.year   = String(meta.year);
+    if (meta.genre && (!song.genre || GENERIC_GENRE.test(song.genre.trim()))) song.genre = meta.genre;
+    if (meta.trackNumber && !song.track)                                 song.track  = parseInt(meta.trackNumber) || 0;
+    if (meta.releaseType && !song.type)                                  song.type   = meta.releaseType;
+    if (meta.featuredArtists && !song.feat)                              song.feat   = meta.featuredArtists;
+    if (meta.syncedLyrics && !song.syncedLyrics && !song.lyrics)         song.syncedLyrics = meta.syncedLyrics;
+    if (meta.lyrics && !song.lyrics && !song.syncedLyrics)               song.lyrics = meta.lyrics;
     song.tagging = false;
     song.aiAttempted = Date.now();
     _rateLimitStreak = 0;
@@ -3218,7 +3221,7 @@ function updateTaggingBanner() {
 
 function callGeminiTag(songOrFile) {
   if (!apiKey) return Promise.resolve({});
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey;
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
   // Build context block from existing metadata so AI can confirm & fill gaps
   var fileName = typeof songOrFile === 'string' ? songOrFile : (songOrFile.fn || '');
@@ -3238,30 +3241,31 @@ function callGeminiTag(songOrFile) {
     + (ctx ? 'The song already has the following metadata — use it to confirm the song identity, then fill in any missing or incorrect fields:\n' + ctx + '\n' : '')
     + 'Filename: ' + fileName + '\n\n'
     + 'Return ONLY a JSON object with these fields:\n'
-    + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"albumArtUrl":"","year":"","genre":"","releaseType":"","featuredArtists":"","syncedLyrics":""}\n\n'
+    + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
     + 'Rules:\n'
     + '- releaseType must be one of: Album, Mixtape, EP, Single\n'
     + '- For loosies/SoundCloud tracks not on any project, use "Single"\n'
     + '- For DJ-hosted tapes (Gangsta Grillz, Drama, etc), use "Mixtape"\n'
     + '- genre must be specific: Boom-Bap, Trap, Drill, G-Funk, Cloud Rap, Gangsta Rap, East Coast, West Coast, Conscious Hip-Hop, Memphis Rap, Phonk, Crunk, R&B, Neo-Soul — never just "Hip-Hop" or "Rap"\n'
-    + '- albumArtUrl: a real image URL for the album cover if you know one, otherwise leave empty\n'
-    + '- syncedLyrics: full lyrics in LRC format [mm:ss.xx] per line. Leave empty if unknown.\n'
     + '- If you are not confident about a field, leave it empty — do not guess\n'
     + '- Return ONLY the JSON object, no markdown, no explanation';
 
   return fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json' }
+    })
   }).then(function(res) {
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
     return res.json();
   }).then(function(data) {
-      if (!data.candidates || !data.candidates[0]) throw new Error('No response');
-      var text = data.candidates[0].content.parts[0].text.trim();
-      text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
-      return JSON.parse(text);
-    });
+    if (!data.candidates || !data.candidates[0]) throw new Error('No response');
+    var text = data.candidates[0].content.parts[0].text.trim();
+    text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
+    return JSON.parse(text);
+  });
 }
 
 // ─── Edit Modals ───
@@ -3422,6 +3426,36 @@ function openSongEditModal(songId) {
   document.getElementById('teSaveBtn').onclick = function() {
     applyFormToSong();
     finishSave();
+    // On native, persist tags to the actual file immediately
+    var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+    if (!isNat || !song.contentUri) return;
+    var artPromise = song.albumArtUri
+      ? NativeBridge.readAlbumArt(song.albumArtUri, 500).catch(function() { return ''; })
+      : Promise.resolve(song.art && song.art.startsWith('data:') ? song.art : '');
+    artPromise.then(function(artBase64) {
+      return NativeBridge.writeFileTags({
+        contentUri:   song.contentUri,
+        title:        song.title        || '',
+        artist:       song.artist       || '',
+        album:        song.album        || '',
+        year:         song.year         || '',
+        genre:        song.genre        || '',
+        albumArtist:  song.albumArtist  || '',
+        track:        song.track        || 0,
+        lyrics:       song.syncedLyrics || song.lyrics || '',
+        artBase64:    artBase64         || '',
+      });
+    }).then(function() {
+      showToast('Saved to file ✓');
+    }).catch(function(err) {
+      var msg = err && err.message ? err.message : String(err);
+      if (msg.indexOf('SD_CARD_ACCESS_REQUIRED') !== -1) {
+        showToast('SD card access needed — grant it in AI Settings', 5000);
+        promptSdCardAccess();
+      } else {
+        showToast('File write failed: ' + msg, 4000);
+      }
+    });
   };
 
   // ── AI Fill ──
@@ -3451,22 +3485,6 @@ function openSongEditModal(songId) {
       modal.querySelectorAll('.te-chip').forEach(function(b) {
         b.classList.toggle('active', b.dataset.type === result.releaseType);
       });
-    }
-    // Update art preview if AI returned a URL
-    if (result.albumArtUrl) {
-      song.art = result.albumArtUrl;
-      var wrap = document.getElementById('teArtWrap');
-      var existingImg = document.getElementById('teArtImg');
-      if (existingImg) {
-        existingImg.src = result.albumArtUrl;
-        existingImg.style.display = '';
-      } else if (wrap) {
-        var img = document.createElement('img');
-        img.className = 'te-art-img'; img.id = 'teArtImg';
-        img.src = result.albumArtUrl;
-        img.onerror = function() { this.style.display = 'none'; };
-        wrap.appendChild(img);
-      }
     }
     // Lyrics: only fill if empty
     var lyricsEl = document.getElementById('teLyrics');
@@ -3607,7 +3625,8 @@ function openEditModal(albumName, artistName) {
           year:        s.year        || '',
           genre:       s.genre       || '',
           albumArtist: s.albumArtist || '',
-          lyrics:      s.lyrics      || '',
+          track:       s.track       || 0,
+          lyrics:      s.syncedLyrics || s.lyrics || '',
           artBase64:   artBase64     || '',
         });
       }).then(function() {
