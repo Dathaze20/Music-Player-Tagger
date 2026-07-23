@@ -1,6 +1,7 @@
 package com.muzioai.app;
 
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -40,6 +41,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -54,8 +57,9 @@ import java.util.logging.Logger;
 public class MediaStorePlugin extends Plugin {
 
     private static final String TAG           = "MediaStorePlugin";
-    private static final int    WRITE_REQUEST_CODE = 9001;
-    private static final int    SAF_REQUEST_CODE   = 9002;
+    private static final int    WRITE_REQUEST_CODE        = 9001;
+    private static final int    SAF_REQUEST_CODE          = 9002;
+    private static final int    WRITE_ACCESS_REQUEST_CODE = 9003;
     private static final String PREFS_NAME    = "muzio_prefs";
     private static final String PREF_SAF_URI  = "saf_tree_uri";
 
@@ -63,6 +67,7 @@ public class MediaStorePlugin extends Plugin {
     private PluginCall savedWriteCall;
     private Uri        pendingWriteUri;
     private PluginCall savedSafCall;
+    private PluginCall savedWriteAccessCall;
 
     // Silence jaudiotagger's overly verbose logging
     static {
@@ -192,6 +197,51 @@ public class MediaStorePlugin extends Plugin {
         call.resolve(result);
     }
 
+    // ─── Batch write consent (Android 11+) ────────────────────────────────────
+
+    /**
+     * Asks the user ONCE for write access to a whole batch of MediaStore audio
+     * URIs via MediaStore.createWriteRequest, instead of one system dialog per
+     * file from the RecoverableSecurityException path in writeFileTags.
+     * Resolves { granted: true|false }. On Android < 11 (no batch API) it
+     * resolves granted=true and the legacy per-file flow handles consent.
+     */
+    @PluginMethod
+    public void requestWriteAccess(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            JSObject r = new JSObject();
+            r.put("granted", true);
+            call.resolve(r);
+            return;
+        }
+        JSArray arr = call.getArray("uris");
+        if (arr == null || arr.length() == 0) { call.reject("No uris"); return; }
+        List<Uri> uris = new ArrayList<>();
+        try {
+            for (int i = 0; i < arr.length(); i++) {
+                String u = arr.getString(i);
+                if (u != null && !u.isEmpty()) uris.add(Uri.parse(u));
+            }
+        } catch (Exception e) {
+            call.reject("Bad uris: " + e.getMessage());
+            return;
+        }
+        if (uris.isEmpty()) { call.reject("No uris"); return; }
+        try {
+            PendingIntent pi = MediaStore.createWriteRequest(getContext().getContentResolver(), uris);
+            if (savedWriteAccessCall != null) {
+                savedWriteAccessCall.setKeepAlive(false);
+                savedWriteAccessCall.reject("Superseded by a newer request");
+            }
+            savedWriteAccessCall = call;
+            call.setKeepAlive(true);
+            getActivity().startIntentSenderForResult(
+                pi.getIntentSender(), WRITE_ACCESS_REQUEST_CODE, null, 0, 0, 0, null);
+        } catch (Exception e) {
+            call.reject("createWriteRequest: " + e.getMessage());
+        }
+    }
+
     // ─── Tag writing ──────────────────────────────────────────────────────────
 
     @PluginMethod
@@ -258,6 +308,17 @@ public class MediaStorePlugin extends Plugin {
     @Override
     protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
         super.handleOnActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == WRITE_ACCESS_REQUEST_CODE) {
+            PluginCall call = savedWriteAccessCall;
+            savedWriteAccessCall = null;
+            if (call == null) return;
+            call.setKeepAlive(false);
+            JSObject r = new JSObject();
+            r.put("granted", resultCode == Activity.RESULT_OK);
+            call.resolve(r);
+            return;
+        }
 
         if (requestCode == SAF_REQUEST_CODE) {
             PluginCall safCall = savedSafCall;

@@ -37,8 +37,10 @@ function artHTML(text, size, round, cls) {
 
 // External https:// URLs fail silently in the Capacitor Android WebView.
 // Return '' for those so callers fall back to gradient placeholder art.
+// data: URLs (iTunes enrichment art) are always safe — they render everywhere.
 function safeArtUrl(url) {
   if (!url) return '';
+  if (url.startsWith('data:')) return url;
   if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative() && !url.startsWith('http://localhost')) return '';
   return url;
 }
@@ -467,21 +469,32 @@ function noLyricsPanelHTML() {
   return '<div class="lyrics-empty-np">'
     + '<div class="lyrics-empty-icon">&#9835;</div>'
     + '<p>No lyrics found</p>'
-    + (apiKey ? '' : '<p class="sub" style="font-size:11px;margin-top:-4px;color:var(--text-faint);">Add Gemini API key in AI Settings<br>for automatic lyrics on any song</p>')
-    + (apiKey ? '<button class="add-lyrics-btn" id="fetchAiLyricsBtn" style="margin-bottom:6px;">&#10024; Fetch with AI</button>' : '')
+    + '<button class="add-lyrics-btn" id="fetchAiLyricsBtn" style="margin-bottom:6px;">&#128269; Search Lyrics</button>'
     + '<button class="add-lyrics-btn" id="addLyricsBtn" style="background:rgba(255,255,255,0.06);">&#9998; Add Manually</button>'
     + '</div>';
 }
 
 function bindAddLyricsBtn(panel, song) {
+  // Retry LRCLIB (real synced timestamps) — Gemini no longer returns lyrics
   var aiBtn = panel.querySelector('#fetchAiLyricsBtn');
   if (aiBtn) aiBtn.onclick = function() {
-    panel.innerHTML = '<div class="lyrics-empty-np"><div class="lyrics-empty-icon" style="animation:spin 1.5s linear infinite;display:inline-block;">&#9835;</div><p>Fetching AI lyrics...</p></div>';
-    callGeminiTag(song.fn).then(function(meta) {
-      if (meta.syncedLyrics) { song.syncedLyrics = meta.syncedLyrics; song.lyrics = ''; }
-      else if (meta.lyrics)  { song.lyrics = meta.lyrics; song.syncedLyrics = ''; }
-      saveLibraryLater();
-      applyLyricsToNPPanel(song);
+    panel.innerHTML = '<div class="lyrics-empty-np"><div class="lyrics-empty-icon" style="animation:spin 1.5s linear infinite;display:inline-block;">&#9835;</div><p>Searching lyrics...</p></div>';
+    fetchSyncedLyricsForSong(song).then(function(synced) {
+      if (synced) {
+        song.syncedLyrics = synced;
+        song.lyrics = '';
+        saveLibraryLater();
+        applyLyricsToNPPanel(song);
+        return;
+      }
+      return fetchLRCLibLyrics(song).then(function(result) {
+        if (result) {
+          if (result.syncedLyrics)      { song.syncedLyrics = result.syncedLyrics; song.lyrics = ''; }
+          else if (result.plainLyrics)  { song.lyrics = result.plainLyrics; song.syncedLyrics = ''; }
+          saveLibraryLater();
+        }
+        applyLyricsToNPPanel(song);
+      });
     }).catch(function() { applyLyricsToNPPanel(song); });
   };
 
@@ -646,7 +659,7 @@ function saveLibraryIDB() {
       playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
       nativePath: s.nativePath || '', contentUri: s.contentUri || '',
       albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || '',
-      aiAttempted: s.aiAttempted || 0
+      aiAttempted: s.aiAttempted || 0, enrichAttempted: s.enrichAttempted || 0
     };
   });
   openLibDb().then(function(db) {
@@ -681,7 +694,7 @@ function saveLibrary() {
         contentUri:  s.contentUri  || '',
         albumArtUri: s.albumArtUri || '',
         albumArtist: s.albumArtist || '',
-        aiAttempted: s.aiAttempted || 0
+        aiAttempted: s.aiAttempted || 0, enrichAttempted: s.enrichAttempted || 0
       };
     });
     localStorage.setItem('muzio_library', JSON.stringify(lean));
@@ -2505,31 +2518,20 @@ function renderNowPlaying() {
     updateSyncedLyrics(currentTime);
   }
 
-  // Auto-fetch lyrics: LRClib first (free, no key), Gemini fallback if key set.
+  // Auto-fetch lyrics from LRClib (free, real synced timestamps).
+  // No Gemini here — it no longer returns lyrics, and single-song calls during a
+  // batch tagging run would eat the shared rate limit and trigger 429s.
   // _lyricsFetched flag prevents re-firing on every renderNowPlaying() call.
   if (!lyricsVisible && !currentSong.lyrics && !currentSong._lyricsFetched) {
     currentSong._lyricsFetched = true;
     var fetchSong = currentSong;
     fetchLRCLibLyrics(fetchSong).then(function(result) {
       if (result) {
-        // LRClib found lyrics — apply directly (accurate real timestamps)
         if (result.syncedLyrics) fetchSong.syncedLyrics = result.syncedLyrics;
         if (result.plainLyrics)  fetchSong.lyrics       = result.plainLyrics;
         saveLibraryLater();
-        applyLyricsToNPPanel(fetchSong);
-        return;
       }
-      // LRClib miss — fall back to Gemini if key available
-      if (!apiKey) { applyLyricsToNPPanel(fetchSong); return; }
-      callGeminiTag(fetchSong.fn).then(function(meta) {
-        if (meta.syncedLyrics) fetchSong.syncedLyrics = meta.syncedLyrics;
-        if (meta.lyrics)       fetchSong.lyrics       = meta.lyrics;
-        if (meta.genre && !fetchSong.genre) fetchSong.genre = meta.genre;
-        if (meta.year  && !fetchSong.year)  fetchSong.year  = String(meta.year);
-        if (meta.releaseType && !fetchSong.type) fetchSong.type = meta.releaseType;
-        saveLibrary();
-        applyLyricsToNPPanel(fetchSong);
-      }).catch(function() { applyLyricsToNPPanel(fetchSong); });
+      applyLyricsToNPPanel(fetchSong);
     });
   }
 
@@ -3016,9 +3018,10 @@ function getTagPriority(s) {
 
 // Called automatically after library loads — quietly fills gaps in the background
 function autoFillMetadata() {
-  if (!apiKey || tagging.active || tagging.paused) return;
-  var toFill = songs.filter(needsAiMetadata);
-  if (!toFill.length) return;
+  if (tagging.active || tagging.paused) return;
+  var toFill = apiKey ? songs.filter(needsAiMetadata) : [];
+  // Nothing to AI-tag (or no key) — still fetch missing art & lyrics (free, no key needed)
+  if (!toFill.length) { autoEnrichLibrary(); return; }
   // Sort: known artist+album first, pure unknowns last; alphabetical within each tier
   toFill.sort(function(a, b) {
     var pd = getTagPriority(a) - getTagPriority(b);
@@ -3034,10 +3037,11 @@ function autoFillMetadata() {
   tagNextBatch(toFill, 0);
 }
 
-// Starts at 4.5s (safe for the 15 req/min free tier).
-// Backs off on 429; resets to baseline after 5 consecutive 429s with a 60s quota pause.
+// Starts at 6s between batches (safe for the free tier's ~10 req/min).
+// Backs off on 429; after 5 consecutive 429s assumes the daily quota is gone and pauses.
 var _geminiDelay = 6000;
 var _rateLimitStreak = 0;
+var _transientStreak = 0;
 
 // Shared rate-limit handler used by both tagNextBatch and fixSubgenreBatch.
 // After 5 consecutive 429s we assume the daily quota (250 RPD) is exhausted
@@ -3065,14 +3069,64 @@ function _handleRateLimit(songList, idx, resumeFn) {
   }
 }
 
+// Transient failures (503 overloaded, 500, truncated/unparseable JSON): retry the
+// same batch up to 3 times with backoff, then skip it WITHOUT the 24h cooldown so
+// the next run picks those songs up again.
+function _handleTransient(songList, idx, resumeFn) {
+  _transientStreak++;
+  if (_transientStreak >= 3) {
+    _transientStreak = 0;
+    _geminiDelay = 6000;
+    var batch = songList.slice(idx, idx + BATCH_SIZE);
+    batch.forEach(function(song) {
+      song.tagging = false;
+      tagging.failedCount = (tagging.failedCount || 0) + 1;
+    });
+    tagging.label = tagging._baseLabel;
+    setTimeout(function() { resumeFn(songList, idx + batch.length); }, _geminiDelay);
+  } else {
+    _geminiDelay = Math.min(20000, _geminiDelay + 5000);
+    tagging.label = 'Server busy — retrying in ' + Math.round(_geminiDelay / 1000) + 's...';
+    updateTaggingBanner();
+    setTimeout(function() {
+      tagging.label = tagging._baseLabel;
+      resumeFn(songList, idx);
+    }, _geminiDelay);
+  }
+}
+
 function writeTaggedToFiles(songList) {
   var total = songList.length;
+  var failed = 0;
   tagging.active = true;
+
+  // One system consent dialog for the whole batch (Android 11+) instead of one
+  // per file. Chunked at 400 URIs to stay under the binder transaction limit.
+  var uris = songList.map(function(s) { return s.contentUri; }).filter(Boolean);
+  tagging.label = 'Requesting file access…';
+  updateTaggingBanner();
+  function requestChunks(offset) {
+    if (offset >= uris.length) { next(0); return; }
+    NativeBridge.requestWriteAccess(uris.slice(offset, offset + 400)).then(function(res) {
+      if (!res || res.granted === false) {
+        tagging.active = false;
+        updateTaggingBanner();
+        showToast('File access denied — tags kept in library only', 5000);
+        return;
+      }
+      requestChunks(offset + 400);
+    });
+  }
+  requestChunks(0);
+
   function next(i) {
     if (i >= songList.length) {
       tagging.active = false;
       updateTaggingBanner();
-      showToast('Tags written to ' + total + ' file' + (total !== 1 ? 's' : '') + ' ✓');
+      var ok = total - failed;
+      showToast(failed > 0
+        ? 'Tags written to ' + ok + ' file' + (ok !== 1 ? 's' : '') + ', ' + failed + ' failed'
+        : 'Tags written to ' + total + ' file' + (total !== 1 ? 's' : '') + ' ✓', 4000);
       return;
     }
     var s = songList[i];
@@ -3091,9 +3145,8 @@ function writeTaggedToFiles(songList) {
       lyrics:      s.syncedLyrics || s.lyrics || '',
       artBase64:   (s.art && s.art.startsWith('data:')) ? s.art : ''
     }).then(function() { next(i + 1); })
-      .catch(function()  { next(i + 1); });
+      .catch(function()  { failed++; next(i + 1); });
   }
-  next(0);
 }
 
 function tagNextBatch(songList, idx) {
@@ -3136,6 +3189,7 @@ function tagNextBatch(songList, idx) {
       }
     });
     _rateLimitStreak = 0;
+    _transientStreak = 0;
     _geminiDelay = 6000;
     saveLibrary();
     render();
@@ -3143,8 +3197,13 @@ function tagNextBatch(songList, idx) {
   }).catch(function(err) {
     if (err && err.isRateLimit) {
       _handleRateLimit(songList, idx, tagNextBatch);
-    } else {
+    } else if (err && err.isTransient) {
       _rateLimitStreak = 0;
+      _handleTransient(songList, idx, tagNextBatch);
+    } else {
+      // Definitive error (bad key, 4xx) — apply the 24h cooldown so we don't hammer it
+      _rateLimitStreak = 0;
+      _transientStreak = 0;
       var now = Date.now();
       batch.forEach(function(song) {
         song.tagging = false;
@@ -3195,6 +3254,7 @@ function fixSubgenreBatch(songList, idx) {
       song.aiAttempted = now;
     });
     _rateLimitStreak = 0;
+    _transientStreak = 0;
     _geminiDelay = 6000;
     saveLibrary();
     render();
@@ -3202,8 +3262,12 @@ function fixSubgenreBatch(songList, idx) {
   }).catch(function(err) {
     if (err && err.isRateLimit) {
       _handleRateLimit(songList, idx, fixSubgenreBatch);
+    } else if (err && err.isTransient) {
+      _rateLimitStreak = 0;
+      _handleTransient(songList, idx, fixSubgenreBatch);
     } else {
       _rateLimitStreak = 0;
+      _transientStreak = 0;
       var now = Date.now();
       batch.forEach(function(song) {
         song.tagging = false;
@@ -3295,6 +3359,7 @@ function callGeminiBatch(songList) {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: 'application/json',
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: 'ARRAY',
           items: {
@@ -3316,6 +3381,7 @@ function callGeminiBatch(songList) {
     })
   }).then(function(res) {
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
+    if (res.status >= 500)  { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
     return res.json();
   }).then(function(data) {
     cleanup();
@@ -3325,7 +3391,8 @@ function callGeminiBatch(songList) {
     var text = content.parts[0].text.trim();
     text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
     var arr;
-    try { arr = JSON.parse(text); } catch(e) { arr = []; }
+    // Truncated/malformed JSON is transient (retry) — not a per-song failure
+    try { arr = JSON.parse(text); } catch(e) { var pe = new Error('Bad JSON'); pe.isTransient = true; throw pe; }
     if (!Array.isArray(arr)) {
       var found = null;
       if (arr && typeof arr === 'object') {
@@ -3375,6 +3442,7 @@ function callGeminiSubgenreBatch(songList) {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: 'application/json',
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: 'ARRAY',
           items: { type: 'STRING' }
@@ -3383,6 +3451,7 @@ function callGeminiSubgenreBatch(songList) {
     })
   }).then(function(res) {
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
+    if (res.status >= 500)  { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
     return res.json();
   }).then(function(data) {
     cleanup();
@@ -3392,7 +3461,7 @@ function callGeminiSubgenreBatch(songList) {
     var text = content.parts[0].text.trim();
     text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
     var arr;
-    try { arr = JSON.parse(text); } catch(e) { arr = []; }
+    try { arr = JSON.parse(text); } catch(e) { var pe = new Error('Bad JSON'); pe.isTransient = true; throw pe; }
     if (!Array.isArray(arr)) arr = [];
     arr = arr.slice(0, songList.length);
     while (arr.length < songList.length) arr.push('');
@@ -3433,11 +3502,12 @@ function callGeminiTag(songOrFile) {
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' }
+      generationConfig: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }
     })
   }).then(function(res) {
     cleanup();
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
+    if (res.status >= 500)  { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
     return res.json();
   }).then(function(data) {
     if (!data.candidates || !data.candidates[0]) throw new Error('No response');
@@ -3449,18 +3519,60 @@ function callGeminiTag(songOrFile) {
 
 // ─── Album Art & Lyrics Enrichment ───
 
+// iTunes throttle: Apple starts 403ing at ~20 req/min, so space searches ~3s apart.
+// Per-album cache means each album is only ever searched once no matter how many
+// songs it has — the throttle rarely even comes into play.
+var _itunesNextSlot = 0;
+var ITUNES_SPACING_MS = 3000;
+var _albumArtCache = {};  // "artist|||album" (lowercased) → Promise<base64 | null>
+
+function _itunesThrottled(fn) {
+  var now = Date.now();
+  var wait = Math.max(0, _itunesNextSlot - now);
+  _itunesNextSlot = now + wait + ITUNES_SPACING_MS;
+  if (!wait) return fn();
+  return new Promise(function(resolve) { setTimeout(resolve, wait); }).then(fn);
+}
+
+// Loose artist comparison so "The Notorious B.I.G." matches "Notorious B.I.G."
+// but a wrong-artist album with a similar title gets rejected.
+function _artistMatches(a, b) {
+  function norm(s) {
+    return (s || '').toLowerCase().replace(/^the\s+/, '').replace(/[^a-z0-9]/g, '');
+  }
+  var na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  return na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1;
+}
+
 function fetchAlbumArtUrl(artist, album) {
   var q = encodeURIComponent(artist + ' ' + album);
   var ctrl = new AbortController();
   var tid = setTimeout(function() { ctrl.abort(); }, 15000);
-  return fetch('https://itunes.apple.com/search?term=' + q + '&entity=album&limit=3&country=us', { signal: ctrl.signal })
+  return fetch('https://itunes.apple.com/search?term=' + q + '&entity=album&limit=5&country=us', { signal: ctrl.signal })
     .then(function(r) { clearTimeout(tid); return r.ok ? r.json() : { results: [] }; })
     .then(function(data) {
       if (!data.results || !data.results.length) return null;
-      var url = data.results[0].artworkUrl100;
+      // Prefer a result whose artist actually matches; never take a mismatched cover
+      var match = null;
+      for (var i = 0; i < data.results.length; i++) {
+        if (_artistMatches(data.results[i].artistName, artist)) { match = data.results[i]; break; }
+      }
+      if (!match) return null;
+      var url = match.artworkUrl100;
       return url ? url.replace('100x100bb.jpg', '500x500bb.jpg') : null;
     })
     .catch(function() { clearTimeout(tid); return null; });
+}
+
+function getArtForAlbum(artist, album) {
+  var key = (artist + '|||' + album).toLowerCase();
+  if (_albumArtCache[key]) return _albumArtCache[key];
+  var p = _itunesThrottled(function() { return fetchAlbumArtUrl(artist, album); })
+    .then(artUrlToBase64)
+    .catch(function() { return null; });
+  _albumArtCache[key] = p;
+  return p;
 }
 
 function artUrlToBase64(url) {
@@ -3513,35 +3625,41 @@ function fetchSyncedLyricsForSong(song) {
     .catch(function() { clearTimeout(tid); return null; });
 }
 
+function needsEnrichment(s) {
+  var na = !s.art && s.artist && s.artist !== 'Unknown Artist' && s.album && s.album !== 'Unknown Album';
+  var nl = !s.syncedLyrics && !s.lyrics && s.title && s.artist && s.artist !== 'Unknown Artist';
+  return na || nl;
+}
+
 function fetchEnrichment(song) {
   var needsArt = !song.art && song.artist && song.artist !== 'Unknown Artist'
                && song.album && song.album !== 'Unknown Album';
   var needsLyrics = !song.syncedLyrics && !song.lyrics
                   && song.title && song.artist && song.artist !== 'Unknown Artist';
   var artP = needsArt
-    ? fetchAlbumArtUrl(song.artist, song.album).then(artUrlToBase64)
+    ? getArtForAlbum(song.albumArtist || song.artist, song.album)
     : Promise.resolve(null);
   var lyrP = needsLyrics ? fetchSyncedLyricsForSong(song) : Promise.resolve(null);
   return Promise.all([artP, lyrP]).then(function(res) {
     if (res[0]) song.art = res[0];
     if (res[1]) song.syncedLyrics = res[1];
-  }).catch(function() {});
+    song.enrichAttempted = Date.now();
+  }).catch(function() { song.enrichAttempted = Date.now(); });
 }
 
 function enrichTaggedSongs(songList, onDone) {
-  var eligible = songList.filter(function(s) {
-    var na = !s.art && s.artist && s.artist !== 'Unknown Artist' && s.album && s.album !== 'Unknown Album';
-    var nl = !s.syncedLyrics && !s.lyrics && s.title && s.artist && s.artist !== 'Unknown Artist';
-    return na || nl;
-  });
+  var eligible = songList.filter(needsEnrichment);
   if (!eligible.length) { onDone(); return; }
   var total = eligible.length, done = 0, queueIdx = 0;
   tagging.active = true;
   tagging.label = 'Fetching art & lyrics...';
+  tagging.total = total;
+  tagging.done = 0;
   tagging.current = '0/' + total;
   updateTaggingBanner();
   function advance() {
     done++;
+    tagging.done = done - 1;
     tagging.current = done + '/' + total;
     try { updateTaggingBanner(); } catch(e) {}
     if (done === total) { try { onDone(); } catch(e) {} }
@@ -3553,6 +3671,28 @@ function enrichTaggedSongs(songList, onDone) {
     fetchEnrichment(song).then(advance, advance);
   }
   for (var ci = 0; ci < Math.min(5, eligible.length); ci++) runOne();
+}
+
+// Background enrichment for songs whose metadata was already complete (so the
+// tagger never touched them). Runs when there's nothing left to AI-tag.
+// Library-only — no file writes here, so no surprise permission dialogs at startup.
+var ENRICH_COOLDOWN_MS = 7 * 86400000; // don't re-ask iTunes/LRCLIB for misses for a week
+function autoEnrichLibrary() {
+  if (tagging.active || tagging.paused) return;
+  var eligible = songs.filter(function(s) {
+    if (s.enrichAttempted && (Date.now() - s.enrichAttempted) < ENRICH_COOLDOWN_MS) return false;
+    return needsEnrichment(s);
+  });
+  if (!eligible.length) return;
+  tagging = { total: eligible.length, done: 0, current: '', active: true, paused: false,
+              queue: eligible, label: 'Fetching art & lyrics...', _baseLabel: 'Fetching art & lyrics...',
+              taggedCount: 0, failedCount: 0, resumeFn: null, modified: [] };
+  enrichTaggedSongs(eligible, function() {
+    saveLibrary();
+    render();
+    tagging.active = false;
+    updateTaggingBanner();
+  });
 }
 
 // ─── Edit Modals ───
@@ -3573,7 +3713,7 @@ function openSongEditModal(songId) {
     return '<button class="te-chip' + ((song.type || 'Album') === t ? ' active' : '') + '" data-type="' + t + '">' + t + '</button>';
   }).join('');
   var artSrc = isNat
-    ? (song.art && song.art.startsWith('http://localhost') ? song.art : '')
+    ? (song.art && (song.art.startsWith('http://localhost') || song.art.startsWith('data:')) ? song.art : '')
     : (song.art || '');
 
   // Full-screen mode: add tag-editor class, hide the dim overlay
@@ -4257,8 +4397,9 @@ document.getElementById('taggingPauseBtn').onclick = function() {
   if (!tagging.paused) {
     tagging.label = tagging._baseLabel || 'AI filling metadata...';
     updateTaggingBanner();
-    var fn = tagging.resumeFn || tagNextBatch;
-    fn(tagging.queue, tagging.idx);
+    // Enrichment runs have no resumeFn — they don't pause, so there's nothing to resume
+    var fn = tagging.resumeFn;
+    if (fn) fn(tagging.queue, tagging.idx);
   } else {
     tagging.label = 'Paused';
     updateTaggingBanner();
@@ -4680,8 +4821,8 @@ function nativeAutoScan() {
     renderReconnectBanner();
     backgroundLoadAllArt();
 
-    // Auto-fill missing metadata quietly in the background
-    if (apiKey && !tagging.active) { setTimeout(autoFillMetadata, 2000); }
+    // Auto-fill missing metadata (and art/lyrics) quietly in the background
+    if (!tagging.active) { setTimeout(autoFillMetadata, 2000); }
 
     // Silently refresh album-art metadata for songs that have none
     var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
@@ -4731,7 +4872,7 @@ function nativeAutoScan() {
     render();
     backgroundLoadAllArt();
     showToast('Loaded ' + newSongs.length + ' songs!', 3000);
-    if (newSongs.length > 0 && apiKey) {
+    if (newSongs.length > 0) {
       setTimeout(autoFillMetadata, 1000);
     }
   }).catch(function(e) {
