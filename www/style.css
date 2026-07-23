@@ -2293,8 +2293,12 @@ body {
   font-weight: 600;
 }
 .te-ai-hint.visible { display: block; }
-@keyframes te-flash { 0%,100%{opacity:1} 50%{opacity:0.4} }
-.te-ai-filled { animation: te-flash 0.6s ease; }
+@keyframes te-flash {
+  0%   { background: rgba(16,185,129,0.35); border-radius: 4px; }
+  70%  { background: rgba(16,185,129,0.15); }
+  100% { background: transparent; }
+}
+.te-ai-filled { animation: te-flash 1.2s ease-out; }
 
 /* ─── Disc Header ─── */
 .disc-header {

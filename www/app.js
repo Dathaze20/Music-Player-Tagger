@@ -3317,38 +3317,25 @@ function openSongEditModal(songId) {
 
   // ── AI Fill ──
   function applyAiResult(result) {
+    var filled = 0;
+    // Fill every field AI has data for — no conditions, just set it
     var fields = [
-      { inputId: 'teTitle',       hintId: 'teTitleHint',       val: String(result.title       || '').trim() },
-      { inputId: 'teArtist',      hintId: 'teArtistHint',      val: String(result.artist      || '').trim() },
-      { inputId: 'teAlbum',       hintId: 'teAlbumHint',       val: String(result.album       || '').trim() },
-      { inputId: 'teYear',        hintId: 'teYearHint',        val: String(result.year        || '').trim() },
-      { inputId: 'teGenre',       hintId: 'teGenreHint',       val: String(result.genre       || '').trim() },
-      { inputId: 'teFeat',        hintId: 'teFeatHint',        val: String(result.featuredArtists || '').trim() },
-      { inputId: 'teTrack',       hintId: 'teTrackHint',       val: result.trackNumber ? String(result.trackNumber) : '' },
+      { id: 'teTitle',  val: String(result.title  || '').trim() },
+      { id: 'teArtist', val: String(result.artist || '').trim() },
+      { id: 'teAlbum',  val: String(result.album  || '').trim() },
+      { id: 'teYear',   val: String(result.year   || '').trim() },
+      { id: 'teGenre',  val: String(result.genre  || '').trim() },
+      { id: 'teFeat',   val: String(result.featuredArtists || '').trim() },
+      { id: 'teTrack',  val: result.trackNumber ? String(result.trackNumber) : '' },
     ];
     fields.forEach(function(f) {
       if (!f.val) return;
-      var el = document.getElementById(f.inputId);
-      var hint = document.getElementById(f.hintId);
-      if (!el || !hint) return;
-      var cur = el.value.trim();
-      if (!cur || cur === 'Unknown Artist' || cur === 'Unknown Album') {
-        el.value = f.val;
-        el.classList.add('te-ai-filled');
-        setTimeout(function() { el.classList.remove('te-ai-filled'); }, 700);
-        hint.textContent = '';
-        hint.classList.remove('visible');
-      } else if (cur.toLowerCase() !== f.val.toLowerCase()) {
-        hint.textContent = '✨ AI: ' + f.val;
-        hint.classList.add('visible');
-        hint.onclick = function() {
-          el.value = f.val;
-          el.classList.add('te-ai-filled');
-          setTimeout(function() { el.classList.remove('te-ai-filled'); }, 700);
-          hint.textContent = '';
-          hint.classList.remove('visible');
-        };
-      }
+      var el = document.getElementById(f.id);
+      if (!el) return;
+      el.value = f.val;
+      el.classList.add('te-ai-filled');
+      setTimeout(function() { el.classList.remove('te-ai-filled'); }, 1200);
+      filled++;
     });
     if (result.releaseType && ['Album','Mixtape','EP','Single'].indexOf(result.releaseType) !== -1) {
       selectedType = result.releaseType;
@@ -3356,10 +3343,18 @@ function openSongEditModal(songId) {
         b.classList.toggle('active', b.dataset.type === result.releaseType);
       });
     }
+    // Lyrics: only fill if empty (they're long and might already be user-entered)
     var lyricsEl = document.getElementById('teLyrics');
     if (lyricsEl && !lyricsEl.value.trim() && result.syncedLyrics) {
       lyricsEl.value = result.syncedLyrics;
     }
+    // Clear all hints since fields are now filled
+    modal.querySelectorAll('.te-ai-hint').forEach(function(h) {
+      h.textContent = ''; h.classList.remove('visible');
+    });
+    showToast(filled > 0
+      ? '✓ AI filled ' + filled + ' field' + (filled !== 1 ? 's' : '')
+      : 'AI: song not recognized — check the filename');
   }
 
   function triggerAiFill() {
@@ -3370,18 +3365,18 @@ function openSongEditModal(songId) {
     }
     if (aiBtn) { aiBtn.disabled = true; aiBtn.textContent = 'Analyzing…'; }
     callGeminiTag(song.fn).then(function(result) {
-      if (aiBtn) { aiBtn.disabled = false; aiBtn.innerHTML = '✔ Done'; }
+      if (aiBtn) { aiBtn.disabled = false; aiBtn.innerHTML = '&#10004; Done'; }
       applyAiResult(result);
     }).catch(function(err) {
-      if (aiBtn) { aiBtn.disabled = false; aiBtn.innerHTML = '✨ AI Fill'; }
+      if (aiBtn) { aiBtn.disabled = false; aiBtn.innerHTML = '&#10024; AI Fill'; }
       showToast('AI error: ' + (err && err.message ? err.message : String(err)));
     });
   }
 
   document.getElementById('teAiBtn').onclick = triggerAiFill;
 
-  // Auto-trigger AI fill when opening with an API key
-  if (apiKey) { setTimeout(triggerAiFill, 200); }
+  // Auto-trigger AI fill on open when API key is set
+  if (apiKey) { setTimeout(triggerAiFill, 150); }
 }
 
 function openEditModal(albumName, artistName) {
