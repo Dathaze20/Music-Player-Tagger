@@ -216,6 +216,17 @@ var NativeBridge = (function() {
     });
   }
 
+  // Ask the user ONCE for write access to a batch of MediaStore URIs
+  // (Android 11+ MediaStore.createWriteRequest — one dialog for the whole batch).
+  // Resolves { granted: true|false }. On old plugin builds / Android < 11 it
+  // resolves granted:true and the per-file consent flow takes over.
+  function requestWriteAccess(uris) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.requestWriteAccess) return Promise.resolve({ granted: true });
+    return plugin.requestWriteAccess({ uris: uris })
+      .catch(function() { return { granted: false }; });
+  }
+
   // Request persistent write access to the SD card via SAF folder picker.
   // Must be called once; the chosen folder is remembered across app restarts.
   // Returns a promise resolving to { success, treeUri }.
@@ -236,5 +247,6 @@ var NativeBridge = (function() {
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
            readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
+           requestWriteAccess: requestWriteAccess,
            requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri };
 })();
