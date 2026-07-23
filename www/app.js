@@ -717,7 +717,8 @@ function saveLibrary() {
         nativePath:  s.nativePath  || '',
         contentUri:  s.contentUri  || '',
         albumArtUri: s.albumArtUri || '',
-        albumArtist: s.albumArtist || ''
+        albumArtist: s.albumArtist || '',
+        aiAttempted: s.aiAttempted || 0
       };
     });
     localStorage.setItem('muzio_library', JSON.stringify(data));
@@ -735,7 +736,8 @@ function saveLibrary() {
           nativePath:  s.nativePath  || '',
           contentUri:  s.contentUri  || '',
           albumArtUri: s.albumArtUri || '',
-          albumArtist: s.albumArtist || ''
+          albumArtist: s.albumArtist || '',
+          aiAttempted: s.aiAttempted || 0
         };
       });
       localStorage.setItem('muzio_library', JSON.stringify(slim));
@@ -750,7 +752,8 @@ function saveLibrary() {
             disc: s.disc || 1, track: s.track, dur: s.dur,
             fav: s.fav, playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
             nativePath: s.nativePath || '', contentUri: s.contentUri || '',
-            albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || ''
+            albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || '',
+            aiAttempted: s.aiAttempted || 0
           };
         });
         localStorage.setItem('muzio_library', JSON.stringify(bare));
@@ -3128,7 +3131,8 @@ var _geminiDelay = 4500;
 var _rateLimitStreak = 0;
 
 function tagNextSong(songList, idx) {
-  if (tagging.paused) return;
+  if (tagging.paused) { tagging.idx = idx; return; }
+  tagging.idx = idx;
   if (idx >= songList.length) {
     tagging.active = false;
     updateTaggingBanner();
@@ -3151,7 +3155,8 @@ function tagNextSong(songList, idx) {
     if (meta.trackNumber)     song.track  = parseInt(meta.trackNumber) || 0;
     if (meta.releaseType)     song.type   = meta.releaseType;
     if (meta.featuredArtists) song.feat   = meta.featuredArtists;
-    if (meta.albumArtUrl)     song.art    = meta.albumArtUrl;
+    if (meta.albumArtUrl)     song.art        = meta.albumArtUrl;
+    if (meta.albumArtist)     song.albumArtist = meta.albumArtist;
     if (meta.syncedLyrics)    song.syncedLyrics = meta.syncedLyrics;
     if (meta.lyrics)          song.lyrics = meta.lyrics;
     song.tagging = false;
@@ -3202,6 +3207,11 @@ function updateTaggingBanner() {
   document.getElementById('taggingCurrent').textContent = tagging.current;
   document.getElementById('taggingCount').textContent = (tagging.done + 1) + ' / ' + tagging.total;
   document.getElementById('taggingBar').style.width = ((tagging.done + 1) / tagging.total * 100) + '%';
+  var pauseBtn = document.getElementById('taggingPauseBtn');
+  if (pauseBtn) {
+    pauseBtn.classList.toggle('paused', !!tagging.paused);
+    pauseBtn.innerHTML = tagging.paused ? '&#9654;' : '&#9646;&#9646;';
+  }
 }
 
 // ─── Gemini API ───
@@ -3228,7 +3238,7 @@ function callGeminiTag(songOrFile) {
     + (ctx ? 'The song already has the following metadata — use it to confirm the song identity, then fill in any missing or incorrect fields:\n' + ctx + '\n' : '')
     + 'Filename: ' + fileName + '\n\n'
     + 'Return ONLY a JSON object with these fields:\n'
-    + '{"title":"","artist":"","album":"","trackNumber":0,"albumArtUrl":"","year":"","genre":"","releaseType":"","featuredArtists":"","syncedLyrics":""}\n\n'
+    + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"albumArtUrl":"","year":"","genre":"","releaseType":"","featuredArtists":"","syncedLyrics":""}\n\n'
     + 'Rules:\n'
     + '- releaseType must be one of: Album, Mixtape, EP, Single\n'
     + '- For loosies/SoundCloud tracks not on any project, use "Single"\n'
@@ -3417,15 +3427,15 @@ function openSongEditModal(songId) {
   // ── AI Fill ──
   function applyAiResult(result) {
     var filled = 0;
-    // Fill every field AI has data for — no conditions, just set it
     var fields = [
-      { id: 'teTitle',  val: String(result.title  || '').trim() },
-      { id: 'teArtist', val: String(result.artist || '').trim() },
-      { id: 'teAlbum',  val: String(result.album  || '').trim() },
-      { id: 'teYear',   val: String(result.year   || '').trim() },
-      { id: 'teGenre',  val: String(result.genre  || '').trim() },
-      { id: 'teFeat',   val: String(result.featuredArtists || '').trim() },
-      { id: 'teTrack',  val: result.trackNumber ? String(result.trackNumber) : '' },
+      { id: 'teTitle',       val: String(result.title        || '').trim() },
+      { id: 'teArtist',      val: String(result.artist       || '').trim() },
+      { id: 'teAlbum',       val: String(result.album        || '').trim() },
+      { id: 'teAlbumArtist', val: String(result.albumArtist  || '').trim() },
+      { id: 'teYear',        val: String(result.year         || '').trim() },
+      { id: 'teGenre',       val: String(result.genre        || '').trim() },
+      { id: 'teFeat',        val: String(result.featuredArtists || '').trim() },
+      { id: 'teTrack',       val: result.trackNumber ? String(result.trackNumber) : '' },
     ];
     fields.forEach(function(f) {
       if (!f.val) return;
@@ -3442,12 +3452,27 @@ function openSongEditModal(songId) {
         b.classList.toggle('active', b.dataset.type === result.releaseType);
       });
     }
-    // Lyrics: only fill if empty (they're long and might already be user-entered)
+    // Update art preview if AI returned a URL
+    if (result.albumArtUrl) {
+      song.art = result.albumArtUrl;
+      var wrap = document.getElementById('teArtWrap');
+      var existingImg = document.getElementById('teArtImg');
+      if (existingImg) {
+        existingImg.src = result.albumArtUrl;
+        existingImg.style.display = '';
+      } else if (wrap) {
+        var img = document.createElement('img');
+        img.className = 'te-art-img'; img.id = 'teArtImg';
+        img.src = result.albumArtUrl;
+        img.onerror = function() { this.style.display = 'none'; };
+        wrap.appendChild(img);
+      }
+    }
+    // Lyrics: only fill if empty
     var lyricsEl = document.getElementById('teLyrics');
     if (lyricsEl && !lyricsEl.value.trim() && result.syncedLyrics) {
       lyricsEl.value = result.syncedLyrics;
     }
-    // Clear all hints since fields are now filled
     modal.querySelectorAll('.te-ai-hint').forEach(function(h) {
       h.textContent = ''; h.classList.remove('visible');
     });
@@ -3463,7 +3488,7 @@ function openSongEditModal(songId) {
       return;
     }
     if (aiBtn) { aiBtn.disabled = true; aiBtn.textContent = 'Analyzing…'; }
-    callGeminiTag(song.fn).then(function(result) {
+    callGeminiTag(song).then(function(result) {
       if (aiBtn) { aiBtn.disabled = false; aiBtn.innerHTML = '&#10004; Done'; }
       applyAiResult(result);
     }).catch(function(err) {
@@ -3918,6 +3943,21 @@ document.getElementById('miniPrevBtn').onclick = function(e) { e.stopPropagation
 document.getElementById('miniPlayBtn').onclick = function(e) { e.stopPropagation(); togglePlay(); };
 document.getElementById('miniNextBtn').onclick = function(e) { e.stopPropagation(); handleNext(); };
 
+document.getElementById('taggingPauseBtn').onclick = function() {
+  if (!tagging.active) return;
+  tagging.paused = !tagging.paused;
+  this.classList.toggle('paused', tagging.paused);
+  this.innerHTML = tagging.paused ? '&#9654;' : '&#9646;&#9646;';
+  if (!tagging.paused) {
+    tagging.label = 'AI filling metadata...';
+    updateTaggingBanner();
+    tagNextSong(tagging.queue, tagging.idx);
+  } else {
+    tagging.label = 'Paused';
+    updateTaggingBanner();
+  }
+};
+
 // Swipe-up on mini player opens Now Playing
 (function() {
   var mp = document.getElementById('miniPlayer');
@@ -4017,13 +4057,25 @@ document.getElementById('retagLibBtn').onclick = function() {
   var key = document.getElementById('apiKeyInput').value.trim() || apiKey;
   if (!key) { showToast('Save an API key first'); return; }
   if (tagging.active) { showToast('Tagging already in progress'); return; }
-  var toTag = songs.filter(function(s) { return !s.genre || !s.art || !s.year; });
-  if (toTag.length === 0) { showToast('All songs already tagged!'); return; }
+  // Force re-tag: ignore 24h cooldown, filter on actual missing fields
+  var toTag = songs.filter(function(s) {
+    return !s.year || !s.genre || GENERIC_GENRE.test((s.genre || '').trim())
+      || s.artist === 'Unknown Artist' || s.album === 'Unknown Album';
+  });
+  if (toTag.length === 0) { showToast('All songs already fully tagged!'); return; }
   apiKey = key;
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
-  toTag.forEach(function(s) { s.tagging = true; });
-  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag, label: 'Auto-tagging music...' };
+  // Clear cooldown so every song actually gets processed
+  toTag.forEach(function(s) { s.tagging = true; s.aiAttempted = 0; });
+  toTag.sort(function(a, b) {
+    var pd = getTagPriority(a) - getTagPriority(b);
+    if (pd !== 0) return pd;
+    var ac = (a.artist || '').toLowerCase(), bc = (b.artist || '').toLowerCase();
+    if (ac !== bc) return ac < bc ? -1 : 1;
+    return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
+  });
+  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag, label: 'Re-tagging library...' };
   updateTaggingBanner();
   tagNextSong(toTag, 0);
   showToast('Re-tagging ' + toTag.length + ' song' + (toTag.length !== 1 ? 's' : '') + '...');
@@ -4120,6 +4172,8 @@ function fixSubgenreNext(songList, idx) {
       }
     } else {
       _rateLimitStreak = 0;
+      song.aiAttempted = Date.now();
+      saveLibrary();
       setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 500);
     }
   });
@@ -4132,7 +4186,7 @@ document.getElementById('fixSubgenreBtn').onclick = function() {
   if (!key) { showToast('Save an API key first'); return; }
   if (tagging.active) { showToast('Tagging already in progress'); return; }
   var toFix = songs.filter(function(s) {
-    return GENERIC_GENRES.indexOf((s.genre || '').toLowerCase().trim()) !== -1;
+    return !s.genre || GENERIC_GENRE.test((s.genre || '').trim());
   });
   if (toFix.length === 0) { showToast('All songs already have specific subgenres!'); return; }
   apiKey = key;
