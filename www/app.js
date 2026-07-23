@@ -3081,12 +3081,12 @@ var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
 var _ONE_DAY_MS = 86400000;
 
 function needsAiMetadata(s) {
-  var isUnknown = s.artist === 'Unknown Artist' || s.album === 'Unknown Album';
-  // If AI tried this song in the last 24h and it's not a hard Unknown, don't re-queue
-  if (!isUnknown && s.aiAttempted && (Date.now() - s.aiAttempted) < _ONE_DAY_MS) return false;
+  // If AI already attempted this song in the last 24h, skip it regardless of outcome
+  if (s.aiAttempted && (Date.now() - s.aiAttempted) < _ONE_DAY_MS) return false;
   return !s.year
     || !s.genre || GENERIC_GENRE.test(s.genre.trim())
-    || isUnknown;
+    || s.artist === 'Unknown Artist'
+    || s.album  === 'Unknown Album';
 }
 
 // Called automatically after library loads — quietly fills gaps in the background
