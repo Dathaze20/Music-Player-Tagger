@@ -3089,11 +3089,33 @@ function needsAiMetadata(s) {
     || s.album  === 'Unknown Album';
 }
 
+// Priority: 0 = real artist + real album (Jay-Z, Eminem, 2Pac etc — AI is most confident)
+//           1 = real artist + unknown album (YouTube/loose tracks with known artist)
+//           2 = unknown artist + real album
+//           3 = unknown artist + unknown album (hand-edit candidates — done last)
+function getTagPriority(s) {
+  var ua = !s.artist || s.artist === 'Unknown Artist';
+  var ub = !s.album  || s.album  === 'Unknown Album';
+  if (!ua && !ub) return 0;
+  if (!ua &&  ub) return 1;
+  if ( ua && !ub) return 2;
+  return 3;
+}
+
 // Called automatically after library loads — quietly fills gaps in the background
 function autoFillMetadata() {
   if (!apiKey || tagging.active) return;
   var toFill = songs.filter(needsAiMetadata);
   if (!toFill.length) return;
+  // Sort: known artist+album first, pure unknowns last; alphabetical within each tier
+  toFill.sort(function(a, b) {
+    var pd = getTagPriority(a) - getTagPriority(b);
+    if (pd !== 0) return pd;
+    var ac = (a.artist || '').toLowerCase();
+    var bc = (b.artist || '').toLowerCase();
+    if (ac !== bc) return ac < bc ? -1 : 1;
+    return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
+  });
   toFill.forEach(function(s) { s.tagging = true; });
   tagging = { total: toFill.length, done: 0, current: toFill[0].title, active: true, paused: false, queue: toFill, label: 'AI filling metadata...' };
   updateTaggingBanner();
