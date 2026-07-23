@@ -3037,18 +3037,33 @@ function autoFillMetadata() {
   tagNextBatch(toFill, 0);
 }
 
-// Starts at 6s between batches (safe for the free tier's ~10 req/min).
-// Backs off on 429; after 5 consecutive 429s assumes the daily quota is gone and pauses.
+// 6000ms = exactly 10 RPM (free tier limit). Backs off on 429 up to 20s.
 var _geminiDelay = 6000;
 var _rateLimitStreak = 0;
 var _transientStreak = 0;
 
-// Shared rate-limit handler used by both tagNextBatch and fixSubgenreBatch.
-// After 5 consecutive 429s we assume the daily quota (250 RPD) is exhausted
-// and pause tagging so the user isn't spammed with retries until midnight PT.
-function _handleRateLimit(songList, idx, resumeFn) {
+// Parse a 429 body to distinguish per-minute limiting from actual daily quota exhaustion.
+// Returns true only when the quota_id explicitly identifies a per-day limit.
+function _isDailyQuotaBody(body) {
+  try {
+    var details = body && body.error && body.error.details;
+    if (!details) return false;
+    for (var i = 0; i < details.length; i++) {
+      var qid = (details[i].metadata && details[i].metadata.quota_id) || '';
+      if (/perDay|PerDay|Daily/i.test(qid)) return true;
+    }
+  } catch(_) {}
+  return false;
+}
+
+// Shared rate-limit handler for tagNextBatch and fixSubgenreBatch.
+// isDailyQuota=true means the 429 body confirmed the daily (250 RPD) cap.
+// Streak >= 20 is the fallback for when body parsing fails or 429s persist
+// through multiple retry cycles — at that point the daily cap is the only
+// plausible explanation for sustained rejection.
+function _handleRateLimit(songList, idx, resumeFn, isDailyQuota) {
   _rateLimitStreak++;
-  if (_rateLimitStreak >= 5) {
+  if (isDailyQuota || _rateLimitStreak >= 20) {
     _rateLimitStreak = 0;
     _geminiDelay = 6000;
     tagging.active = true;
@@ -3196,7 +3211,7 @@ function tagNextBatch(songList, idx) {
     setTimeout(function() { tagNextBatch(songList, idx + batch.length); }, _geminiDelay);
   }).catch(function(err) {
     if (err && err.isRateLimit) {
-      _handleRateLimit(songList, idx, tagNextBatch);
+      _handleRateLimit(songList, idx, tagNextBatch, err.isDailyQuota);
     } else if (err && err.isTransient) {
       _rateLimitStreak = 0;
       _handleTransient(songList, idx, tagNextBatch);
@@ -3261,7 +3276,7 @@ function fixSubgenreBatch(songList, idx) {
     setTimeout(function() { fixSubgenreBatch(songList, idx + batch.length); }, _geminiDelay);
   }).catch(function(err) {
     if (err && err.isRateLimit) {
-      _handleRateLimit(songList, idx, fixSubgenreBatch);
+      _handleRateLimit(songList, idx, fixSubgenreBatch, err.isDailyQuota);
     } else if (err && err.isTransient) {
       _rateLimitStreak = 0;
       _handleTransient(songList, idx, fixSubgenreBatch);
@@ -3380,8 +3395,16 @@ function callGeminiBatch(songList) {
       }
     })
   }).then(function(res) {
-    if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
-    if (res.status >= 500)  { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
+    if (res.status === 429) {
+      return res.json().then(function(body) {
+        var e = new Error('Rate limited'); e.isRateLimit = true;
+        if (_isDailyQuotaBody(body)) e.isDailyQuota = true;
+        throw e;
+      }, function() {
+        var e = new Error('Rate limited'); e.isRateLimit = true; throw e;
+      });
+    }
+    if (res.status >= 500) { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
     return res.json();
   }).then(function(data) {
     cleanup();
@@ -3450,8 +3473,16 @@ function callGeminiSubgenreBatch(songList) {
       }
     })
   }).then(function(res) {
-    if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
-    if (res.status >= 500)  { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
+    if (res.status === 429) {
+      return res.json().then(function(body) {
+        var e = new Error('Rate limited'); e.isRateLimit = true;
+        if (_isDailyQuotaBody(body)) e.isDailyQuota = true;
+        throw e;
+      }, function() {
+        var e = new Error('Rate limited'); e.isRateLimit = true; throw e;
+      });
+    }
+    if (res.status >= 500) { var e5 = new Error('Server error ' + res.status); e5.isTransient = true; throw e5; }
     return res.json();
   }).then(function(data) {
     cleanup();
