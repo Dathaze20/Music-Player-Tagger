@@ -2981,7 +2981,7 @@ function handleFileImport(files) {
 
   if (newSongs.length > 0 && apiKey) {
     newSongs.forEach(function(s) { s.tagging = true; });
-    tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs, label: 'Auto-tagging music...', _baseLabel: 'Auto-tagging music...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch };
+    tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs, label: 'Auto-tagging music...', _baseLabel: 'Auto-tagging music...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch, modified: [] };
     updateTaggingBanner();
     tagNextBatch(newSongs, 0);
   }
@@ -3016,7 +3016,7 @@ function getTagPriority(s) {
 
 // Called automatically after library loads — quietly fills gaps in the background
 function autoFillMetadata() {
-  if (!apiKey || tagging.active) return;
+  if (!apiKey || tagging.active || tagging.paused) return;
   var toFill = songs.filter(needsAiMetadata);
   if (!toFill.length) return;
   // Sort: known artist+album first, pure unknowns last; alphabetical within each tier
@@ -3029,7 +3029,7 @@ function autoFillMetadata() {
     return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
   });
   toFill.forEach(function(s) { s.tagging = true; });
-  tagging = { total: toFill.length, done: 0, current: toFill[0].title, active: true, paused: false, queue: toFill, label: 'AI filling metadata...', _baseLabel: 'AI filling metadata...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch };
+  tagging = { total: toFill.length, done: 0, current: toFill[0].title, active: true, paused: false, queue: toFill, label: 'AI filling metadata...', _baseLabel: 'AI filling metadata...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch, modified: [] };
   updateTaggingBanner();
   tagNextBatch(toFill, 0);
 }
@@ -3047,11 +3047,11 @@ function _handleRateLimit(songList, idx, resumeFn) {
   if (_rateLimitStreak >= 5) {
     _rateLimitStreak = 0;
     _geminiDelay = 6000;
-    tagging.active = false;
+    tagging.active = true;
     tagging.paused = true;
     tagging.idx = idx;
     tagging.resumeFn = resumeFn;
-    tagging.label = 'Daily API quota reached';
+    tagging.label = 'Daily quota reached — tap ▶ to resume tomorrow';
     updateTaggingBanner();
     showToast('Daily Gemini quota reached (250 req/day). Tagging paused — resume tomorrow or upgrade your API key.', 8000);
   } else {
@@ -3161,12 +3161,19 @@ function fixSubgenreBatch(songList, idx) {
   if (tagging.paused) { tagging.idx = idx; return; }
   tagging.idx = idx;
   if (idx >= songList.length) {
-    tagging.active = false;
-    updateTaggingBanner();
     saveLibrary();
     render();
     var t = tagging.taggedCount || 0;
     showToast(t + ' subgenre' + (t !== 1 ? 's' : '') + ' updated ✓');
+    var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+    var modified = tagging.modified || [];
+    enrichTaggedSongs(modified, function() {
+      saveLibrary();
+      tagging.active = false;
+      updateTaggingBanner();
+      var toWrite = modified.filter(function(s) { return s.contentUri; });
+      if (isNat && toWrite.length > 0) writeTaggedToFiles(toWrite);
+    });
     return;
   }
   var batch = songList.slice(idx, idx + BATCH_SIZE);
@@ -3182,6 +3189,7 @@ function fixSubgenreBatch(songList, idx) {
       if (genre && typeof genre === 'string' && genre.trim()) {
         song.genre = genre.trim();
         tagging.taggedCount = (tagging.taggedCount || 0) + 1;
+        tagging.modified.push(song);
       }
       song.tagging = false;
       song.aiAttempted = now;
@@ -3307,12 +3315,14 @@ function callGeminiBatch(songList) {
       }
     })
   }).then(function(res) {
-    cleanup();
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
     return res.json();
   }).then(function(data) {
+    cleanup();
     if (!data.candidates || !data.candidates[0]) throw new Error('No response');
-    var text = data.candidates[0].content.parts[0].text.trim();
+    var content = data.candidates[0].content;
+    if (!content || !Array.isArray(content.parts) || !content.parts[0]) throw new Error('No content');
+    var text = content.parts[0].text.trim();
     text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
     var arr;
     try { arr = JSON.parse(text); } catch(e) { arr = []; }
@@ -3372,12 +3382,14 @@ function callGeminiSubgenreBatch(songList) {
       }
     })
   }).then(function(res) {
-    cleanup();
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
     return res.json();
   }).then(function(data) {
+    cleanup();
     if (!data.candidates || !data.candidates[0]) throw new Error('No response');
-    var text = data.candidates[0].content.parts[0].text.trim();
+    var content = data.candidates[0].content;
+    if (!content || !Array.isArray(content.parts) || !content.parts[0]) throw new Error('No content');
+    var text = content.parts[0].text.trim();
     text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
     var arr;
     try { arr = JSON.parse(text); } catch(e) { arr = []; }
@@ -3439,20 +3451,24 @@ function callGeminiTag(songOrFile) {
 
 function fetchAlbumArtUrl(artist, album) {
   var q = encodeURIComponent(artist + ' ' + album);
-  return fetch('https://itunes.apple.com/search?term=' + q + '&entity=album&limit=3&country=us')
-    .then(function(r) { return r.ok ? r.json() : { results: [] }; })
+  var ctrl = new AbortController();
+  var tid = setTimeout(function() { ctrl.abort(); }, 15000);
+  return fetch('https://itunes.apple.com/search?term=' + q + '&entity=album&limit=3&country=us', { signal: ctrl.signal })
+    .then(function(r) { clearTimeout(tid); return r.ok ? r.json() : { results: [] }; })
     .then(function(data) {
       if (!data.results || !data.results.length) return null;
       var url = data.results[0].artworkUrl100;
       return url ? url.replace('100x100bb.jpg', '500x500bb.jpg') : null;
     })
-    .catch(function() { return null; });
+    .catch(function() { clearTimeout(tid); return null; });
 }
 
 function artUrlToBase64(url) {
   if (!url) return Promise.resolve(null);
-  return fetch(url)
-    .then(function(r) { return r.ok ? r.blob() : null; })
+  var ctrl = new AbortController();
+  var tid = setTimeout(function() { ctrl.abort(); }, 15000);
+  return fetch(url, { signal: ctrl.signal })
+    .then(function(r) { clearTimeout(tid); return r.ok ? r.blob() : null; })
     .then(function(blob) {
       if (!blob) return null;
       return new Promise(function(resolve) {
@@ -3462,7 +3478,7 @@ function artUrlToBase64(url) {
         reader.readAsDataURL(blob);
       });
     })
-    .catch(function() { return null; });
+    .catch(function() { clearTimeout(tid); return null; });
 }
 
 function fetchSyncedLyricsForSong(song) {
@@ -3472,15 +3488,21 @@ function fetchSyncedLyricsForSong(song) {
   if (song.album && song.album !== 'Unknown Album') base += '&album_name=' + encodeURIComponent(song.album);
   var getParams = base + (song.dur ? '&duration=' + Math.round(song.dur) : '');
   var hdrs = { 'User-Agent': 'MuzioAI/1.0 (https://github.com/Dathaze20/Music-Player-Tagger)' };
-  return fetch('https://lrclib.net/api/get?' + getParams, { headers: hdrs })
+  var ctrl = new AbortController();
+  var tid = setTimeout(function() { ctrl.abort(); }, 15000);
+  return fetch('https://lrclib.net/api/get?' + getParams, { headers: hdrs, signal: ctrl.signal })
     .then(function(r) {
+      clearTimeout(tid);
       if (r.status === 404) {
-        return fetch('https://lrclib.net/api/search?' + base, { headers: hdrs })
-          .then(function(r2) { return r2.ok ? r2.json() : []; })
+        var ctrl2 = new AbortController();
+        var tid2 = setTimeout(function() { ctrl2.abort(); }, 15000);
+        return fetch('https://lrclib.net/api/search?' + base, { headers: hdrs, signal: ctrl2.signal })
+          .then(function(r2) { clearTimeout(tid2); return r2.ok ? r2.json() : []; })
           .then(function(results) {
             var match = Array.isArray(results) && results.find(function(it) { return it.syncedLyrics; });
             return match || null;
-          });
+          })
+          .catch(function() { clearTimeout(tid2); return null; });
       }
       return r.ok ? r.json() : null;
     })
@@ -3488,7 +3510,7 @@ function fetchSyncedLyricsForSong(song) {
       if (!data) return null;
       return data.syncedLyrics || null;
     })
-    .catch(function() { return null; });
+    .catch(function() { clearTimeout(tid); return null; });
 }
 
 function fetchEnrichment(song) {
@@ -3518,16 +3540,17 @@ function enrichTaggedSongs(songList, onDone) {
   tagging.label = 'Fetching art & lyrics...';
   tagging.current = '0/' + total;
   updateTaggingBanner();
+  function advance() {
+    done++;
+    tagging.current = done + '/' + total;
+    try { updateTaggingBanner(); } catch(e) {}
+    if (done === total) { try { onDone(); } catch(e) {} }
+    else runOne();
+  }
   function runOne() {
     if (queueIdx >= eligible.length) return;
     var song = eligible[queueIdx++];
-    fetchEnrichment(song).then(function() {
-      done++;
-      tagging.current = done + '/' + total;
-      updateTaggingBanner();
-      if (done === total) onDone();
-      else runOne();
-    });
+    fetchEnrichment(song).then(advance, advance);
   }
   for (var ci = 0; ci < Math.min(5, eligible.length); ci++) runOne();
 }
@@ -4358,7 +4381,7 @@ document.getElementById('retagLibBtn').onclick = function() {
     if (ac !== bc) return ac < bc ? -1 : 1;
     return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
   });
-  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag, label: 'Re-tagging library...', _baseLabel: 'Re-tagging library...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch };
+  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag, label: 'Re-tagging library...', _baseLabel: 'Re-tagging library...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch, modified: [] };
   updateTaggingBanner();
   tagNextBatch(toTag, 0);
   showToast('Re-tagging ' + toTag.length + ' song' + (toTag.length !== 1 ? 's' : '') + '...');
@@ -4377,7 +4400,7 @@ document.getElementById('fixUnknownBtn').onclick = function() {
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
   toFix.forEach(function(s) { s.tagging = true; });
-  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing unknown songs...', _baseLabel: 'Fixing unknown songs...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch };
+  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing unknown songs...', _baseLabel: 'Fixing unknown songs...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch, modified: [] };
   updateTaggingBanner();
   tagNextBatch(toFix, 0);
   showToast('Fixing ' + toFix.length + ' unknown song' + (toFix.length !== 1 ? 's' : '') + '...');
@@ -4395,7 +4418,7 @@ document.getElementById('fixSubgenreBtn').onclick = function() {
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
   toFix.forEach(function(s) { s.tagging = true; });
-  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing subgenres...', _baseLabel: 'Fixing subgenres...', taggedCount: 0, failedCount: 0, resumeFn: fixSubgenreBatch };
+  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing subgenres...', _baseLabel: 'Fixing subgenres...', taggedCount: 0, failedCount: 0, resumeFn: fixSubgenreBatch, modified: [] };
   updateTaggingBanner();
   fixSubgenreBatch(toFix, 0);
   showToast('Updating subgenres for ' + toFix.length + ' song' + (toFix.length !== 1 ? 's' : '') + '...');
@@ -4410,6 +4433,8 @@ document.getElementById('enrichLibBtn').onclick = function() {
   });
   if (!eligible.length) { showToast('All songs already have art & lyrics!'); return; }
   closeSettings();
+  tagging.total = eligible.length;
+  tagging.done = 0;
   var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
   enrichTaggedSongs(eligible, function() {
     saveLibrary();
