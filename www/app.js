@@ -2994,9 +2994,40 @@ function handleFileImport(files) {
 var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
 var _ONE_DAY_MS = 86400000;
 
+// Filenames/titles that give Gemini zero signal: track_01, audio_20230415, recording, etc.
+var _JUNK_TEXT_RE = /^(track|audio|recording|untitled|unknown|file|song|music|clip|temp|new\s*recording|whatsapp[\s_]audio|voice[\s_]?(memo|note|message)?|aud_?|vn_?|msg_?)[\s\d\-_.()]*/i;
+
+function _hasMeaningfulText(text) {
+  if (!text) return false;
+  var t = text.trim();
+  if (t.length < 4) return false;
+  if (_JUNK_TEXT_RE.test(t)) return false;
+  if (/^\d+$/.test(t)) return false;                       // pure number
+  if (/^\d{4}[\-_]\d{2}[\-_]\d{2}/.test(t)) return false; // date like 2023-01-15
+  return /[a-zA-Z]{3,}/.test(t);                           // at least 3 consecutive letters
+}
+
+// Strip extension and leading track-number prefix ("01 - ", "(02) ", "03. ")
+// then check if what's left is meaningful.
+function _hasMeaningfulFilename(fn) {
+  if (!fn) return false;
+  var name = fn.replace(/\.[^.]+$/, '').trim();
+  name = name.replace(/^[\[\(]?\d+[\]\)]?[\s.\-_]+/, '').trim();
+  return _hasMeaningfulText(name);
+}
+
+// Returns false when Gemini has nothing to identify the song — no artist tag,
+// no real title, and a generic/numeric filename. Burning an API call in that
+// case always returns empty strings and wastes both quota and time.
+function _hasGeminiContext(s) {
+  if (s.artist && s.artist !== 'Unknown Artist') return true; // artist lets Gemini fill year/genre/album
+  if (_hasMeaningfulText(s.title)) return true;               // real embedded title
+  return _hasMeaningfulFilename(s.fn);                        // meaningful filename
+}
+
 function needsAiMetadata(s) {
-  // If AI already attempted this song in the last 24h, skip it regardless of outcome
   if (s.aiAttempted && (Date.now() - s.aiAttempted) < _ONE_DAY_MS) return false;
+  if (!_hasGeminiContext(s)) return false;
   return !s.year
     || !s.genre || GENERIC_GENRE.test(s.genre.trim())
     || s.artist === 'Unknown Artist'
@@ -4541,10 +4572,12 @@ document.getElementById('retagLibBtn').onclick = function() {
   var key = document.getElementById('apiKeyInput').value.trim() || apiKey;
   if (!key) { showToast('Save an API key first'); return; }
   if (tagging.active) { showToast('Tagging already in progress'); return; }
-  // Force re-tag: ignore 24h cooldown, filter on actual missing fields
+  // Force re-tag: ignore 24h cooldown, filter on actual missing fields.
+  // Still skip songs Gemini cannot identify (no artist, no real title, no real filename).
   var toTag = songs.filter(function(s) {
-    return !s.year || !s.genre || GENERIC_GENRE.test((s.genre || '').trim())
+    var needsTag = !s.year || !s.genre || GENERIC_GENRE.test((s.genre || '').trim())
       || s.artist === 'Unknown Artist' || s.album === 'Unknown Album';
+    return needsTag && _hasGeminiContext(s);
   });
   if (toTag.length === 0) { showToast('All songs already fully tagged!'); return; }
   apiKey = key;
@@ -4571,9 +4604,10 @@ document.getElementById('fixUnknownBtn').onclick = function() {
   if (!key) { showToast('Save an API key first'); return; }
   if (tagging.active) { showToast('Tagging already in progress'); return; }
   var toFix = songs.filter(function(s) {
-    return s.artist === 'Unknown Artist' || s.album === 'Unknown Album';
+    if (s.artist !== 'Unknown Artist' && s.album !== 'Unknown Album') return false;
+    return _hasGeminiContext(s); // skip songs with no filename/title Gemini can use
   });
-  if (toFix.length === 0) { showToast('No unknown songs found!'); return; }
+  if (toFix.length === 0) { showToast('No identifiable unknown songs found!'); return; }
   apiKey = key;
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
