@@ -3036,22 +3036,24 @@ function autoFillMetadata() {
 
 // Starts at 4.5s (safe for the 15 req/min free tier).
 // Backs off on 429; resets to baseline after 5 consecutive 429s with a 60s quota pause.
-var _geminiDelay = 4500;
+var _geminiDelay = 6000;
 var _rateLimitStreak = 0;
 
 // Shared rate-limit handler used by both tagNextBatch and fixSubgenreBatch.
-// Calls resumeFn(songList, idx) after the appropriate wait.
+// After 5 consecutive 429s we assume the daily quota (250 RPD) is exhausted
+// and pause tagging so the user isn't spammed with retries until midnight PT.
 function _handleRateLimit(songList, idx, resumeFn) {
   _rateLimitStreak++;
   if (_rateLimitStreak >= 5) {
     _rateLimitStreak = 0;
-    _geminiDelay = 4500;
-    tagging.label = 'Quota reached — waiting 60s for reset...';
+    _geminiDelay = 6000;
+    tagging.active = false;
+    tagging.paused = true;
+    tagging.idx = idx;
+    tagging.resumeFn = resumeFn;
+    tagging.label = 'Daily API quota reached';
     updateTaggingBanner();
-    setTimeout(function() {
-      tagging.label = tagging._baseLabel;
-      resumeFn(songList, idx);
-    }, 60000);
+    showToast('Daily Gemini quota reached (250 req/day). Tagging paused — resume tomorrow or upgrade your API key.', 8000);
   } else {
     _geminiDelay = Math.min(20000, _geminiDelay + 5000);
     tagging.label = 'Rate limited — waiting ' + Math.round(_geminiDelay / 1000) + 's...';
@@ -3129,7 +3131,7 @@ function tagNextBatch(songList, idx) {
       }
     });
     _rateLimitStreak = 0;
-    _geminiDelay = 4500;
+    _geminiDelay = 6000;
     saveLibrary();
     render();
     setTimeout(function() { tagNextBatch(songList, idx + batch.length); }, _geminiDelay);
@@ -3180,7 +3182,7 @@ function fixSubgenreBatch(songList, idx) {
       song.aiAttempted = now;
     });
     _rateLimitStreak = 0;
-    _geminiDelay = 4500;
+    _geminiDelay = 6000;
     saveLibrary();
     render();
     setTimeout(function() { fixSubgenreBatch(songList, idx + batch.length); }, _geminiDelay);
@@ -3269,14 +3271,38 @@ function callGeminiBatch(songList) {
     + 'Use empty string for any field you are not confident about.\n'
     + 'Schema: {"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
     + _GEMINI_TAG_RULES;
+  var ctrl = new AbortController();
+  var tid = setTimeout(function() { ctrl.abort(); }, 35000);
+  var cleanup = function() { clearTimeout(tid); };
   return fetch(_GEMINI_URL, {
     method: 'POST',
+    signal: ctrl.signal,
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' }
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              title:           { type: 'STRING' },
+              artist:          { type: 'STRING' },
+              album:           { type: 'STRING' },
+              albumArtist:     { type: 'STRING' },
+              trackNumber:     { type: 'INTEGER' },
+              year:            { type: 'STRING' },
+              genre:           { type: 'STRING' },
+              releaseType:     { type: 'STRING' },
+              featuredArtists: { type: 'STRING' }
+            }
+          }
+        }
+      }
     })
   }).then(function(res) {
+    cleanup();
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
     return res.json();
   }).then(function(data) {
@@ -3295,6 +3321,9 @@ function callGeminiBatch(songList) {
     arr = arr.slice(0, songList.length);
     while (arr.length < songList.length) arr.push({});
     return arr;
+  }).catch(function(err) {
+    cleanup();
+    throw err;
   });
 }
 
@@ -3320,14 +3349,25 @@ function callGeminiSubgenreBatch(songList) {
     + 'Songs:\n' + items + '\n\n'
     + 'Return a JSON array of exactly ' + songList.length + ' strings (one subgenre per song, same order). '
     + 'Use empty string if you are not confident. Example: ["Boom-Bap","Trap",""]';
+  var ctrl = new AbortController();
+  var tid = setTimeout(function() { ctrl.abort(); }, 35000);
+  var cleanup = function() { clearTimeout(tid); };
   return fetch(_GEMINI_URL, {
     method: 'POST',
+    signal: ctrl.signal,
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' }
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'ARRAY',
+          items: { type: 'STRING' }
+        }
+      }
     })
   }).then(function(res) {
+    cleanup();
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
     return res.json();
   }).then(function(data) {
@@ -3340,6 +3380,9 @@ function callGeminiSubgenreBatch(songList) {
     arr = arr.slice(0, songList.length);
     while (arr.length < songList.length) arr.push('');
     return arr;
+  }).catch(function(err) {
+    cleanup();
+    throw err;
   });
 }
 
