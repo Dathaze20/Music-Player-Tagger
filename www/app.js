@@ -3125,7 +3125,8 @@ function tagNextSong(songList, idx) {
     if (meta.syncedLyrics)   song.syncedLyrics = meta.syncedLyrics;
     if (meta.lyrics)         song.lyrics = meta.lyrics;
     song.tagging = false;
-    if (idx % 10 === 0) { saveLibrary(); render(); }
+    saveLibraryIDB();                                   // full data to IDB every song
+    if (idx % 10 === 0) { saveLibrary(); render(); }   // localStorage + UI every 10
     setTimeout(function() { tagNextSong(songList, idx + 1); }, 200);
   }).catch(function() {
     song.tagging = false;
@@ -4216,22 +4217,28 @@ restoreUIState();
 // so a cold first-launch (no saved state) would otherwise show a blank screen.
 render();
 
-// If localStorage was empty (quota failure on last session), recover from IndexedDB
-if (songs.length === 0) {
-  loadLibraryIDB().then(function(saved) {
-    if (saved && saved.length > 0 && songs.length === 0) {
-      songs = saved.map(function(s) {
-        s.id = genId();
-        s.url = '';
-        s.tagging = false;
-        s.fav = s.fav || false;
-        return s;
-      });
-      render();
-      nativeAutoScan();
-    }
-  }).catch(function() {});
-}
+// Always load from IndexedDB — it stores full metadata even when localStorage hits
+// quota and falls back to bare-minimum (no year/genre/lyrics). IDB has no quota limit.
+// Prefer IDB whenever it has at least as many songs as localStorage.
+loadLibraryIDB().then(function(saved) {
+  if (saved && saved.length > 0 && saved.length >= songs.length) {
+    songs = saved.map(function(s) {
+      s.id = genId();
+      s.url = '';
+      s.tagging = false;
+      s.fav = s.fav || false;
+      return s;
+    });
+    songMap = Object.create(null);
+    songs.forEach(function(s) { songMap[s.id] = s; });
+    _countsCache = null;
+    render();
+  }
+  // nativeAutoScan is driven by deviceready + setTimeouts; only call here for brand-new installs
+  if (songs.length === 0) nativeAutoScan();
+}).catch(function() {
+  if (songs.length === 0) nativeAutoScan();
+});
 
 // Load persisted art from IndexedDB — after the first session all thumbnails are
 // stored locally, so this fills artCache before the next render and art appears
