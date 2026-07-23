@@ -3072,9 +3072,9 @@ function handleFileImport(files) {
 
   if (newSongs.length > 0 && apiKey) {
     newSongs.forEach(function(s) { s.tagging = true; });
-    tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs, label: 'Auto-tagging music...' };
+    tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs, label: 'Auto-tagging music...', _baseLabel: 'Auto-tagging music...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch };
     updateTaggingBanner();
-    tagNextSong(newSongs, 0);
+    tagNextBatch(newSongs, 0);
   }
 }
 
@@ -3120,17 +3120,41 @@ function autoFillMetadata() {
     return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
   });
   toFill.forEach(function(s) { s.tagging = true; });
-  tagging = { total: toFill.length, done: 0, current: toFill[0].title, active: true, paused: false, queue: toFill, label: 'AI filling metadata...' };
+  tagging = { total: toFill.length, done: 0, current: toFill[0].title, active: true, paused: false, queue: toFill, label: 'AI filling metadata...', _baseLabel: 'AI filling metadata...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch };
   updateTaggingBanner();
-  tagNextSong(toFill, 0);
+  tagNextBatch(toFill, 0);
 }
 
-// Start at the safe rate for the free tier (15 req/min = 1 per 4s).
-// Backs off further on 429; after 5 consecutive 429s pauses a full 60s to let quota reset.
+// Starts at 4.5s (safe for the 15 req/min free tier).
+// Backs off on 429; resets to baseline after 5 consecutive 429s with a 60s quota pause.
 var _geminiDelay = 4500;
 var _rateLimitStreak = 0;
 
-function tagNextSong(songList, idx) {
+// Shared rate-limit handler used by both tagNextBatch and fixSubgenreBatch.
+// Calls resumeFn(songList, idx) after the appropriate wait.
+function _handleRateLimit(songList, idx, resumeFn) {
+  _rateLimitStreak++;
+  if (_rateLimitStreak >= 5) {
+    _rateLimitStreak = 0;
+    _geminiDelay = 4500;
+    tagging.label = 'Quota reached — waiting 60s for reset...';
+    updateTaggingBanner();
+    setTimeout(function() {
+      tagging.label = tagging._baseLabel;
+      resumeFn(songList, idx);
+    }, 60000);
+  } else {
+    _geminiDelay = Math.min(20000, _geminiDelay + 5000);
+    tagging.label = 'Rate limited — waiting ' + Math.round(_geminiDelay / 1000) + 's...';
+    updateTaggingBanner();
+    setTimeout(function() {
+      tagging.label = tagging._baseLabel;
+      resumeFn(songList, idx);
+    }, _geminiDelay);
+  }
+}
+
+function tagNextBatch(songList, idx) {
   if (tagging.paused) { tagging.idx = idx; return; }
   tagging.idx = idx;
   if (idx >= songList.length) {
@@ -3138,65 +3162,96 @@ function tagNextSong(songList, idx) {
     updateTaggingBanner();
     saveLibrary();
     render();
-    showToast('AI tagging complete!');
+    var t = tagging.taggedCount || 0, f = tagging.failedCount || 0;
+    showToast(t + ' song' + (t !== 1 ? 's' : '') + ' tagged' + (f > 0 ? ', ' + f + ' skipped' : '') + ' ✓');
     return;
   }
-  var song = songList[idx];
-  tagging.current = song.title;
+  var batch = songList.slice(idx, idx + BATCH_SIZE);
+  tagging.current = batch[0].title + (batch.length > 1 ? ' +' + (batch.length - 1) + ' more' : '');
   tagging.done = idx;
   updateTaggingBanner();
 
-  callGeminiTag(song).then(function(meta) {
-    // Fill-blanks-only: never overwrite metadata that is already correct.
-    // AI only fills fields that are empty or flagged as unknown.
-    var ua = !song.artist || song.artist === 'Unknown Artist';
-    var ub = !song.album  || song.album  === 'Unknown Album';
-    if (meta.title  && (!song.title  || /^unknown/i.test(song.title)))  song.title  = meta.title;
-    if (meta.artist && ua)                                               song.artist = meta.artist;
-    if (meta.album  && ub)                                               song.album  = meta.album;
-    if (meta.albumArtist && !song.albumArtist)                           song.albumArtist = meta.albumArtist;
-    if (meta.year  && !song.year)                                        song.year   = String(meta.year);
-    if (meta.genre && (!song.genre || GENERIC_GENRE.test(song.genre.trim()))) song.genre = meta.genre;
-    if (meta.trackNumber && !song.track)                                 song.track  = parseInt(meta.trackNumber) || 0;
-    if (meta.releaseType && !song.type)                                  song.type   = meta.releaseType;
-    if (meta.featuredArtists && !song.feat)                              song.feat   = meta.featuredArtists;
-    if (meta.syncedLyrics && !song.syncedLyrics && !song.lyrics)         song.syncedLyrics = meta.syncedLyrics;
-    if (meta.lyrics && !song.lyrics && !song.syncedLyrics)               song.lyrics = meta.lyrics;
-    song.tagging = false;
-    song.aiAttempted = Date.now();
+  callGeminiBatch(batch).then(function(results) {
+    var now = Date.now();
+    results.forEach(function(meta, i) {
+      var song = batch[i];
+      if (!song) return;
+      applyMetaToSong(song, meta);
+      song.tagging = false;
+      song.aiAttempted = now;
+      if (meta && (meta.title || meta.artist || meta.album || meta.year || meta.genre)) {
+        tagging.taggedCount = (tagging.taggedCount || 0) + 1;
+      }
+    });
     _rateLimitStreak = 0;
     _geminiDelay = 4500;
     saveLibrary();
     render();
-    setTimeout(function() { tagNextSong(songList, idx + 1); }, _geminiDelay);
+    setTimeout(function() { tagNextBatch(songList, idx + batch.length); }, _geminiDelay);
   }).catch(function(err) {
-    song.tagging = false;
     if (err && err.isRateLimit) {
-      _rateLimitStreak++;
-      if (_rateLimitStreak >= 5) {
-        // Quota window is exhausted — wait a full minute for it to reset
-        _rateLimitStreak = 0;
-        _geminiDelay = 4500;
-        tagging.label = 'Quota reached — waiting 60s for reset...';
-        updateTaggingBanner();
-        setTimeout(function() {
-          tagging.label = 'AI filling metadata...';
-          tagNextSong(songList, idx);
-        }, 60000);
-      } else {
-        _geminiDelay = Math.min(20000, _geminiDelay + 5000);
-        tagging.label = 'Rate limited — waiting ' + Math.round(_geminiDelay / 1000) + 's...';
-        updateTaggingBanner();
-        setTimeout(function() {
-          tagging.label = 'AI filling metadata...';
-          tagNextSong(songList, idx);
-        }, _geminiDelay);
-      }
+      _handleRateLimit(songList, idx, tagNextBatch);
     } else {
       _rateLimitStreak = 0;
-      song.aiAttempted = Date.now();
+      var now = Date.now();
+      batch.forEach(function(song) {
+        song.tagging = false;
+        song.aiAttempted = now;
+        tagging.failedCount = (tagging.failedCount || 0) + 1;
+      });
       saveLibrary();
-      setTimeout(function() { tagNextSong(songList, idx + 1); }, 500);
+      setTimeout(function() { tagNextBatch(songList, idx + batch.length); }, 500);
+    }
+  });
+}
+
+function fixSubgenreBatch(songList, idx) {
+  if (tagging.paused) { tagging.idx = idx; return; }
+  tagging.idx = idx;
+  if (idx >= songList.length) {
+    tagging.active = false;
+    updateTaggingBanner();
+    saveLibrary();
+    render();
+    var t = tagging.taggedCount || 0;
+    showToast(t + ' subgenre' + (t !== 1 ? 's' : '') + ' updated ✓');
+    return;
+  }
+  var batch = songList.slice(idx, idx + BATCH_SIZE);
+  tagging.current = batch[0].title + (batch.length > 1 ? ' +' + (batch.length - 1) + ' more' : '');
+  tagging.done = idx;
+  updateTaggingBanner();
+
+  callGeminiSubgenreBatch(batch).then(function(genres) {
+    var now = Date.now();
+    genres.forEach(function(genre, i) {
+      var song = batch[i];
+      if (!song) return;
+      if (genre && typeof genre === 'string' && genre.trim()) {
+        song.genre = genre.trim();
+        tagging.taggedCount = (tagging.taggedCount || 0) + 1;
+      }
+      song.tagging = false;
+      song.aiAttempted = now;
+    });
+    _rateLimitStreak = 0;
+    _geminiDelay = 4500;
+    saveLibrary();
+    render();
+    setTimeout(function() { fixSubgenreBatch(songList, idx + batch.length); }, _geminiDelay);
+  }).catch(function(err) {
+    if (err && err.isRateLimit) {
+      _handleRateLimit(songList, idx, fixSubgenreBatch);
+    } else {
+      _rateLimitStreak = 0;
+      var now = Date.now();
+      batch.forEach(function(song) {
+        song.tagging = false;
+        song.aiAttempted = now;
+        tagging.failedCount = (tagging.failedCount || 0) + 1;
+      });
+      saveLibrary();
+      setTimeout(function() { fixSubgenreBatch(songList, idx + batch.length); }, 500);
     }
   });
 }
@@ -3219,11 +3274,120 @@ function updateTaggingBanner() {
 
 // ─── Gemini API ───
 
+var _GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture.\n\n'
+  + 'You know underground and mainstream artists including: Stack Bundles, Max B, Chinx, Lloyd Banks (Cold Corner 1-3, Halloween Havoc), Styles P (Ghost Stories), Jadakiss (Champ Is Here 1-3), Fabolous (Soul Tape, No Competition), Dave East (Kairi Chanel, Paranoia), Griselda (Westside Gunn, Conway, Benny), Roc Marciano, Chief Keef (Back From The Dead, Finally Rich), King Von, Pop Smoke, Lil Wayne (Da Drought 3, No Ceilings, Dedication), Future (Monster, 56 Nights, Beast Mode), Young Thug, Gucci Mane, Jeezy, T.I., Nipsey Hussle (Crenshaw, Victory Lap), Curren$y (Pilot Talk, Jet Files), Wiz Khalifa (Kush & OJ, Taylor Allderdice), Mac Miller (K.I.D.S., Faces), Kevin Gates (Luca Brasi), J. Cole (Friday Night Lights, Truly Yours), Drake (So Far Gone, Room for Improvement), Chance the Rapper (Acid Rap, 10 Day), and all major label releases.\n\n';
+var _GEMINI_TAG_RULES = 'Rules:\n'
+  + '- releaseType must be one of: Album, Mixtape, EP, Single\n'
+  + '- For loosies/SoundCloud tracks not on any project, use "Single"\n'
+  + '- For DJ-hosted tapes (Gangsta Grillz, Drama, etc), use "Mixtape"\n'
+  + '- genre must be specific: Boom-Bap, Trap, Drill, G-Funk, Cloud Rap, Gangsta Rap, East Coast, West Coast, Conscious Hip-Hop, Memphis Rap, Phonk, Crunk, R&B, Neo-Soul — never just "Hip-Hop" or "Rap"\n'
+  + '- If you are not confident about a field, leave it empty — do not guess\n';
+var BATCH_SIZE = 20;
+
+// Apply AI result to a single song using fill-blanks-only rules.
+function applyMetaToSong(song, meta) {
+  if (!meta || typeof meta !== 'object') return;
+  var ua = !song.artist || song.artist === 'Unknown Artist';
+  var ub = !song.album  || song.album  === 'Unknown Album';
+  if (meta.title  && (!song.title  || /^unknown/i.test(song.title)))       song.title  = meta.title;
+  if (meta.artist && ua)                                                    song.artist = meta.artist;
+  if (meta.album  && ub)                                                    song.album  = meta.album;
+  if (meta.albumArtist && !song.albumArtist)                                song.albumArtist = meta.albumArtist;
+  if (meta.year  && !song.year)                                             song.year   = String(meta.year);
+  if (meta.genre && (!song.genre || GENERIC_GENRE.test(song.genre.trim()))) song.genre  = meta.genre;
+  if (meta.trackNumber && !song.track)                                      song.track  = parseInt(meta.trackNumber) || 0;
+  if (meta.releaseType && !song.type)                                       song.type   = meta.releaseType;
+  if (meta.featuredArtists && !song.feat)                                   song.feat   = meta.featuredArtists;
+}
+
+// Send one request to tag a batch of up to BATCH_SIZE songs.
+// Returns a Promise<Array> of metadata objects in the same order as songList.
+function callGeminiBatch(songList) {
+  if (!apiKey || !songList.length) return Promise.resolve([]);
+  var items = songList.map(function(s, i) {
+    var parts = ['file:"' + (s.fn || '') + '"'];
+    if (s.title  && !/^unknown/i.test(s.title))   parts.push('title:"'  + s.title  + '"');
+    if (s.artist && s.artist !== 'Unknown Artist') parts.push('artist:"' + s.artist + '"');
+    if (s.album  && s.album  !== 'Unknown Album')  parts.push('album:"'  + s.album  + '"');
+    if (s.year)  parts.push('year:' + s.year);
+    if (s.genre && !GENERIC_GENRE.test(s.genre.trim())) parts.push('genre:"' + s.genre + '"');
+    return (i + 1) + '. ' + parts.join(' | ');
+  }).join('\n');
+  var prompt = _GEMINI_EXPERTISE
+    + 'Identify the correct metadata for each of the ' + songList.length + ' songs listed below.\n\n'
+    + 'Songs:\n' + items + '\n\n'
+    + 'Return a JSON array with exactly ' + songList.length + ' objects in the same order. '
+    + 'Use empty string for any field you are not confident about.\n'
+    + 'Schema: {"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
+    + _GEMINI_TAG_RULES;
+  return fetch(_GEMINI_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json' }
+    })
+  }).then(function(res) {
+    if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
+    return res.json();
+  }).then(function(data) {
+    if (!data.candidates || !data.candidates[0]) throw new Error('No response');
+    var text = data.candidates[0].content.parts[0].text.trim();
+    text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
+    var arr = JSON.parse(text);
+    if (!Array.isArray(arr)) arr = [arr];
+    while (arr.length < songList.length) arr.push({});
+    return arr;
+  });
+}
+
+// Send one request to get specific subgenres for a batch of songs.
+// Returns a Promise<Array<string>> in the same order as songList.
+function callGeminiSubgenreBatch(songList) {
+  if (!apiKey || !songList.length) return Promise.resolve([]);
+  var items = songList.map(function(s, i) {
+    var parts = [];
+    if (s.artist && s.artist !== 'Unknown Artist') parts.push('artist:"' + s.artist + '"');
+    if (s.title)  parts.push('title:"' + s.title + '"');
+    if (s.album && s.album !== 'Unknown Album')    parts.push('album:"' + s.album + '"');
+    if (s.year)   parts.push('year:' + s.year);
+    return (i + 1) + '. ' + (parts.length ? parts.join(' | ') : 'file:"' + s.fn + '"');
+  }).join('\n');
+  var subgenreList = 'Boom-Bap, Trap, Drill, G-Funk, Cloud Rap, Gangsta Rap, East Coast, West Coast, '
+    + 'Conscious Hip-Hop, Alternative Hip-Hop, Memphis Rap, New York Drill, UK Drill, Chicago Drill, '
+    + 'Crunk, Hyphy, Phonk, Trap-Soul, R&B, Neo-Soul, Jazz Rap, Horrorcore, '
+    + 'Chopped & Screwed, Hardcore Hip-Hop, Southern Hip-Hop, Midwest Hip-Hop';
+  var prompt = _GEMINI_EXPERTISE
+    + 'For each of the ' + songList.length + ' songs below, pick the single most accurate specific subgenre from this list:\n'
+    + subgenreList + '\n\n'
+    + 'Songs:\n' + items + '\n\n'
+    + 'Return a JSON array of exactly ' + songList.length + ' strings (one subgenre per song, same order). '
+    + 'Use empty string if you are not confident. Example: ["Boom-Bap","Trap",""]';
+  return fetch(_GEMINI_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json' }
+    })
+  }).then(function(res) {
+    if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
+    return res.json();
+  }).then(function(data) {
+    if (!data.candidates || !data.candidates[0]) throw new Error('No response');
+    var text = data.candidates[0].content.parts[0].text.trim();
+    text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
+    var arr = JSON.parse(text);
+    if (!Array.isArray(arr)) arr = [];
+    while (arr.length < songList.length) arr.push('');
+    return arr;
+  });
+}
+
+// Single-song version used by the tag editor's AI Fill button.
 function callGeminiTag(songOrFile) {
   if (!apiKey) return Promise.resolve({});
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-
-  // Build context block from existing metadata so AI can confirm & fill gaps
   var fileName = typeof songOrFile === 'string' ? songOrFile : (songOrFile.fn || '');
   var ctx = '';
   if (typeof songOrFile === 'object') {
@@ -3231,26 +3395,18 @@ function callGeminiTag(songOrFile) {
     if (s.title  && !/^unknown/i.test(s.title))  ctx += 'Title: '  + s.title  + '\n';
     if (s.artist && !/^unknown/i.test(s.artist)) ctx += 'Artist: ' + s.artist + '\n';
     if (s.album  && !/^unknown/i.test(s.album))  ctx += 'Album: '  + s.album  + '\n';
-    if (s.year)   ctx += 'Year: '  + s.year  + '\n';
-    if (s.genre && !/^(hip.hop|rap|r&b|music|unknown|other)$/i.test(s.genre.trim())) ctx += 'Genre: ' + s.genre + '\n';
-    if (s.track)  ctx += 'Track: ' + s.track + '\n';
+    if (s.year)  ctx += 'Year: '  + s.year  + '\n';
+    if (s.genre && !GENERIC_GENRE.test(s.genre.trim())) ctx += 'Genre: ' + s.genre + '\n';
+    if (s.track) ctx += 'Track: ' + s.track + '\n';
   }
-
-  var prompt = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture.\n\n'
-    + 'You know underground and mainstream artists including: Stack Bundles, Max B, Chinx, Lloyd Banks (Cold Corner 1-3, Halloween Havoc), Styles P (Ghost Stories), Jadakiss (Champ Is Here 1-3), Fabolous (Soul Tape, No Competition), Dave East (Kairi Chanel, Paranoia), Griselda (Westside Gunn, Conway, Benny), Roc Marciano, Chief Keef (Back From The Dead, Finally Rich), King Von, Pop Smoke, Lil Wayne (Da Drought 3, No Ceilings, Dedication), Future (Monster, 56 Nights, Beast Mode), Young Thug, Gucci Mane, Jeezy, T.I., Nipsey Hussle (Crenshaw, Victory Lap), Curren$y (Pilot Talk, Jet Files), Wiz Khalifa (Kush & OJ, Taylor Allderdice), Mac Miller (K.I.D.S., Faces), Kevin Gates (Luca Brasi), J. Cole (Friday Night Lights, Truly Yours), Drake (So Far Gone, Room for Improvement), Chance the Rapper (Acid Rap, 10 Day), and all major label releases.\n\n'
-    + (ctx ? 'The song already has the following metadata — use it to confirm the song identity, then fill in any missing or incorrect fields:\n' + ctx + '\n' : '')
+  var prompt = _GEMINI_EXPERTISE
+    + (ctx ? 'Existing metadata (confirm identity, fill missing fields):\n' + ctx + '\n' : '')
     + 'Filename: ' + fileName + '\n\n'
-    + 'Return ONLY a JSON object with these fields:\n'
+    + 'Return ONLY a JSON object:\n'
     + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
-    + 'Rules:\n'
-    + '- releaseType must be one of: Album, Mixtape, EP, Single\n'
-    + '- For loosies/SoundCloud tracks not on any project, use "Single"\n'
-    + '- For DJ-hosted tapes (Gangsta Grillz, Drama, etc), use "Mixtape"\n'
-    + '- genre must be specific: Boom-Bap, Trap, Drill, G-Funk, Cloud Rap, Gangsta Rap, East Coast, West Coast, Conscious Hip-Hop, Memphis Rap, Phonk, Crunk, R&B, Neo-Soul — never just "Hip-Hop" or "Rap"\n'
-    + '- If you are not confident about a field, leave it empty — do not guess\n'
+    + _GEMINI_TAG_RULES
     + '- Return ONLY the JSON object, no markdown, no explanation';
-
-  return fetch(url, {
+  return fetch(_GEMINI_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
@@ -3968,9 +4124,10 @@ document.getElementById('taggingPauseBtn').onclick = function() {
   this.classList.toggle('paused', tagging.paused);
   this.innerHTML = tagging.paused ? '&#9654;' : '&#9646;&#9646;';
   if (!tagging.paused) {
-    tagging.label = 'AI filling metadata...';
+    tagging.label = tagging._baseLabel || 'AI filling metadata...';
     updateTaggingBanner();
-    tagNextSong(tagging.queue, tagging.idx);
+    var fn = tagging.resumeFn || tagNextBatch;
+    fn(tagging.queue, tagging.idx);
   } else {
     tagging.label = 'Paused';
     updateTaggingBanner();
@@ -4046,10 +4203,9 @@ document.getElementById('testApiKeyBtn').onclick = function() {
   if (!key) { resultEl.style.color = 'var(--red)'; resultEl.textContent = 'Enter a key first'; return; }
   resultEl.style.color = 'var(--text-dim)';
   resultEl.textContent = 'Testing...';
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + key;
-  fetch(url, {
+  fetch(_GEMINI_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': key },
     body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with just the word: OK' }] }] })
   })
   .then(function(r) { return r.json(); })
@@ -4094,9 +4250,9 @@ document.getElementById('retagLibBtn').onclick = function() {
     if (ac !== bc) return ac < bc ? -1 : 1;
     return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
   });
-  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag, label: 'Re-tagging library...' };
+  tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag, label: 'Re-tagging library...', _baseLabel: 'Re-tagging library...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch };
   updateTaggingBanner();
-  tagNextSong(toTag, 0);
+  tagNextBatch(toTag, 0);
   showToast('Re-tagging ' + toTag.length + ' song' + (toTag.length !== 1 ? 's' : '') + '...');
 };
 
@@ -4113,92 +4269,11 @@ document.getElementById('fixUnknownBtn').onclick = function() {
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
   toFix.forEach(function(s) { s.tagging = true; });
-  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing unknown songs...' };
+  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing unknown songs...', _baseLabel: 'Fixing unknown songs...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch };
   updateTaggingBanner();
-  tagNextSong(toFix, 0);
+  tagNextBatch(toFix, 0);
   showToast('Fixing ' + toFix.length + ' unknown song' + (toFix.length !== 1 ? 's' : '') + '...');
 };
-
-// ── Fix Subgenres ──
-function callGeminiSubgenre(song) {
-  if (!apiKey) return Promise.resolve('');
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey;
-  var prompt = 'You are a hip-hop music expert.\n\n'
-    + 'Artist: ' + song.artist + '\nTitle: ' + song.title
-    + (song.album && song.album !== 'Unknown Album' ? '\nAlbum: ' + song.album : '') + '\n\n'
-    + 'Return ONLY the most accurate specific subgenre for this song as 1-3 words. Choose from:\n'
-    + 'Boom-Bap, Trap, Drill, G-Funk, Cloud Rap, Gangsta Rap, East Coast, West Coast, '
-    + 'Conscious Hip-Hop, Alternative Hip-Hop, Memphis Rap, New York Drill, UK Drill, '
-    + 'Chicago Drill, Crunk, Hyphy, Phonk, Trap-Soul, R&B, Neo-Soul, Jazz Rap, '
-    + 'Horrorcore, Chopped & Screwed, Hardcore Hip-Hop, Southern Hip-Hop, Midwest Hip-Hop\n\n'
-    + 'Return ONLY the subgenre, no quotes, no other text.';
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-  }).then(function(r) {
-    if (r.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
-    return r.json();
-  }).then(function(d) {
-      if (!d.candidates || !d.candidates[0]) return '';
-      return d.candidates[0].content.parts[0].text.trim().replace(/^["']|["']$/g, '');
-    });
-}
-
-function fixSubgenreNext(songList, idx) {
-  if (tagging.paused) return;
-  if (idx >= songList.length) {
-    tagging.active = false;
-    updateTaggingBanner();
-    saveLibrary();
-    render();
-    showToast('Subgenres updated!');
-    return;
-  }
-  var song = songList[idx];
-  tagging.current = song.title;
-  tagging.done = idx;
-  updateTaggingBanner();
-  callGeminiSubgenre(song).then(function(genre) {
-    if (genre) song.genre = genre;
-    song.tagging = false;
-    _rateLimitStreak = 0;
-    _geminiDelay = 4500;
-    saveLibrary();
-    render();
-    setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, _geminiDelay);
-  }).catch(function(err) {
-    song.tagging = false;
-    if (err && err.isRateLimit) {
-      _rateLimitStreak++;
-      if (_rateLimitStreak >= 5) {
-        _rateLimitStreak = 0;
-        _geminiDelay = 4500;
-        tagging.label = 'Quota reached — waiting 60s for reset...';
-        updateTaggingBanner();
-        setTimeout(function() {
-          tagging.label = 'Fixing subgenres...';
-          fixSubgenreNext(songList, idx);
-        }, 60000);
-      } else {
-        _geminiDelay = Math.min(20000, _geminiDelay + 5000);
-        tagging.label = 'Rate limited — waiting ' + Math.round(_geminiDelay / 1000) + 's...';
-        updateTaggingBanner();
-        setTimeout(function() {
-          tagging.label = 'Fixing subgenres...';
-          fixSubgenreNext(songList, idx);
-        }, _geminiDelay);
-      }
-    } else {
-      _rateLimitStreak = 0;
-      song.aiAttempted = Date.now();
-      saveLibrary();
-      setTimeout(function() { fixSubgenreNext(songList, idx + 1); }, 500);
-    }
-  });
-}
-
-var GENERIC_GENRES = ['', 'hip-hop', 'rap', 'hip hop', 'r&b', 'music', 'other', 'unknown', 'pop'];
 
 document.getElementById('fixSubgenreBtn').onclick = function() {
   var key = document.getElementById('apiKeyInput').value.trim() || apiKey;
@@ -4212,9 +4287,9 @@ document.getElementById('fixSubgenreBtn').onclick = function() {
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
   toFix.forEach(function(s) { s.tagging = true; });
-  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing subgenres...' };
+  tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing subgenres...', _baseLabel: 'Fixing subgenres...', taggedCount: 0, failedCount: 0, resumeFn: fixSubgenreBatch };
   updateTaggingBanner();
-  fixSubgenreNext(toFix, 0);
+  fixSubgenreBatch(toFix, 0);
   showToast('Updating subgenres for ' + toFix.length + ' song' + (toFix.length !== 1 ? 's' : '') + '...');
 };
 
