@@ -682,12 +682,15 @@ function saveLibrary() {
   _countsCache = null;
   songMap = Object.create(null);
   songs.forEach(function(s) { songMap[s.id] = s; });
-  // Lean localStorage tier: no lyrics (stored in IDB). Keeps quota usage low.
+  // Lean localStorage tier: no lyrics, no art (both stored in IDB; art also in art-cache IDB).
+  // Art must NOT go here — a single base64 image is ~50KB, so a library with album art
+  // easily exceeds the 5 MB localStorage quota. A silent quota failure returns [] on next
+  // startup, triggering a full rescan that wipes all saved edits.
   try {
     var lean = songs.map(function(s) {
       return {
         fn: s.fn, title: s.title, artist: s.artist, album: s.album,
-        year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track, art: s.art,
+        year: s.year, genre: s.genre, disc: s.disc || 1, track: s.track,
         dur: s.dur, fav: s.fav, type: s.type, feat: s.feat,
         playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
         nativePath:  s.nativePath  || '',
@@ -3220,7 +3223,6 @@ function tagNextBatch(songList, idx) {
   }
   var batch = songList.slice(idx, idx + BATCH_SIZE);
   tagging.current = batch[0].title + (batch.length > 1 ? ' +' + (batch.length - 1) + ' more' : '');
-  tagging.done = idx;
   updateTaggingBanner();
 
   callGeminiBatch(batch).then(function(results) {
@@ -3240,6 +3242,7 @@ function tagNextBatch(songList, idx) {
     _rateLimitStreak = 0;
     _transientStreak = 0;
     _geminiDelay = 6000;
+    tagging.done = idx + batch.length; // update AFTER batch completes — no more jumping
     saveLibrary();
     render();
     setTimeout(function() { tagNextBatch(songList, idx + batch.length); }, _geminiDelay);
@@ -3259,6 +3262,7 @@ function tagNextBatch(songList, idx) {
         song.aiAttempted = now;
         tagging.failedCount = (tagging.failedCount || 0) + 1;
       });
+      tagging.done = idx + batch.length;
       saveLibrary();
       setTimeout(function() { tagNextBatch(songList, idx + batch.length); }, 500);
     }
@@ -3289,7 +3293,6 @@ function fixSubgenreBatch(songList, idx) {
   }
   var batch = songList.slice(idx, idx + BATCH_SIZE);
   tagging.current = batch[0].title + (batch.length > 1 ? ' +' + (batch.length - 1) + ' more' : '');
-  tagging.done = idx;
   updateTaggingBanner();
 
   callGeminiSubgenreBatch(batch).then(function(genres) {
@@ -3308,6 +3311,7 @@ function fixSubgenreBatch(songList, idx) {
     _rateLimitStreak = 0;
     _transientStreak = 0;
     _geminiDelay = 6000;
+    tagging.done = idx + batch.length;
     saveLibrary();
     render();
     setTimeout(function() { fixSubgenreBatch(songList, idx + batch.length); }, _geminiDelay);
@@ -3326,6 +3330,7 @@ function fixSubgenreBatch(songList, idx) {
         song.aiAttempted = now;
         tagging.failedCount = (tagging.failedCount || 0) + 1;
       });
+      tagging.done = idx + batch.length;
       saveLibrary();
       setTimeout(function() { fixSubgenreBatch(songList, idx + batch.length); }, 500);
     }
@@ -3339,8 +3344,8 @@ function updateTaggingBanner() {
   var lbl = document.getElementById('taggingLabel');
   if (lbl) lbl.textContent = tagging.label || 'Auto-tagging music...';
   document.getElementById('taggingCurrent').textContent = tagging.current;
-  document.getElementById('taggingCount').textContent = (tagging.done + 1) + ' / ' + tagging.total;
-  document.getElementById('taggingBar').style.width = ((tagging.done + 1) / tagging.total * 100) + '%';
+  document.getElementById('taggingCount').textContent = tagging.done + ' / ' + tagging.total;
+  document.getElementById('taggingBar').style.width = (tagging.done / tagging.total * 100) + '%';
   var pauseBtn = document.getElementById('taggingPauseBtn');
   if (pauseBtn) {
     pauseBtn.classList.toggle('paused', !!tagging.paused);
@@ -4938,7 +4943,26 @@ function nativeAutoScan() {
       return;
     }
     var newSongs = files.map(function(f) { return NativeBridge.toSong(f); });
-    songs = newSongs;
+
+    // Merge with whatever is already in memory (IDB data, user edits, AI tags, lyrics).
+    // Never replace — that wipes all saved metadata. MediaStore only owns: url, contentUri,
+    // nativePath, albumArtUri, dur. Everything else comes from the saved library.
+    var _byUri = Object.create(null), _byFn = Object.create(null);
+    songs.forEach(function(s) {
+      if (s.contentUri) _byUri[s.contentUri] = s;
+      if (s.fn)         _byFn[s.fn]          = s;
+    });
+    songs = newSongs.map(function(ns) {
+      var ex = _byUri[ns.contentUri] || _byFn[ns.fn];
+      if (!ex) return ns; // genuinely new file
+      ex.url         = ns.url         || ex.url;
+      ex.contentUri  = ns.contentUri  || ex.contentUri;
+      ex.nativePath  = ns.nativePath  || ex.nativePath;
+      ex.albumArtUri = ns.albumArtUri || ex.albumArtUri;
+      ex.dur         = ns.dur         || ex.dur;
+      return ex;
+    });
+
     saveLibrary();
     render();
     backgroundLoadAllArt();
