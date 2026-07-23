@@ -2986,6 +2986,7 @@ function handleFileImport(files) {
 
   if (newSongs.length > 0 && apiKey) {
     newSongs.forEach(function(s) { s.tagging = true; });
+    _rateLimitStreak = 0; _transientStreak = 0; _geminiDelay = 8000;
     tagging = { total: newSongs.length, done: 0, current: newSongs[0].title, active: true, paused: false, queue: newSongs, label: 'Auto-tagging music...', _baseLabel: 'Auto-tagging music...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch, modified: [] };
     updateTaggingBanner();
     tagNextBatch(newSongs, 0);
@@ -3066,13 +3067,14 @@ function autoFillMetadata() {
     return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
   });
   toFill.forEach(function(s) { s.tagging = true; });
+  _rateLimitStreak = 0; _transientStreak = 0; _geminiDelay = 8000;
   tagging = { total: toFill.length, done: 0, current: toFill[0].title, active: true, paused: false, queue: toFill, label: 'AI filling metadata...', _baseLabel: 'AI filling metadata...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch, modified: [] };
   updateTaggingBanner();
   tagNextBatch(toFill, 0);
 }
 
-// 6000ms = exactly 10 RPM (free tier limit). Backs off on 429 up to 20s.
-var _geminiDelay = 6000;
+// 8000ms baseline = ~6 RPM (well under the 10 RPM free-tier limit). Backs off to 25s on 429.
+var _geminiDelay = 8000;
 var _rateLimitStreak = 0;
 var _transientStreak = 0;
 
@@ -3099,7 +3101,7 @@ function _handleRateLimit(songList, idx, resumeFn, isDailyQuota) {
   _rateLimitStreak++;
   if (isDailyQuota || _rateLimitStreak >= 20) {
     _rateLimitStreak = 0;
-    _geminiDelay = 6000;
+    _geminiDelay = 8000;
     tagging.active = true;
     tagging.paused = true;
     tagging.idx = idx;
@@ -3108,10 +3110,21 @@ function _handleRateLimit(songList, idx, resumeFn, isDailyQuota) {
     updateTaggingBanner();
     showToast('Daily Gemini quota reached (250 req/day). Tagging paused — resume tomorrow or upgrade your API key.', 8000);
   } else {
-    _geminiDelay = Math.min(20000, _geminiDelay + 5000);
-    tagging.label = 'Rate limited — waiting ' + Math.round(_geminiDelay / 1000) + 's...';
+    _geminiDelay = Math.min(25000, _geminiDelay + 6000);
+    var waitSec = Math.round(_geminiDelay / 1000);
+    tagging.label = 'Rate limited — waiting ' + waitSec + 's...';
     updateTaggingBanner();
+    var _rlCountdown = setInterval(function() {
+      waitSec--;
+      if (waitSec > 0) {
+        tagging.label = 'Rate limited — waiting ' + waitSec + 's...';
+        updateTaggingBanner();
+      } else {
+        clearInterval(_rlCountdown);
+      }
+    }, 1000);
     setTimeout(function() {
+      clearInterval(_rlCountdown);
       tagging.label = tagging._baseLabel;
       resumeFn(songList, idx);
     }, _geminiDelay);
@@ -3125,13 +3138,15 @@ function _handleTransient(songList, idx, resumeFn) {
   _transientStreak++;
   if (_transientStreak >= 3) {
     _transientStreak = 0;
-    _geminiDelay = 6000;
+    _geminiDelay = 8000;
     var batch = songList.slice(idx, idx + BATCH_SIZE);
     batch.forEach(function(song) {
       song.tagging = false;
       tagging.failedCount = (tagging.failedCount || 0) + 1;
     });
+    tagging.done = idx + batch.length;
     tagging.label = tagging._baseLabel;
+    updateTaggingBanner();
     setTimeout(function() { resumeFn(songList, idx + batch.length); }, _geminiDelay);
   } else {
     _geminiDelay = Math.min(20000, _geminiDelay + 5000);
@@ -3241,7 +3256,7 @@ function tagNextBatch(songList, idx) {
     });
     _rateLimitStreak = 0;
     _transientStreak = 0;
-    _geminiDelay = 6000;
+    _geminiDelay = 8000;
     tagging.done = idx + batch.length; // update AFTER batch completes — no more jumping
     saveLibrary();
     render();
@@ -3249,7 +3264,7 @@ function tagNextBatch(songList, idx) {
   }).catch(function(err) {
     if (err && err.isRateLimit) {
       _handleRateLimit(songList, idx, tagNextBatch, err.isDailyQuota);
-    } else if (err && err.isTransient) {
+    } else if (err && (err.isTransient || (err.name === 'AbortError'))) {
       _rateLimitStreak = 0;
       _handleTransient(songList, idx, tagNextBatch);
     } else {
@@ -3310,7 +3325,7 @@ function fixSubgenreBatch(songList, idx) {
     });
     _rateLimitStreak = 0;
     _transientStreak = 0;
-    _geminiDelay = 6000;
+    _geminiDelay = 8000;
     tagging.done = idx + batch.length;
     saveLibrary();
     render();
@@ -3318,7 +3333,7 @@ function fixSubgenreBatch(songList, idx) {
   }).catch(function(err) {
     if (err && err.isRateLimit) {
       _handleRateLimit(songList, idx, fixSubgenreBatch, err.isDailyQuota);
-    } else if (err && err.isTransient) {
+    } else if (err && (err.isTransient || (err.name === 'AbortError'))) {
       _rateLimitStreak = 0;
       _handleTransient(songList, idx, fixSubgenreBatch);
     } else {
@@ -4597,6 +4612,7 @@ document.getElementById('retagLibBtn').onclick = function() {
     if (ac !== bc) return ac < bc ? -1 : 1;
     return (a.album || '').toLowerCase() < (b.album || '').toLowerCase() ? -1 : 1;
   });
+  _rateLimitStreak = 0; _transientStreak = 0; _geminiDelay = 8000;
   tagging = { total: toTag.length, done: 0, current: toTag[0].title, active: true, paused: false, queue: toTag, label: 'Re-tagging library...', _baseLabel: 'Re-tagging library...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch, modified: [] };
   updateTaggingBanner();
   tagNextBatch(toTag, 0);
@@ -4617,6 +4633,7 @@ document.getElementById('fixUnknownBtn').onclick = function() {
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
   toFix.forEach(function(s) { s.tagging = true; });
+  _rateLimitStreak = 0; _transientStreak = 0; _geminiDelay = 8000;
   tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing unknown songs...', _baseLabel: 'Fixing unknown songs...', taggedCount: 0, failedCount: 0, resumeFn: tagNextBatch, modified: [] };
   updateTaggingBanner();
   tagNextBatch(toFix, 0);
@@ -4635,6 +4652,7 @@ document.getElementById('fixSubgenreBtn').onclick = function() {
   localStorage.setItem('gemini_api_key', apiKey);
   closeSettings();
   toFix.forEach(function(s) { s.tagging = true; });
+  _rateLimitStreak = 0; _transientStreak = 0; _geminiDelay = 8000;
   tagging = { total: toFix.length, done: 0, current: toFix[0].title, active: true, paused: false, queue: toFix, label: 'Fixing subgenres...', _baseLabel: 'Fixing subgenres...', taggedCount: 0, failedCount: 0, resumeFn: fixSubgenreBatch, modified: [] };
   updateTaggingBanner();
   fixSubgenreBatch(toFix, 0);
