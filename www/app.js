@@ -3089,7 +3089,7 @@ function writeTaggedToFiles(songList) {
       albumArtist: s.albumArtist || '',
       track:       s.track       || 0,
       lyrics:      s.syncedLyrics || s.lyrics || '',
-      artBase64:   ''
+      artBase64:   (s.art && s.art.startsWith('data:')) ? s.art : ''
     }).then(function() { next(i + 1); })
       .catch(function()  { next(i + 1); });
   }
@@ -3100,15 +3100,20 @@ function tagNextBatch(songList, idx) {
   if (tagging.paused) { tagging.idx = idx; return; }
   tagging.idx = idx;
   if (idx >= songList.length) {
-    tagging.active = false;
-    updateTaggingBanner();
     saveLibrary();
     render();
     var t = tagging.taggedCount || 0, f = tagging.failedCount || 0;
     showToast(t + ' song' + (t !== 1 ? 's' : '') + ' tagged' + (f > 0 ? ', ' + f + ' skipped' : '') + ' ✓');
     var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
-    var toWrite = (tagging.modified || []).filter(function(s) { return s.contentUri; });
-    if (isNat && toWrite.length > 0) writeTaggedToFiles(toWrite);
+    var modified = tagging.modified || [];
+    enrichTaggedSongs(modified, function() {
+      saveLibrary();
+      render();
+      tagging.active = false;
+      updateTaggingBanner();
+      var toWrite = modified.filter(function(s) { return s.contentUri; });
+      if (isNat && toWrite.length > 0) writeTaggedToFiles(toWrite);
+    });
     return;
   }
   var batch = songList.slice(idx, idx + BATCH_SIZE);
@@ -3407,14 +3412,19 @@ function callGeminiTag(songOrFile) {
     + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
     + _GEMINI_TAG_RULES
     + '- Return ONLY the JSON object, no markdown, no explanation';
+  var ctrl = new AbortController();
+  var tid = setTimeout(function() { ctrl.abort(); }, 35000);
+  var cleanup = function() { clearTimeout(tid); };
   return fetch(_GEMINI_URL, {
     method: 'POST',
+    signal: ctrl.signal,
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { responseMimeType: 'application/json' }
     })
   }).then(function(res) {
+    cleanup();
     if (res.status === 429) { var e = new Error('Rate limited'); e.isRateLimit = true; throw e; }
     return res.json();
   }).then(function(data) {
@@ -3422,7 +3432,104 @@ function callGeminiTag(songOrFile) {
     var text = data.candidates[0].content.parts[0].text.trim();
     text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
     return JSON.parse(text);
+  }).catch(function(err) { cleanup(); throw err; });
+}
+
+// ─── Album Art & Lyrics Enrichment ───
+
+function fetchAlbumArtUrl(artist, album) {
+  var q = encodeURIComponent(artist + ' ' + album);
+  return fetch('https://itunes.apple.com/search?term=' + q + '&entity=album&limit=3&country=us')
+    .then(function(r) { return r.ok ? r.json() : { results: [] }; })
+    .then(function(data) {
+      if (!data.results || !data.results.length) return null;
+      var url = data.results[0].artworkUrl100;
+      return url ? url.replace('100x100bb.jpg', '500x500bb.jpg') : null;
+    })
+    .catch(function() { return null; });
+}
+
+function artUrlToBase64(url) {
+  if (!url) return Promise.resolve(null);
+  return fetch(url)
+    .then(function(r) { return r.ok ? r.blob() : null; })
+    .then(function(blob) {
+      if (!blob) return null;
+      return new Promise(function(resolve) {
+        var reader = new FileReader();
+        reader.onloadend = function() { resolve(reader.result || null); };
+        reader.onerror = function() { resolve(null); };
+        reader.readAsDataURL(blob);
+      });
+    })
+    .catch(function() { return null; });
+}
+
+function fetchSyncedLyricsForSong(song) {
+  if (!song.title || !song.artist || song.artist === 'Unknown Artist') return Promise.resolve(null);
+  var base = 'track_name=' + encodeURIComponent(song.title)
+           + '&artist_name=' + encodeURIComponent(song.artist);
+  if (song.album && song.album !== 'Unknown Album') base += '&album_name=' + encodeURIComponent(song.album);
+  var getParams = base + (song.dur ? '&duration=' + Math.round(song.dur) : '');
+  var hdrs = { 'User-Agent': 'MuzioAI/1.0 (https://github.com/Dathaze20/Music-Player-Tagger)' };
+  return fetch('https://lrclib.net/api/get?' + getParams, { headers: hdrs })
+    .then(function(r) {
+      if (r.status === 404) {
+        return fetch('https://lrclib.net/api/search?' + base, { headers: hdrs })
+          .then(function(r2) { return r2.ok ? r2.json() : []; })
+          .then(function(results) {
+            var match = Array.isArray(results) && results.find(function(it) { return it.syncedLyrics; });
+            return match || null;
+          });
+      }
+      return r.ok ? r.json() : null;
+    })
+    .then(function(data) {
+      if (!data) return null;
+      return data.syncedLyrics || null;
+    })
+    .catch(function() { return null; });
+}
+
+function fetchEnrichment(song) {
+  var needsArt = !song.art && song.artist && song.artist !== 'Unknown Artist'
+               && song.album && song.album !== 'Unknown Album';
+  var needsLyrics = !song.syncedLyrics && !song.lyrics
+                  && song.title && song.artist && song.artist !== 'Unknown Artist';
+  var artP = needsArt
+    ? fetchAlbumArtUrl(song.artist, song.album).then(artUrlToBase64)
+    : Promise.resolve(null);
+  var lyrP = needsLyrics ? fetchSyncedLyricsForSong(song) : Promise.resolve(null);
+  return Promise.all([artP, lyrP]).then(function(res) {
+    if (res[0]) song.art = res[0];
+    if (res[1]) song.syncedLyrics = res[1];
+  }).catch(function() {});
+}
+
+function enrichTaggedSongs(songList, onDone) {
+  var eligible = songList.filter(function(s) {
+    var na = !s.art && s.artist && s.artist !== 'Unknown Artist' && s.album && s.album !== 'Unknown Album';
+    var nl = !s.syncedLyrics && !s.lyrics && s.title && s.artist && s.artist !== 'Unknown Artist';
+    return na || nl;
   });
+  if (!eligible.length) { onDone(); return; }
+  var total = eligible.length, done = 0, queueIdx = 0;
+  tagging.active = true;
+  tagging.label = 'Fetching art & lyrics...';
+  tagging.current = '0/' + total;
+  updateTaggingBanner();
+  function runOne() {
+    if (queueIdx >= eligible.length) return;
+    var song = eligible[queueIdx++];
+    fetchEnrichment(song).then(function() {
+      done++;
+      tagging.current = done + '/' + total;
+      updateTaggingBanner();
+      if (done === total) onDone();
+      else runOne();
+    });
+  }
+  for (var ci = 0; ci < Math.min(5, eligible.length); ci++) runOne();
 }
 
 // ─── Edit Modals ───
@@ -4292,6 +4399,29 @@ document.getElementById('fixSubgenreBtn').onclick = function() {
   updateTaggingBanner();
   fixSubgenreBatch(toFix, 0);
   showToast('Updating subgenres for ' + toFix.length + ' song' + (toFix.length !== 1 ? 's' : '') + '...');
+};
+
+document.getElementById('enrichLibBtn').onclick = function() {
+  if (tagging.active) { showToast('Tagging already in progress'); return; }
+  var eligible = songs.filter(function(s) {
+    var na = !s.art && s.artist && s.artist !== 'Unknown Artist' && s.album && s.album !== 'Unknown Album';
+    var nl = !s.syncedLyrics && !s.lyrics && s.title && s.artist && s.artist !== 'Unknown Artist';
+    return na || nl;
+  });
+  if (!eligible.length) { showToast('All songs already have art & lyrics!'); return; }
+  closeSettings();
+  var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+  enrichTaggedSongs(eligible, function() {
+    saveLibrary();
+    render();
+    tagging.active = false;
+    updateTaggingBanner();
+    showToast('Art & lyrics fetched for ' + eligible.length + ' song' + (eligible.length !== 1 ? 's' : '') + ' ✓');
+    if (isNat) {
+      var toWrite = eligible.filter(function(s) { return s.contentUri && ((s.art && s.art.startsWith('data:')) || s.syncedLyrics); });
+      if (toWrite.length) writeTaggedToFiles(toWrite);
+    }
+  });
 };
 
 document.getElementById('favoritesBtn').onclick = function() {
