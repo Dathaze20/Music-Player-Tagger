@@ -264,7 +264,7 @@ function initVirtualScroll(vsRows, sorted) {
     if (!vsOuter) { cleanupVirtualScroll(); return; }
     var relScroll = main.scrollTop - vsOuter.offsetTop;
     var newStart = Math.max(0, Math.floor(relScroll / VS_ROW_H) - VS_BUFFER);
-    if (Math.abs(newStart - _vsRenderedStart) < Math.floor(VS_BUFFER / 2)) return;
+    if (newStart > 0 && Math.abs(newStart - _vsRenderedStart) < Math.floor(VS_BUFFER / 2)) return;
     _vsRenderedStart = newStart;
     renderVsWindow(newStart);
   };
@@ -309,7 +309,7 @@ function initArtistVS(container, artists) {
     if (!outer) { cleanupArtistVS(); return; }
     var relScroll = main.scrollTop - outer.offsetTop;
     var newStart = Math.max(0, Math.floor(relScroll / VS_ROW_H) - VS_BUFFER);
-    if (Math.abs(newStart - _vsArtistStart) < Math.floor(VS_BUFFER / 2)) return;
+    if (newStart > 0 && Math.abs(newStart - _vsArtistStart) < Math.floor(VS_BUFFER / 2)) return;
     _vsArtistStart = newStart;
     renderArtistVsWindow(newStart);
   };
@@ -1179,6 +1179,7 @@ var _sleepTimerDisplayInt = null;
 var nativeScanning = false;
 var nativeScanCount = 0;
 var nativeScanError = '';
+var _idbLoading = true; // true until first IDB load completes; prevents premature auto-scan
 
 var audio = document.getElementById('audioEl');
 
@@ -4227,10 +4228,12 @@ loadAllEdits().then(function(edits) {
     _countsCache = null;
   }
   applyEditsToSongs(); // always re-apply after IDB load
+  _idbLoading = false; // IDB load complete — safe to scan if library is truly empty
   scheduleStartupRender();
-  // nativeAutoScan is driven by deviceready + setTimeouts; only call here for brand-new installs
+  // Now that IDB is done we know for sure whether the library is empty
   if (songs.length === 0) nativeAutoScan();
 }).catch(function() {
+  _idbLoading = false;
   applyEditsToSongs();
   if (songs.length === 0) nativeAutoScan();
 });
@@ -4261,6 +4264,10 @@ if (songs.length > 0 && !songs[0].url) {
 function nativeAutoScan() {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
   if (nativeScanning) return;
+  // IDB hasn't finished loading yet — don't start a full rescan prematurely.
+  // The IDB completion handler calls nativeAutoScan() explicitly once it knows
+  // whether the library is truly empty or was just slow to load.
+  if (_idbLoading && songs.length === 0) return;
 
   // Already have songs — reconnect playback URLs and return. NEVER fall through to a
   // full rescan when the library is already in memory; that would wipe user edits.
