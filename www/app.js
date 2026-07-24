@@ -102,24 +102,44 @@ function artHdCacheSet(uri, data) {
   artCacheHD[uri] = data;
 }
 
+function _applyLazyForUri(uri) {
+  document.querySelectorAll('.art-lazy[data-lazy-uri]').forEach(function(lazyEl) {
+    var uris = (lazyEl.dataset.lazyUri || '').split('|').filter(Boolean);
+    if (uris.indexOf(uri) !== -1 && uris.every(function(u) { return artCache[u]; })) {
+      applyArt(lazyEl, uris.map(function(u) { return artCache[u]; }));
+    }
+  });
+}
+
 function fetchThumbnail(uri) {
   if (artCache[uri]) { var d = artCache[uri]; delete artCache[uri]; artCache[uri] = d; return Promise.resolve(d); } // LRU promote
   if (artInFlight[uri]) return artInFlight[uri];
-  var p = NativeBridge.readAlbumArt(uri).then(function(data) {
-    delete artInFlight[uri];
-    if (data) {
-      artCacheSet(uri, data);
-      persistArt(uri, data); // save to IndexedDB for instant load next session
-      // Apply art to any DOM elements currently waiting for this URI
-      // (handles the case where render() rebuilt the DOM while fetch was in-flight)
-      document.querySelectorAll('.art-lazy[data-lazy-uri]').forEach(function(lazyEl) {
-        var uris = (lazyEl.dataset.lazyUri || '').split('|').filter(Boolean);
-        if (uris.indexOf(uri) !== -1 && uris.every(function(u) { return artCache[u]; })) {
-          applyArt(lazyEl, uris.map(function(u) { return artCache[u]; }));
-        }
-      });
+  // Check IDB before the native bridge — IDB reads take ~5 ms vs ~100-200 ms for
+  // the Android MediaStore bridge. On a 3000-album library this means art is instant
+  // on every session after the first, not just for the 1000 entries that fit in RAM.
+  var p = openArtDb().then(function(db) {
+    return new Promise(function(resolve) {
+      var req = db.transaction(ART_STORE_NAME, 'readonly').objectStore(ART_STORE_NAME).get(uri);
+      req.onsuccess = function() { resolve(req.result || null); };
+      req.onerror   = function() { resolve(null); };
+    });
+  }).then(function(stored) {
+    if (stored) {
+      delete artInFlight[uri];
+      artCacheSet(uri, stored);
+      _applyLazyForUri(uri);
+      return stored;
     }
-    return data || '';
+    // Not in IDB yet — hit the native bridge and persist the result
+    return NativeBridge.readAlbumArt(uri).then(function(data) {
+      delete artInFlight[uri];
+      if (data) {
+        artCacheSet(uri, data);
+        persistArt(uri, data);
+        _applyLazyForUri(uri);
+      }
+      return data || '';
+    });
   }).catch(function() { delete artInFlight[uri]; return ''; });
   artInFlight[uri] = p;
   return p;
@@ -210,6 +230,12 @@ var _vsData = null;
 var _vsRenderedStart = 0;
 var _vsScrollFn = null;
 
+// Artist list virtual scroll state (same row height as songs)
+var _vsArtistData    = null;
+var _vsArtistStart   = -9999;
+var _vsArtistScrollFn = null;
+var _vsArtistLetterIdx = null; // letter → first row index for alphabet jump
+
 function cleanupVirtualScroll() {
   if (_vsScrollFn) {
     var mc = document.getElementById('mainContent');
@@ -217,6 +243,16 @@ function cleanupVirtualScroll() {
     _vsScrollFn = null;
   }
   _vsData = null;
+}
+
+function cleanupArtistVS() {
+  if (_vsArtistScrollFn) {
+    var mc = document.getElementById('mainContent');
+    if (mc) mc.removeEventListener('scroll', _vsArtistScrollFn);
+    _vsArtistScrollFn = null;
+  }
+  _vsArtistData = null;
+  _vsArtistLetterIdx = null;
 }
 
 function initVirtualScroll(vsRows, sorted) {
@@ -245,6 +281,49 @@ function renderVsWindow(start) {
   for (var i = start; i < end; i++) {
     parts.push(songRowHTML(_vsData[i], currentSong && currentSong.id === _vsData[i].id, true));
   }
+  rows.innerHTML = parts.join('');
+  rows.style.top = (start * VS_ROW_H) + 'px';
+  initLazyArt(rows);
+}
+
+function artistRowHTML(a) {
+  var artEl = a.albumArtUris && a.albumArtUris.length > 0
+    ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(a.name, 56, true) + '</div>'
+    : artHTML(a.name, 56, true);
+  return '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
+    + artEl
+    + '<div class="song-info">'
+    + '<div class="artist-name">' + escHtml(a.name) + '</div>'
+    + '<div class="artist-meta">' + a.albumCount + ' ' + (a.albumCount === 1 ? 'Album' : 'Albums') + ' &bull; ' + a.songCount + ' ' + (a.songCount === 1 ? 'Song' : 'Songs') + '</div>'
+    + '</div>'
+    + '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>'
+    + '</div>';
+}
+
+function initArtistVS(container, artists) {
+  _vsArtistData  = artists;
+  _vsArtistStart = -9999;
+  var main = document.getElementById('mainContent');
+  _vsArtistScrollFn = function() {
+    var outer = document.getElementById('vsArtistOuter');
+    if (!outer) { cleanupArtistVS(); return; }
+    var relScroll = main.scrollTop - outer.offsetTop;
+    var newStart = Math.max(0, Math.floor(relScroll / VS_ROW_H) - VS_BUFFER);
+    if (Math.abs(newStart - _vsArtistStart) < Math.floor(VS_BUFFER / 2)) return;
+    _vsArtistStart = newStart;
+    renderArtistVsWindow(newStart);
+  };
+  main.addEventListener('scroll', _vsArtistScrollFn, { passive: true });
+  renderArtistVsWindow(0);
+}
+
+function renderArtistVsWindow(start) {
+  if (!_vsArtistData) return;
+  var rows = document.getElementById('vsArtistRows');
+  if (!rows) { cleanupArtistVS(); return; }
+  var end = Math.min(_vsArtistData.length, start + VS_BUFFER * 2 + 20);
+  var parts = [];
+  for (var i = start; i < end; i++) parts.push(artistRowHTML(_vsArtistData[i]));
   rows.innerHTML = parts.join('');
   rows.style.top = (start * VS_ROW_H) + 'px';
   initLazyArt(rows);
@@ -773,10 +852,11 @@ function saveLibrary() {
   _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
   songMap = Object.create(null);
   songs.forEach(function(s) { songMap[s.id] = s; });
-  // Lean localStorage tier: no lyrics, no art (both stored in IDB; art also in art-cache IDB).
-  // Art must NOT go here — a single base64 image is ~50KB, so a library with album art
-  // easily exceeds the 5 MB localStorage quota. A silent quota failure returns [] on next
-  // startup, triggering a full rescan that wipes all saved edits.
+  // Lean localStorage tier: no lyrics, no art (stored in IDB only).
+  // For large libraries (>5 MB) the full list won't fit in localStorage.
+  // We try the full list first; if it's too big we fall back to the first
+  // 2 000 songs so the UI has something to show instantly on cold start while
+  // IDB loads the rest.  IDB always gets the full list below.
   try {
     var lean = songs.map(function(s) {
       return {
@@ -791,7 +871,16 @@ function saveLibrary() {
         aiAttempted: s.aiAttempted || 0, enrichAttempted: s.enrichAttempted || 0
       };
     });
-    localStorage.setItem('muzio_library', JSON.stringify(lean));
+    try {
+      localStorage.setItem('muzio_library', JSON.stringify(lean));
+      localStorage.removeItem('muzio_library_partial');
+    } catch (quotaErr) {
+      // Library is too large for localStorage — save first 2 000 as a fast-start preview
+      try {
+        localStorage.setItem('muzio_library', JSON.stringify(lean.slice(0, 2000)));
+        localStorage.setItem('muzio_library_partial', '1');
+      } catch (e2) {}
+    }
     localStorage.setItem('muzio_library_count', songs.length.toString());
     localStorage.setItem('muzio_library_saved', Date.now().toString());
   } catch (e) {}
@@ -849,22 +938,13 @@ function openArtDb() {
 }
 
 function persistArt(uri, data) {
+  if (!data) return;
+  // No eviction cap — store every unique album art permanently so large libraries
+  // (15k+ songs) never re-fetch from the native bridge after the first session.
+  // Thumbnails are small (~10-15 KB each); 3000 albums ≈ 36 MB on disk, well within
+  // Android app sandbox limits.
   openArtDb().then(function(db) {
-    var tx = db.transaction(ART_STORE_NAME, 'readwrite');
-    var st = tx.objectStore(ART_STORE_NAME);
-    var countReq = st.count();
-    countReq.onsuccess = function() {
-      if (countReq.result >= _ART_CACHE_MAX) {
-        var curReq = st.openCursor();
-        curReq.onsuccess = function(e) {
-          var cur = e.target.result;
-          if (cur) cur.delete();
-          st.put(data, uri); // always insert in same transaction
-        };
-      } else {
-        st.put(data, uri);
-      }
-    };
+    db.transaction(ART_STORE_NAME, 'readwrite').objectStore(ART_STORE_NAME).put(data, uri);
   }).catch(function() {});
 }
 
@@ -1254,6 +1334,7 @@ var _lastTabCounts = { artists: -1, songs: -1, albums: -1 };
 
 function render() {
   cleanupVirtualScroll();
+  cleanupArtistVS();
   cleanupCf();
   var main = document.getElementById('mainContent');
   var tabBar = document.getElementById('tabBar');
@@ -1427,7 +1508,7 @@ function showScanMorePrompt(count) {
 
 // ─── Alphabet Fast-Scroll Strip ───
 
-function renderAlphaStrip(listEl, letters) {
+function renderAlphaStrip(listEl, letters, getScrollOffset) {
   ['alphaStrip', 'alphaBubble'].forEach(function(id) { var e = document.getElementById(id); if (e) e.remove(); });
   if (letters.length < 4) return;
 
@@ -1470,10 +1551,13 @@ function renderAlphaStrip(listEl, letters) {
     bubble.textContent = letter;
     bubble.style.display = 'flex';
     bubble.style.top = (clientY - 28) + 'px';
-    var anchor = listEl.querySelector('[data-alpha-anchor="' + letter + '"]');
-    if (anchor) {
-      var mc = document.getElementById('mainContent');
-      mc.scrollTop = anchor.offsetTop;
+    var mc = document.getElementById('mainContent');
+    if (getScrollOffset) {
+      var pos = getScrollOffset(letter);
+      if (pos != null) mc.scrollTop = pos;
+    } else {
+      var anchor = listEl.querySelector('[data-alpha-anchor="' + letter + '"]');
+      if (anchor) mc.scrollTop = anchor.offsetTop;
     }
   }
 
@@ -1693,39 +1777,39 @@ function renderArtists(el) {
     return;
   }
 
-  var parts = [];
+  // Build letter index map for alphabet strip position resolver
+  _vsArtistLetterIdx = Object.create(null);
   var alphaLetters = [];
   var seenAlpha = {};
-  artists.forEach(function(a) {
+  artists.forEach(function(a, i) {
     var ch = a.name.charAt(0).toUpperCase();
     var letter = (ch >= 'A' && ch <= 'Z') ? ch : '#';
-    var anchor = '';
     if (!seenAlpha[letter]) {
       seenAlpha[letter] = true;
       alphaLetters.push(letter);
-      anchor = ' data-alpha-anchor="' + letter + '"';
+      _vsArtistLetterIdx[letter] = i;
     }
-    var artEl = a.albumArtUris.length > 0
-      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1">' + artHTML(a.name, 56, true) + '</div>'
-      : artHTML(a.name, 56, true);
-    parts.push('<div class="artist-row" data-artist="' + escHtml(a.name) + '"' + anchor + '>'
-      + artEl
-      + '<div class="song-info">'
-      + '<div class="artist-name">' + escHtml(a.name) + '</div>'
-      + '<div class="artist-meta">' + a.albumCount + ' ' + (a.albumCount === 1 ? 'Album' : 'Albums') + ' &bull; ' + a.songCount + ' ' + (a.songCount === 1 ? 'Song' : 'Songs') + '</div>'
-      + '</div>'
-      + '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>'
-      + '</div>');
   });
-  el.innerHTML = parts.join('');
-  initLazyArt(el);
-  el.onclick = function(e) {
+
+  var totalH = artists.length * VS_ROW_H;
+  el.innerHTML = '<div id="vsArtistOuter" style="position:relative;height:' + totalH + 'px;">'
+    + '<div id="vsArtistRows" style="position:absolute;left:0;right:0;top:0;"></div>'
+    + '</div>';
+
+  var vsArtistRows = document.getElementById('vsArtistRows');
+  vsArtistRows.onclick = function(e) {
     var menuBtn = e.target.closest('[data-artist-menu]');
     if (menuBtn) { e.stopPropagation(); showArtistMenu(menuBtn.dataset.artistMenu); return; }
     var row = e.target.closest('.artist-row[data-artist]');
     if (row) { selectedArtist = row.dataset.artist; render(); }
   };
-  renderAlphaStrip(el, alphaLetters);
+
+  initArtistVS(el, artists);
+  renderAlphaStrip(el, alphaLetters, function(letter) {
+    if (!_vsArtistLetterIdx || _vsArtistLetterIdx[letter] === undefined) return null;
+    var outer = document.getElementById('vsArtistOuter');
+    return (outer ? outer.offsetTop : 0) + _vsArtistLetterIdx[letter] * VS_ROW_H;
+  });
 }
 
 function showOverflowMenu() {
