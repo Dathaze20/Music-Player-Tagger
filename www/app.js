@@ -86,14 +86,24 @@ function applyArt(el, dataUrls) {
 }
 
 function artCacheSet(uri, data) {
-  if (!data || artCache[uri]) return;
+  if (!data) return;
+  if (artCache[uri]) { delete artCache[uri]; artCache[uri] = data; return; } // promote to MRU
   var keys = Object.keys(artCache);
-  if (keys.length >= _ART_CACHE_MAX) delete artCache[keys[0]];
+  if (keys.length >= _ART_CACHE_MAX) delete artCache[keys[0]]; // evict LRU
   artCache[uri] = data;
 }
 
+var _ART_HD_CACHE_MAX = 80;
+function artHdCacheSet(uri, data) {
+  if (!data) return;
+  if (artCacheHD[uri]) { delete artCacheHD[uri]; artCacheHD[uri] = data; return; }
+  var keys = Object.keys(artCacheHD);
+  if (keys.length >= _ART_HD_CACHE_MAX) delete artCacheHD[keys[0]];
+  artCacheHD[uri] = data;
+}
+
 function fetchThumbnail(uri) {
-  if (artCache[uri]) return Promise.resolve(artCache[uri]);
+  if (artCache[uri]) { var d = artCache[uri]; delete artCache[uri]; artCache[uri] = d; return Promise.resolve(d); } // LRU promote
   if (artInFlight[uri]) return artInFlight[uri];
   var p = NativeBridge.readAlbumArt(uri).then(function(data) {
     delete artInFlight[uri];
@@ -349,7 +359,7 @@ function fetchHdArt(uri) {
   if (_artHdInFlight[uri]) return _artHdInFlight[uri];
   var p = NativeBridge.readAlbumArt(uri, 600).then(function(data) {
     delete _artHdInFlight[uri];
-    if (data) artCacheHD[uri] = data;
+    if (data) artHdCacheSet(uri, data);
     return data || '';
   }).catch(function() { delete _artHdInFlight[uri]; return ''; });
   _artHdInFlight[uri] = p;
@@ -530,6 +540,7 @@ function applyLyricsToNPPanel(song) {
   lyricsLines = newLines;
   currentLyricIdx = -1;
   lyricsVisible = newLines.length > 0;
+  _lyricItems = null; // invalidate NodeList cache
   if (newLines.length > 0) {
     overlay.innerHTML = buildSyncedLyricsHTML();
     overlay.classList.remove('np-art-lyrics-hidden');
@@ -700,6 +711,27 @@ function saveEdit(song) {
   }).catch(function() {});
 }
 
+function saveEditsBatch(songList) {
+  var now = Date.now();
+  openLibDb().then(function(db) {
+    var tx = db.transaction(EDITS_STORE, 'readwrite');
+    var st = tx.objectStore(EDITS_STORE);
+    songList.forEach(function(song) {
+      var key = song.contentUri || song.fn;
+      if (!key) return;
+      var edit = {
+        title: song.title, artist: song.artist, album: song.album,
+        albumArtist: song.albumArtist, year: song.year, genre: song.genre,
+        track: song.track, type: song.type, feat: song.feat,
+        syncedLyrics: song.syncedLyrics, lyrics: song.lyrics,
+        art: song.art, editedAt: now
+      };
+      _editsMap[key] = edit;
+      st.put(edit, key);
+    });
+  }).catch(function() {});
+}
+
 function loadAllEdits() {
   return openLibDb().then(function(db) {
     return new Promise(function(resolve) {
@@ -738,6 +770,7 @@ function applyEditsToSongs() {
 
 function saveLibrary() {
   _countsCache = null; _artistsCache = null; _albumsCache = null;
+  _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
   songMap = Object.create(null);
   songs.forEach(function(s) { songMap[s.id] = s; });
   // Lean localStorage tier: no lyrics, no art (both stored in IDB; art also in art-cache IDB).
@@ -817,20 +850,19 @@ function openArtDb() {
 
 function persistArt(uri, data) {
   openArtDb().then(function(db) {
-    var store = db.transaction(ART_STORE_NAME, 'readwrite').objectStore(ART_STORE_NAME);
-    // Check count first; if at cap, delete the oldest entry before inserting
-    var countReq = store.count();
+    var tx = db.transaction(ART_STORE_NAME, 'readwrite');
+    var st = tx.objectStore(ART_STORE_NAME);
+    var countReq = st.count();
     countReq.onsuccess = function() {
-      var tx2 = db.transaction(ART_STORE_NAME, 'readwrite');
-      var st2 = tx2.objectStore(ART_STORE_NAME);
       if (countReq.result >= _ART_CACHE_MAX) {
-        var cursorReq = st2.openCursor();
-        cursorReq.onsuccess = function(e) {
+        var curReq = st.openCursor();
+        curReq.onsuccess = function(e) {
           var cur = e.target.result;
-          if (cur) { cur.delete(); st2.put(data, uri); }
+          if (cur) cur.delete();
+          st.put(data, uri); // always insert in same transaction
         };
       } else {
-        st2.put(data, uri);
+        st.put(data, uri);
       }
     };
   }).catch(function() {});
@@ -1007,6 +1039,19 @@ var _countsCache = null;
 // Derived-data caches — invalidated whenever songs changes
 var _artistsCache = null;
 var _albumsCache = null;
+var _artistSongsCache = null;   // name → sorted [song]
+var _albumSongsCache = null;    // 'album|||artist' → sorted [song]
+var _spCache = null;            // smart playlist lists (top, recent, lastAdded)
+// saveUIState debounce
+var _saveUITimer = null;
+function saveUIStateLater() { clearTimeout(_saveUITimer); _saveUITimer = setTimeout(saveUIState, 300); }
+// Startup render dedup
+var _startupRenderPending = false;
+function scheduleStartupRender() {
+  if (_startupRenderPending) return;
+  _startupRenderPending = true;
+  requestAnimationFrame(function() { _startupRenderPending = false; render(); });
+}
 
 // IntersectionObserver singleton — disconnected before each new render
 // _lazyArtObs removed — initLazyArt now uses per-container observers
@@ -1014,8 +1059,10 @@ var _albumsCache = null;
 // Now Playing DOM element refs — cached after renderNowPlaying, cleared on close
 var _npSeekEl = null, _npFillEl = null, _npTime0El = null;
 
-// Mini player DOM cache to avoid getElementById on every timeupdate
+// Mini player DOM cache — populated on first updateMiniPlayer() call
 var _miniLastSongId = '';
+var _mpEl = null, _mpTitleEl = null, _mpArtistEl = null, _mpArtEl = null;
+var _mpPlayBtn = null, _mpBar = null, _mpEq = null;
 
 var currentTab = 'artists';
 var currentSong = null;
@@ -1126,28 +1173,46 @@ function getAlbums(filter) {
 }
 
 function getAlbumSongs(albumName, artistName) {
-  return songs.filter(function(s) { return s.album === albumName && s.artist === artistName; })
-    .sort(function(a, b) {
-      var da = ((a.disc || 1) * 1000) + (a.track || 0);
-      var db = ((b.disc || 1) * 1000) + (b.track || 0);
-      return da - db;
-    });
+  if (!_albumSongsCache) _buildSongCaches();
+  return _albumSongsCache[albumName + '|||' + artistName] || [];
 }
 
 function getArtistSongs(name) {
-  return songs.filter(function(s) { return s.artist === name; })
-    .sort(function(a, b) {
-      if (a.album !== b.album) return a.album.localeCompare(b.album);
-      var da = ((a.disc || 1) * 1000) + (a.track || 0);
-      var db = ((b.disc || 1) * 1000) + (b.track || 0);
-      return da - db;
-    });
+  if (!_artistSongsCache) _buildSongCaches();
+  return _artistSongsCache[name] || [];
+}
+
+function _buildSongCaches() {
+  var ac = Object.create(null); // artist → songs (sorted)
+  var bc = Object.create(null); // 'album|||artist' → songs (sorted)
+  songs.forEach(function(s) {
+    if (!ac[s.artist]) ac[s.artist] = [];
+    ac[s.artist].push(s);
+    var k = s.album + '|||' + s.artist;
+    if (!bc[k]) bc[k] = [];
+    bc[k].push(s);
+  });
+  var artistSort = function(a, b) {
+    if (a.album !== b.album) return a.album.localeCompare(b.album);
+    var da = ((a.disc || 1) * 1000) + (a.track || 0);
+    var db = ((b.disc || 1) * 1000) + (b.track || 0);
+    return da - db;
+  };
+  var albumSort = function(a, b) {
+    var da = ((a.disc || 1) * 1000) + (a.track || 0);
+    var db = ((b.disc || 1) * 1000) + (b.track || 0);
+    return da - db;
+  };
+  Object.keys(ac).forEach(function(n) { ac[n].sort(artistSort); });
+  Object.keys(bc).forEach(function(k) { bc[k].sort(albumSort); });
+  _artistSongsCache = ac;
+  _albumSongsCache = bc;
 }
 
 function getArtistAlbums(name) {
-  var map = {};
-  songs.forEach(function(s) {
-    if (s.artist !== name) return;
+  var list = getArtistSongs(name); // uses cache
+  var map = Object.create(null);
+  list.forEach(function(s) {
     var art = safeArtUrl(s.art);
     if (!map[s.album]) map[s.album] = { year: s.year, art: art, count: 0, type: s.type, albumArtUri: '' };
     map[s.album].count++;
@@ -1267,7 +1332,7 @@ function render() {
   }
 
   updateMiniPlayer();
-  if (typeof saveUIState === 'function') saveUIState();
+  saveUIStateLater();
 }
 
 // ─── Welcome Screen ───
@@ -1440,6 +1505,9 @@ var _scrollIndTouching = false;
 var _scrollIndDragging = false;
 var _scrollIndDragY    = 0;
 var _scrollIndDragST   = 0;
+// Cached static DOM refs used on every scroll event
+var _scrollIndMcEl  = null; // mainContent
+var _scrollIndMpEl  = null; // miniPlayer
 
 function initScrollIndicator() {
   if (!_scrollInd) {
@@ -1477,12 +1545,14 @@ function initScrollIndicator() {
 
 function _posScrollInd() {
   var ind = _scrollInd;
-  var mc  = document.getElementById('mainContent');
+  if (!_scrollIndMcEl) _scrollIndMcEl = document.getElementById('mainContent');
+  if (!_scrollIndMpEl) _scrollIndMpEl = document.getElementById('miniPlayer');
+  var mc  = _scrollIndMcEl;
   if (!ind || !mc) return false;
   var sh = mc.scrollHeight, ch = mc.clientHeight, st = mc.scrollTop;
   if (sh <= ch + 4) { ind.style.opacity = '0'; return false; }
   var topOff = 108;
-  var mini = document.getElementById('miniPlayer');
+  var mini = _scrollIndMpEl;
   var botOff = (mini && !mini.classList.contains('hidden')) ? 72 : 8;
   var trackH = window.innerHeight - topOff - botOff;
   var thumbH = Math.max(44, Math.floor(trackH * ch / sh));
@@ -1543,12 +1613,12 @@ function _onIndDragStart(e) {
 function _onIndDragMove(e) {
   if (!_scrollIndDragging) return;
   e.preventDefault();
-  var mc = document.getElementById('mainContent');
+  var mc = _scrollIndMcEl || document.getElementById('mainContent');
   if (!mc) return;
   var sh = mc.scrollHeight, ch = mc.clientHeight;
   if (sh <= ch) return;
   var topOff = 108;
-  var mini = document.getElementById('miniPlayer');
+  var mini = _scrollIndMpEl || document.getElementById('miniPlayer');
   var botOff = (mini && !mini.classList.contains('hidden')) ? 72 : 8;
   var trackH = window.innerHeight - topOff - botOff;
   var thumbH = Math.max(44, Math.floor(trackH * ch / sh));
@@ -1891,12 +1961,20 @@ function renderAlbums(el) {
 }
 
 function renderPlaylists(el) {
-  // Build smart playlist song lists
-  var spTopTracks = songs.slice().sort(function(a, b) { return (b.playCount || 0) - (a.playCount || 0); }).slice(0, 100);
-  var spLastAdded = songs.slice().reverse().slice(0, 100);
-  var spRecent    = songs.filter(function(s) { return s.lastPlayed > 0; })
-    .sort(function(a, b) { return b.lastPlayed - a.lastPlayed; }).slice(0, 100);
-  var spFavs      = getFavorites();
+  // Build smart playlist song lists (cached until saveLibrary invalidates _spCache)
+  if (!_spCache) {
+    _spCache = {
+      top:     songs.slice().sort(function(a, b) { return (b.playCount || 0) - (a.playCount || 0); }).slice(0, 100),
+      last:    songs.slice().reverse().slice(0, 100),
+      recent:  songs.filter(function(s) { return s.lastPlayed > 0; })
+                    .sort(function(a, b) { return b.lastPlayed - a.lastPlayed; }).slice(0, 100),
+      favs:    getFavorites()
+    };
+  }
+  var spTopTracks = _spCache.top;
+  var spLastAdded = _spCache.last;
+  var spRecent    = _spCache.recent;
+  var spFavs      = _spCache.favs;
 
   function smartCell(cellId, title, list) {
     var g = getGrad(title);
@@ -2278,10 +2356,9 @@ function bindSongRows(el, songList) {
     if (fav) {
       var s = songMap[fav.dataset.fav];
       if (s) {
-        s.fav = !s.fav; _countsCache = null; saveLibraryLater();
-        // Update only the heart icon — avoids rebuilding the whole scroll view
-        fav.innerHTML = s.fav ? '&#10084;' : '&#9825;';
-        fav.style.color = s.fav ? '#f44' : '';
+        s.fav = !s.fav; _countsCache = null; _spCache = null; saveLibraryLater();
+        fav.innerHTML = heartSvg(s.fav, 20);
+        fav.className = 'song-fav' + (s.fav ? ' active' : '');
       }
       return;
     }
@@ -2301,11 +2378,19 @@ function bindSongRows(el, songList) {
 // ─── Mini Player ───
 
 function updateMiniPlayer() {
-  var mp = document.getElementById('miniPlayer');
+  if (!_mpEl) {
+    _mpEl       = document.getElementById('miniPlayer');
+    _mpTitleEl  = document.getElementById('miniTitle');
+    _mpArtistEl = document.getElementById('miniArtist');
+    _mpArtEl    = document.getElementById('miniArt');
+    _mpPlayBtn  = document.getElementById('miniPlayBtn');
+    _mpBar      = document.getElementById('miniProgressBar');
+    _mpEq       = document.getElementById('miniEqBars');
+  }
+  var mp = _mpEl;
   if (!currentSong) {
     mp.classList.add('hidden');
-    var miniEqHide = document.getElementById('miniEqBars');
-    if (miniEqHide) miniEqHide.classList.add('hidden');
+    if (_mpEq) _mpEq.classList.add('hidden');
     return;
   }
   if (showNowPlaying) { mp.classList.add('hidden'); return; }
@@ -2316,26 +2401,25 @@ function updateMiniPlayer() {
 
   if (songChanged) {
     _miniLastSongId = currentSong.id;
-    document.getElementById('miniTitle').textContent = currentSong.title;
-    document.getElementById('miniArtist').textContent = currentSong.artist;
+    _mpTitleEl.textContent = currentSong.title;
+    _mpArtistEl.textContent = currentSong.artist;
     var cached = uri && artCache[uri];
-    document.getElementById('miniArt').innerHTML = cached
+    _mpArtEl.innerHTML = cached
       ? '<img src="' + cached + '" style="width:44px;height:44px;object-fit:cover;border-radius:10px;flex-shrink:0;">'
       : artHTML(currentSong.album || currentSong.title, 44);
     if (uri && !cached) loadCurrentSongArt(currentSong);
   }
 
-  document.getElementById('miniPlayBtn').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+  _mpPlayBtn.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
   var pct = duration > 0 ? (currentTime / duration * 100) : 0;
-  document.getElementById('miniProgressBar').style.width = pct + '%';
+  _mpBar.style.width = pct + '%';
 
-  var miniEq = document.getElementById('miniEqBars');
-  if (miniEq) {
+  if (_mpEq) {
     if (isPlaying) {
-      miniEq.classList.remove('hidden', 'paused');
+      _mpEq.classList.remove('hidden', 'paused');
     } else {
-      miniEq.classList.remove('hidden');
-      miniEq.classList.add('paused');
+      _mpEq.classList.remove('hidden');
+      _mpEq.classList.add('paused');
     }
   }
 }
@@ -2345,6 +2429,7 @@ function updateMiniPlayer() {
 var lyricsLines = [];
 var currentLyricIdx = -1;
 var lyricsVisible = false;
+var _lyricItems = null; // cached NodeList, reset when lyrics rebuild
 
 // parseLRC lives in text-utils.js.
 
@@ -2365,28 +2450,30 @@ function _lyricsScrollTo(container, targetTop) {
 
 function updateSyncedLyrics(time) {
   if (!lyricsVisible || lyricsLines.length === 0) return;
-  var newIdx = -1;
-  for (var i = lyricsLines.length - 1; i >= 0; i--) {
-    if (time >= lyricsLines[i].time) { newIdx = i; break; }
+  // Binary search for current line (lyricsLines is sorted by time)
+  var lo = 0, hi = lyricsLines.length - 1, newIdx = -1;
+  while (lo <= hi) {
+    var mid = (lo + hi) >> 1;
+    if (lyricsLines[mid].time <= time) { newIdx = mid; lo = mid + 1; }
+    else hi = mid - 1;
   }
   if (newIdx === currentLyricIdx) return;
   currentLyricIdx = newIdx;
 
-  var container = document.getElementById('syncedLyricsContainer');
-  if (!container) return;
-  var items = container.querySelectorAll('.lyric-line');
+  // Cache NodeList — it's stable between builds (only rebuilt in applyLyricsToNPPanel)
+  if (!_lyricItems) {
+    var container = document.getElementById('syncedLyricsContainer');
+    if (!container) return;
+    _lyricItems = container.querySelectorAll('.lyric-line');
+  }
+  var items = _lyricItems;
   for (var j = 0; j < items.length; j++) {
-    if (j === currentLyricIdx) {
-      items[j].className = 'lyric-line active';
-    } else if (j < currentLyricIdx) {
-      items[j].className = 'lyric-line past';
-    } else {
-      items[j].className = 'lyric-line future';
-    }
+    items[j].className = j === currentLyricIdx ? 'lyric-line active' : j < currentLyricIdx ? 'lyric-line past' : 'lyric-line future';
   }
   if (currentLyricIdx >= 0 && items[currentLyricIdx]) {
     var el = items[currentLyricIdx];
-    _lyricsScrollTo(container, el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2);
+    var con = el.parentNode;
+    if (con) _lyricsScrollTo(con, el.offsetTop - con.clientHeight / 2 + el.clientHeight / 2);
   }
 }
 
@@ -2835,6 +2922,7 @@ function showSongMenu(songId, songList) {
     { icon: '&#9834;', label: 'Go to artist',      action: function() { selectedAlbum = null; selectedArtist = song.artist; render(); } },
     'divider',
     { icon: '&#128465;', label: 'Remove from library', action: function() {
+        if (song.url && song.url.startsWith('blob:')) URL.revokeObjectURL(song.url);
         songs = songs.filter(function(s) { return s.id !== song.id; });
         queue = queue.filter(function(s) { return s.id !== song.id; });
         songMap = Object.create(null); songs.forEach(function(s) { songMap[s.id] = s; });
@@ -2967,7 +3055,7 @@ audio.addEventListener('timeupdate', function() {
   // Trigger gapless preload 8 seconds before track ends
   if (duration > 0 && currentTime > 0 && (duration - currentTime) < 8) maybePreloadNext();
   if (showNowPlaying) {
-    if (_npSeekEl) { _npSeekEl.value = currentTime; _npSeekEl.max = duration || 0; }
+    if (_npSeekEl) { _npSeekEl.value = currentTime; }
     if (_npFillEl && duration > 0) _npFillEl.style.width = (currentTime / duration * 100).toFixed(1) + '%';
     if (_npTime0El) _npTime0El.textContent = fmtTime(currentTime);
     updateSyncedLyrics(currentTime);
@@ -2980,6 +3068,7 @@ audio.addEventListener('timeupdate', function() {
 });
 audio.addEventListener('loadedmetadata', function() {
   duration = audio.duration;
+  if (_npSeekEl) _npSeekEl.max = duration || 0;
   if (currentSong && (!currentSong.dur || currentSong.dur < 1)) {
     currentSong.dur = audio.duration;
     saveLibraryLater();
@@ -3049,6 +3138,8 @@ function handleFileImport(files) {
     tempAudio.onloadedmetadata = function() {
       s.dur = tempAudio.duration;
       saveLibraryLater();
+      tempAudio.src = '';
+      tempAudio.onloadedmetadata = null;
     };
   });
 
@@ -3200,11 +3291,14 @@ function openSongEditModal(songId) {
   var pendingArt = null; // data: URL when user picks a replacement image
 
   // Release-type chips
+  var activeChip = modal.querySelector('.te-chip[data-type="' + selectedType + '"]');
+  if (activeChip) activeChip.classList.add('active');
   modal.querySelectorAll('.te-chip').forEach(function(btn) {
     btn.onclick = function() {
+      if (activeChip) activeChip.classList.remove('active');
       selectedType = btn.dataset.type;
-      modal.querySelectorAll('.te-chip').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
+      activeChip = btn;
     };
   });
 
@@ -3376,11 +3470,14 @@ function openEditModal(albumName, artistName) {
   overlay.classList.remove('hidden');
 
   var selectedType = first.type || 'Album';
+  var activeTypeBtn = modal.querySelector('.type-btn[data-type="' + selectedType + '"]');
+  if (activeTypeBtn) activeTypeBtn.className = 'type-btn active-' + selectedType.toLowerCase();
   modal.querySelectorAll('.type-btn').forEach(function(btn) {
     btn.onclick = function() {
+      if (activeTypeBtn) activeTypeBtn.className = 'type-btn';
       selectedType = btn.dataset.type;
-      modal.querySelectorAll('.type-btn').forEach(function(b) { b.className = 'type-btn'; });
       btn.className = 'type-btn active-' + selectedType.toLowerCase();
+      activeTypeBtn = btn;
     };
   });
 
@@ -3408,10 +3505,10 @@ function openEditModal(albumName, artistName) {
           fill('editGenre',       String(r.genre       || '').trim());
           var rtype = String(r.releaseType || '').trim();
           if (rtype && ['Album','Mixtape','EP','Single'].indexOf(rtype) !== -1) {
+            if (activeTypeBtn) activeTypeBtn.className = 'type-btn';
             selectedType = rtype;
-            modal.querySelectorAll('.type-btn').forEach(function(b) { b.className = 'type-btn'; });
-            var tb = modal.querySelector('.type-btn[data-type="' + rtype + '"]');
-            if (tb) { tb.className = 'type-btn active-' + rtype.toLowerCase(); filled++; }
+            activeTypeBtn = modal.querySelector('.type-btn[data-type="' + rtype + '"]');
+            if (activeTypeBtn) { activeTypeBtn.className = 'type-btn active-' + rtype.toLowerCase(); filled++; }
           }
           showToast(filled > 0 ? '✓ AI filled ' + filled + ' field' + (filled !== 1 ? 's' : '') : 'AI: album not recognized');
         }).catch(function(err) {
@@ -3438,8 +3535,8 @@ function openEditModal(albumName, artistName) {
       if (newYear)        s.year        = newYear;
       if (newGenre)       s.genre       = newGenre;
       s.type = selectedType;
-      saveEdit(s);
     });
+    saveEditsBatch(albumSongs);
 
     if (selectedAlbum) {
       selectedAlbum = { name: newAlbum || albumName, artist: newArtist || artistName };
@@ -4030,7 +4127,7 @@ loadAllEdits().then(function(edits) {
   _editsMap = edits;
   // Apply on top of whatever localStorage loaded synchronously (fast startup path)
   applyEditsToSongs();
-  render();
+  scheduleStartupRender();
   return loadLibraryIDB();
 }).then(function(saved) {
   if (saved && saved.length > 0 && saved.length >= songs.length) {
@@ -4046,7 +4143,7 @@ loadAllEdits().then(function(edits) {
     _countsCache = null;
   }
   applyEditsToSongs(); // always re-apply after IDB load
-  render();
+  scheduleStartupRender();
   // nativeAutoScan is driven by deviceready + setTimeouts; only call here for brand-new installs
   if (songs.length === 0) nativeAutoScan();
 }).catch(function() {
@@ -4061,7 +4158,7 @@ loadPersistedArt().then(function(cached) {
   var keys = Object.keys(cached);
   if (keys.length > 0) {
     keys.forEach(function(k) { artCacheSet(k, cached[k]); });
-    render(); // re-render with full art cache — no more pop-in
+    scheduleStartupRender(); // re-render with full art cache — no more pop-in
   }
   // Start filling any missing URIs immediately (bridge may already be ready)
   backgroundLoadAllArt();
