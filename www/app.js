@@ -4315,10 +4315,8 @@ loadAllEdits().then(function(edits) {
     _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
   }
   applyEditsToSongs(); // always re-apply after IDB load
-  _idbLoading = false; // IDB load complete — safe to scan if library is truly empty
+  _idbLoading = false;
   scheduleStartupRender();
-  // Always call nativeAutoScan: when library is empty it triggers a full scan;
-  // when songs exist it reconnects playback URLs via Capacitor.convertFileSrc.
   nativeAutoScan();
 }).catch(function() {
   _idbLoading = false;
@@ -4515,21 +4513,13 @@ function startInlineCf(albums) {
   var stage = document.getElementById('cfStage');
   var stageW = Math.max(200, vp.offsetWidth || window.innerWidth);
   var rawStageH = Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : Math.max(200, window.innerHeight - 160));
-
-  // When a song is playing the mini player floats at the bottom of .app via
-  // position:absolute, overlapping the bottom of #mainContent/.cf-stage.
-  // Subtract its height so album art and the action buttons never hide behind it.
   var mpEl = document.getElementById('miniPlayer');
   var mpH = (mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;
   var stageH = Math.max(200, rawStageH - mpH);
-
-  // Push .cf-bot-glass (Play / Shuffle / Open buttons) up by the mini player height
-  // so they are always tappable even when a song is already playing.
   if (mpH > 0) {
     var botGlass = document.querySelector('.cf-bot-glass');
     if (botGlass) botGlass.style.paddingBottom = (16 + mpH) + 'px';
   }
-
   var isLandscape = stageW > stageH;
 
   // CD-sized center album: ~43% of stage width; capped for large screens
