@@ -3052,7 +3052,7 @@ function handleFileImport(files) {
 
 // ─── Tag Editor AI Fill ───
 
-function callGeminiTag(song) {
+function callGeminiTag(song, _retried) {
   if (!apiKey) return Promise.resolve({});
   var ctx = '';
   if (song.title  && !/^unknown/i.test(song.title))  ctx += 'Title: '  + song.title  + '\n';
@@ -3080,8 +3080,12 @@ function callGeminiTag(song) {
     })
   }).then(function(res) {
     clearTimeout(tid);
-    if (res.status === 429) { var e = new Error('Rate limited — try again in a moment'); throw e; }
-    if (res.status >= 500)  { var e2 = new Error('Gemini server error'); throw e2; }
+    if (res.status === 429) {
+      if (_retried) throw new Error('Rate limited — try again in a moment');
+      return new Promise(function(resolve) { setTimeout(resolve, 8000); })
+        .then(function() { return callGeminiTag(song, true); });
+    }
+    if (res.status >= 500) throw new Error('Gemini server error');
     return res.json();
   }).then(function(data) {
     if (!data.candidates || !data.candidates[0]) throw new Error('No response from Gemini');
