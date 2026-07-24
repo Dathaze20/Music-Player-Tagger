@@ -971,6 +971,11 @@ var selectedAlbum = null;
 var albumFilter = 'all';
 var albumGenreFilter = 'all';
 var queue = [];
+var apiKey = localStorage.getItem('gemini_api_key') || '';
+var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
+var _GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture.\n\n';
+var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre (e.g. "Trap", "Boom Bap", "Drill") not a broad category\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
 var sortMode = 'title';
 var artistSortMode = 'az';
 var albumSortMode = 'az';
@@ -1194,7 +1199,6 @@ function render() {
   }
 
   updateMiniPlayer();
-  if (typeof renderReconnectBanner === 'function') renderReconnectBanner();
   if (typeof saveUIState === 'function') saveUIState();
 }
 
@@ -1287,16 +1291,6 @@ function showScanMorePrompt(count) {
   };
 }
 
-function renderReconnectBanner() {
-  var banner = document.getElementById('reconnectBanner');
-  if (!banner) return;
-  var needsReconnect = songs.length > 0 && !songs.some(function(s) { return !!s.url; });
-  if (needsReconnect) {
-    banner.classList.remove('hidden');
-  } else {
-    banner.classList.add('hidden');
-  }
-}
 
 // ─── Alphabet Fast-Scroll Strip ───
 
@@ -1536,7 +1530,7 @@ function removeScrollIndicator() {
 
 function renderArtists(el) {
   var artists = getArtists();
-  if (artists.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
+  if (artists.length === 0) { renderWelcome(el); return; }
 
   if (artistViewMode !== 'list') {
     var cols = artistViewMode === 'grid3' ? 3 : 2;
@@ -1696,7 +1690,7 @@ function showOverflowMenu() {
 }
 
 function renderSongs(el) {
-  if (songs.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
+  if (songs.length === 0) { renderWelcome(el); return; }
   var sorted = songs.slice();
   if (sortMode === 'title') sorted.sort(function(a, b) { return a.title.localeCompare(b.title); });
   else if (sortMode === 'artist') sorted.sort(function(a, b) { return a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title); });
@@ -1730,7 +1724,7 @@ function renderSongs(el) {
 }
 
 function renderAlbums(el) {
-  if (songs.length === 0) { renderWelcome(el); renderReconnectBanner(); return; }
+  if (songs.length === 0) { renderWelcome(el); return; }
 
   // Stretch main to full height — no vertical scroll, no bottom padding
   el.classList.add('albums-cf-mode');
@@ -2970,12 +2964,52 @@ function handleFileImport(files) {
 
   saveLibrary();
   render();
-  renderReconnectBanner();
 
   if (added > 0 && !hadSongsBefore) {
     setTimeout(function() { showScanMorePrompt(songs.length); }, 1500);
   }
 
+}
+
+// ─── Tag Editor AI Fill ───
+
+function callGeminiTag(song) {
+  if (!apiKey) return Promise.resolve({});
+  var ctx = '';
+  if (song.title  && !/^unknown/i.test(song.title))  ctx += 'Title: '  + song.title  + '\n';
+  if (song.artist && !/^unknown/i.test(song.artist)) ctx += 'Artist: ' + song.artist + '\n';
+  if (song.album  && !/^unknown/i.test(song.album))  ctx += 'Album: '  + song.album  + '\n';
+  if (song.year)  ctx += 'Year: '  + song.year  + '\n';
+  if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
+  if (song.track) ctx += 'Track: ' + song.track + '\n';
+  var prompt = _GEMINI_EXPERTISE
+    + (ctx ? 'Existing metadata (confirm identity, fill missing fields):\n' + ctx + '\n' : '')
+    + 'Filename: ' + (song.fn || '') + '\n\n'
+    + 'Return ONLY a JSON object:\n'
+    + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
+    + _GEMINI_TAG_RULES
+    + '- Return ONLY the JSON object, no markdown, no explanation';
+  var ctrl = new AbortController();
+  var tid = setTimeout(function() { ctrl.abort(); }, 35000);
+  return fetch(_GEMINI_URL, {
+    method: 'POST',
+    signal: ctrl.signal,
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }
+    })
+  }).then(function(res) {
+    clearTimeout(tid);
+    if (res.status === 429) { var e = new Error('Rate limited — try again in a moment'); throw e; }
+    if (res.status >= 500)  { var e2 = new Error('Gemini server error'); throw e2; }
+    return res.json();
+  }).then(function(data) {
+    if (!data.candidates || !data.candidates[0]) throw new Error('No response from Gemini');
+    var text = data.candidates[0].content.parts[0].text.trim();
+    text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
+    return JSON.parse(text);
+  }).catch(function(err) { clearTimeout(tid); throw err; });
 }
 
 // ─── Edit Modals ───
@@ -3006,6 +3040,7 @@ function openSongEditModal(songId) {
 
   modal.innerHTML =
     '<div class="te-header">'
+  +   (apiKey ? '<button class="te-ai-btn" id="teAiBtn">&#10024; AI Fill</button>' : '')
   +   '<span class="te-title">Tag editor</span>'
   +   '<button class="te-close-btn" id="teClose">&times;</button>'
   + '</div>'
@@ -3161,6 +3196,47 @@ function openSongEditModal(songId) {
       showToast('File write failed: ' + msg, 4000);
     });
   };
+
+  if (apiKey) {
+    var teAiBtn = document.getElementById('teAiBtn');
+    if (teAiBtn) {
+      teAiBtn.onclick = function() {
+        teAiBtn.disabled = true; teAiBtn.textContent = 'Analyzing…';
+        callGeminiTag(song).then(function(result) {
+          teAiBtn.disabled = false; teAiBtn.innerHTML = '&#10004; Done';
+          var filled = 0;
+          [
+            { id: 'teTitle',       val: String(result.title           || '').trim() },
+            { id: 'teArtist',      val: String(result.artist          || '').trim() },
+            { id: 'teAlbum',       val: String(result.album           || '').trim() },
+            { id: 'teAlbumArtist', val: String(result.albumArtist     || '').trim() },
+            { id: 'teYear',        val: String(result.year            || '').trim() },
+            { id: 'teGenre',       val: String(result.genre           || '').trim() },
+            { id: 'teFeat',        val: String(result.featuredArtists || '').trim() },
+            { id: 'teTrack',       val: result.trackNumber ? String(result.trackNumber) : '' },
+          ].forEach(function(f) {
+            if (!f.val) return;
+            var el = document.getElementById(f.id);
+            if (!el) return;
+            el.value = f.val;
+            el.classList.add('te-ai-filled');
+            setTimeout(function() { el.classList.remove('te-ai-filled'); }, 1200);
+            filled++;
+          });
+          if (result.releaseType && ['Album','Mixtape','EP','Single'].indexOf(result.releaseType) !== -1) {
+            selectedType = result.releaseType;
+            modal.querySelectorAll('.te-chip').forEach(function(b) {
+              b.classList.toggle('active', b.dataset.type === result.releaseType);
+            });
+          }
+          showToast(filled > 0 ? '✓ AI filled ' + filled + ' field' + (filled !== 1 ? 's' : '') : 'AI: song not recognized');
+        }).catch(function(err) {
+          teAiBtn.disabled = false; teAiBtn.innerHTML = '&#10024; AI Fill';
+          showToast('AI error: ' + (err && err.message ? err.message : String(err)));
+        });
+      };
+    }
+  }
 
 }
 
@@ -3592,13 +3668,34 @@ document.getElementById('folderInput').onchange = function(e) {
   e.target.value = '';
 };
 
-document.getElementById('reconnectBanner').onclick = function() {
-  if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
-};
 document.getElementById('menuBtn').onclick = function() { toggleDrawer(true); };
 document.getElementById('drawerOverlay').onclick = function() { toggleDrawer(false); };
 
 
+
+document.getElementById('setApiKeyBtn').onclick = function() {
+  toggleDrawer(false);
+  var current = apiKey ? 'Current key: …' + apiKey.slice(-6) + '\n\n' : '';
+  var val = prompt(current + 'Enter your Gemini API key (free at aistudio.google.com):', apiKey || '');
+  if (val === null) return;
+  val = val.trim();
+  apiKey = val;
+  if (val) {
+    localStorage.setItem('gemini_api_key', val);
+    document.getElementById('apiKeyLabel').textContent = 'Gemini Key: …' + val.slice(-6);
+    showToast('API key saved — AI Fill is ready in the tag editor');
+  } else {
+    localStorage.removeItem('gemini_api_key');
+    document.getElementById('apiKeyLabel').textContent = 'Set Gemini API Key';
+    showToast('API key cleared');
+  }
+};
+
+// Init the key label if a key is already set
+(function() {
+  var lbl = document.getElementById('apiKeyLabel');
+  if (lbl && apiKey) lbl.textContent = 'Gemini Key: …' + apiKey.slice(-6);
+})();
 
 document.getElementById('favoritesBtn').onclick = function() {
   toggleDrawer(false);
@@ -3828,7 +3925,6 @@ function nativeAutoScan() {
       } catch(e) {}
     });
     render();
-    renderReconnectBanner();
     backgroundLoadAllArt();
 
     // Silently refresh album-art metadata for songs that have none
