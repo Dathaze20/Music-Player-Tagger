@@ -3346,6 +3346,7 @@ function openEditModal(albumName, artistName) {
     + '</div>'
     + '<div class="edit-modal-footer">'
     + '<button class="btn-cancel" id="editCancelBtn">Cancel</button>'
+    + (apiKey ? '<button class="te-ai-btn" id="editAiBtn">&#10024; AI Fill</button>' : '')
     + '<button class="btn-save" id="editSaveBtn">&#10003; Save All</button>'
     + '</div>';
 
@@ -3364,6 +3365,40 @@ function openEditModal(albumName, artistName) {
   document.getElementById('editClose').onclick = closeEditModal;
   document.getElementById('editCancelBtn').onclick = closeEditModal;
   overlay.onclick = closeEditModal;
+
+  if (apiKey) {
+    var editAiBtn = document.getElementById('editAiBtn');
+    if (editAiBtn) {
+      editAiBtn.onclick = function() {
+        editAiBtn.disabled = true; editAiBtn.textContent = 'Analyzing…';
+        callGeminiTag(first).then(function(r) {
+          editAiBtn.disabled = false; editAiBtn.innerHTML = '&#10004; Done';
+          var filled = 0;
+          function fill(id, val) {
+            if (!val) return;
+            var el = document.getElementById(id);
+            if (el && !el.value.trim()) { el.value = val; filled++; }
+          }
+          fill('editArtist',      String(r.artist      || '').trim());
+          fill('editAlbumArtist', String(r.albumArtist || '').trim());
+          fill('editAlbum',       String(r.album       || '').trim());
+          fill('editYear',        String(r.year        || '').trim());
+          fill('editGenre',       String(r.genre       || '').trim());
+          var rtype = String(r.releaseType || '').trim();
+          if (rtype && ['Album','Mixtape','EP','Single'].indexOf(rtype) !== -1) {
+            selectedType = rtype;
+            modal.querySelectorAll('.type-btn').forEach(function(b) { b.className = 'type-btn'; });
+            var tb = modal.querySelector('.type-btn[data-type="' + rtype + '"]');
+            if (tb) { tb.className = 'type-btn active-' + rtype.toLowerCase(); filled++; }
+          }
+          showToast(filled > 0 ? '✓ AI filled ' + filled + ' field' + (filled !== 1 ? 's' : '') : 'AI: album not recognized');
+        }).catch(function(err) {
+          editAiBtn.disabled = false; editAiBtn.innerHTML = '&#10024; AI Fill';
+          showToast('AI error: ' + (err && err.message ? err.message : String(err)));
+        });
+      };
+    }
+  }
 
   document.getElementById('editSaveBtn').onclick = function() {
     var newArtist      = document.getElementById('editArtist').value.trim();
