@@ -182,13 +182,14 @@ function backgroundLoadAllArt() {
 }
 
 // Batch-fetch all missing arts for a VS window in a SINGLE IDB transaction.
-// One transaction with N parallel .get() calls takes ~5ms total vs N×5ms with
-// separate transactions — makes art appear instantly even on fast scrolling.
-// Pass rowsId to apply results to the DOM immediately; pass null for read-ahead.
-function batchPrefetchWindowArt(data, start, end, rowsId) {
+// Covers both the visible window [start, end) and an optional read-ahead range
+// [end, readAheadEnd) so one transaction serves both — ~5ms total vs N×5ms.
+// After the sync URI collection, data/seen fall out of scope before IDB starts.
+function batchPrefetchWindowArt(data, start, end, rowsId, readAheadEnd) {
   var missing = [];
   var seen = {};
-  for (var i = start; i < end; i++) {
+  var limit = (readAheadEnd !== undefined) ? readAheadEnd : end;
+  for (var i = start; i < limit; i++) {
     var item = data[i];
     if (!item) continue;
     var uris = item.albumArtUris ? item.albumArtUris : (item.albumArtUri ? [item.albumArtUri] : []);
@@ -200,27 +201,39 @@ function batchPrefetchWindowArt(data, start, end, rowsId) {
       }
     }
   }
-  if (!missing.length) return;
+  // data, seen, start, end freed here — only missing[] enters the async closure
+  if (missing.length) _fetchMissingArt(missing, rowsId);
+}
+
+// Separate function so the large data array isn't kept alive by the IDB closure.
+function _fetchMissingArt(missing, rowsId) {
   openArtDb().then(function(db) {
     var tx = db.transaction(ART_STORE_NAME, 'readonly');
     var store = tx.objectStore(ART_STORE_NAME);
     var pending = missing.length;
-    var anyFound = false;
     missing.forEach(function(uri) {
-      if (artCache[uri]) {
-        if (!--pending && anyFound && rowsId) _applyArtToRows(document.getElementById(rowsId));
-        return;
-      }
       var req = store.get(uri);
       req.onsuccess = function() {
-        if (req.result) { artCacheSet(uri, req.result); anyFound = true; }
-        if (!--pending && anyFound && rowsId) _applyArtToRows(document.getElementById(rowsId));
+        if (req.result) artCacheSet(uri, req.result);
+        if (!--pending && rowsId) _scheduleApplyArt(rowsId);
       };
       req.onerror = function() {
-        if (!--pending && anyFound && rowsId) _applyArtToRows(document.getElementById(rowsId));
+        if (!--pending && rowsId) _scheduleApplyArt(rowsId);
       };
     });
   }).catch(function() {});
+}
+
+// Debounce DOM art-application to one pass per animation frame — multiple
+// concurrent batch completions collapse into a single querySelectorAll scan.
+var _applyArtScheduled = Object.create(null);
+function _scheduleApplyArt(rowsId) {
+  if (_applyArtScheduled[rowsId]) return;
+  _applyArtScheduled[rowsId] = true;
+  requestAnimationFrame(function() {
+    _applyArtScheduled[rowsId] = false;
+    _applyArtToRows(document.getElementById(rowsId));
+  });
 }
 
 function _applyArtToRows(rows) {
@@ -341,12 +354,9 @@ function renderVsWindow(start) {
   rows.innerHTML = parts.join('');
   rows.style.top = (start * VS_ROW_H) + 'px';
   initLazyArt(rows);
-  // Single IDB transaction for all missing arts in this window → instant art
-  batchPrefetchWindowArt(_vsData, start, end, 'vsRows');
-  // Read-ahead: warm cache for the next window before the user scrolls there
-  var naStart = end;
-  var naEnd = Math.min(_vsData.length, naStart + VS_BUFFER * 2 + 20);
-  if (naStart < _vsData.length) batchPrefetchWindowArt(_vsData, naStart, naEnd, null);
+  // One IDB transaction covers visible window + read-ahead range
+  var naEnd = Math.min(_vsData.length, end + VS_BUFFER * 2 + 20);
+  batchPrefetchWindowArt(_vsData, start, end, 'vsRows', naEnd);
 }
 
 function artistRowHTML(a) {
@@ -390,12 +400,9 @@ function renderArtistVsWindow(start) {
   rows.innerHTML = parts.join('');
   rows.style.top = (start * VS_ROW_H) + 'px';
   initLazyArt(rows);
-  // Single IDB transaction for all missing arts in this window → instant art
-  batchPrefetchWindowArt(_vsArtistData, start, end, 'vsArtistRows');
-  // Read-ahead: warm cache for the next window before the user scrolls there
-  var naStart = end;
-  var naEnd = Math.min(_vsArtistData.length, naStart + VS_BUFFER * 2 + 20);
-  if (naStart < _vsArtistData.length) batchPrefetchWindowArt(_vsArtistData, naStart, naEnd, null);
+  // One IDB transaction covers visible window + read-ahead range
+  var naEnd = Math.min(_vsArtistData.length, end + VS_BUFFER * 2 + 20);
+  batchPrefetchWindowArt(_vsArtistData, start, end, 'vsArtistRows', naEnd);
 }
 
 // ─── Swipe Gestures (song rows) ───
@@ -1637,7 +1644,13 @@ function renderAlphaStrip(listEl, letters, getScrollOffset) {
     var mc = document.getElementById('mainContent');
     if (getScrollOffset) {
       var pos = getScrollOffset(letter);
-      if (pos != null) mc.scrollTop = pos;
+      if (pos != null) {
+        // Reset VS debounce so any programmatic jump — not just jumps to position 0 —
+        // always triggers a re-render even if it lands within the debounce window.
+        _vsRenderedStart = -9999;
+        _vsArtistStart = -9999;
+        mc.scrollTop = pos;
+      }
     } else {
       var anchor = listEl.querySelector('[data-alpha-anchor="' + letter + '"]');
       if (anchor) mc.scrollTop = anchor.offsetTop;
