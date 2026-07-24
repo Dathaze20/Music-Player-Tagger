@@ -160,9 +160,13 @@ function backgroundLoadAllArt() {
       uris.push(s.albumArtUri);
     }
   });
+  // Expand the in-memory cap to fit every unique album art so nothing gets
+  // evicted while loading — without this, loading 3629 arts into a 500-entry
+  // cache evicts the earliest ones, causing lag when the user scrolls back.
+  if (uris.length > _ART_CACHE_MAX) _ART_CACHE_MAX = uris.length + 100;
   var idx = 0;
   var active = 0;
-  var MAX = 4; // 4 concurrent reads avoids memory spike on low-end devices
+  var MAX = 8; // 8 concurrent IDB reads (~5 ms each) fills the cache ~2× faster
 
   function finish() { active--; pump(); }
   function pump() {
@@ -4245,6 +4249,8 @@ loadAllEdits().then(function(edits) {
 loadPersistedArt().then(function(cached) {
   var keys = Object.keys(cached);
   if (keys.length > 0) {
+    // Expand cap before inserting so startup arts don't evict each other
+    if (keys.length > _ART_CACHE_MAX) _ART_CACHE_MAX = keys.length + 100;
     keys.forEach(function(k) { artCacheSet(k, cached[k]); });
     scheduleStartupRender(); // re-render with full art cache — no more pop-in
   }
