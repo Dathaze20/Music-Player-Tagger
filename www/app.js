@@ -1255,6 +1255,7 @@ var _sleepTimerDisplayInt = null;
 var nativeScanning = false;
 var nativeScanCount = 0;
 var nativeScanError = '';
+var _forceRescan = false; // set when IDB/localStorage has fewer songs than the saved count
 var _idbLoading = true; // true until first IDB load completes; prevents premature auto-scan
 
 var audio = document.getElementById('audioEl');
@@ -4316,6 +4317,10 @@ loadAllEdits().then(function(edits) {
   }
   applyEditsToSongs(); // always re-apply after IDB load
   _idbLoading = false;
+  // If the loaded library is smaller than the true count (localStorage quota truncated it
+  // or IDB was overwritten with a partial snapshot), trigger a full rescan to recover.
+  var _storedCount = parseInt(localStorage.getItem('muzio_library_count') || '0');
+  if (_storedCount > 0 && songs.length < _storedCount) _forceRescan = true;
   scheduleStartupRender();
   nativeAutoScan();
 }).catch(function() {
@@ -4357,9 +4362,11 @@ function nativeAutoScan() {
   // whether the library is truly empty or was just slow to load.
   if (_idbLoading && songs.length === 0) return;
 
-  // Already have songs — reconnect playback URLs and return. NEVER fall through to a
-  // full rescan when the library is already in memory; that would wipe user edits.
-  if (songs.length > 0) {
+  // Already have songs — reconnect playback URLs and return, unless we know the
+  // library is truncated (localStorage quota saved only 2000 of 15000, then the
+  // art-refresh path overwrote IDB with the short list).  In that case fall
+  // through to a full scan so we recover the missing songs.
+  if (songs.length > 0 && !_forceRescan) {
     var needsUrl = songs.filter(function(s) { return !s.url; });
     var reconnected = 0;
     needsUrl.forEach(function(s) {
@@ -4376,9 +4383,11 @@ function nativeAutoScan() {
     render();
     backgroundLoadAllArt();
 
-    // Silently refresh album-art metadata for songs that have none
+    // Silently refresh album-art metadata for songs that have none.
+    // Guard saveLibrary() so a partial in-memory library never overwrites IDB.
     var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
     if (needsArtRefresh) {
+      var _fullCount = parseInt(localStorage.getItem('muzio_library_count') || '0');
       NativeBridge.scanAllMusic(null).then(function(files) {
         var byUri = {};
         var byFn = {};
@@ -4395,11 +4404,15 @@ function nativeAutoScan() {
           if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
           if (f.genre && !s.genre) s.genre = f.genre;
         });
-        if (updated > 0) { saveLibrary(); render(); }
+        if (updated > 0 && (_fullCount === 0 || songs.length >= _fullCount)) {
+          saveLibrary();
+        }
+        if (updated > 0) render();
       }).catch(function() {});
     }
-    return; // always stop here — library is loaded, no scan needed
+    return; // library is loaded — no full scan needed
   }
+  _forceRescan = false;
 
   // First launch or rescan — show scanning screen and auto-scan
   nativeScanning = true;
