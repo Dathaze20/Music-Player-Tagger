@@ -1031,6 +1031,8 @@ var volume = 0.8;
 var isMuted = false;
 var isShuffled = false;
 var repeatMode = 'off';
+var _playHistory = [];    // song IDs played in order, most recent last
+var _historyJump = false; // set true by handlePrev so playSong skips the push
 var showNowPlaying = false;
 var selectedArtist = null;
 var selectedAlbum = null;
@@ -2839,6 +2841,11 @@ document.getElementById('bsOverlay').onclick = closeBottomSheet;
 // ─── Playback ───
 
 function playSong(song, songList) {
+  if (currentSong && !_historyJump) {
+    _playHistory.push(currentSong.id);
+    if (_playHistory.length > 200) _playHistory.shift();
+  }
+  _historyJump = false;
   currentSong = song;
   song.playCount = (song.playCount || 0) + 1;
   song.lastPlayed = Date.now();
@@ -2929,9 +2936,15 @@ function handlePrev() {
   if (currentTime > 3) { audio.currentTime = 0; return; }
   preloadedUrl = '';
   preloadedSong = null;
+  _historyJump = true; // don't push current song when going backwards
+  if (_playHistory.length > 0) {
+    var prevId = _playHistory.pop();
+    var prevSong = songMap[prevId] || queue.find(function(s) { return s.id === prevId; });
+    if (prevSong) { playSong(prevSong, queue); return; }
+  }
+  // Fallback when history is empty: go to previous index in queue
   var idx = queue.findIndex(function(s) { return s.id === currentSong.id; });
-  var prev = idx <= 0 ? queue.length - 1 : idx - 1;
-  playSong(queue[prev], queue);
+  playSong(queue[idx <= 0 ? queue.length - 1 : idx - 1], queue);
 }
 
 audio.addEventListener('timeupdate', function() {
@@ -4338,49 +4351,16 @@ function _cfAttachTouch() {
   var vp = document.getElementById('cfViewport');
   if (!vp) return;
   var r = _cfR;
-  var startX, lastX, lastT, startPos;
+  var startX, startT, lastX, lastT, startPos;
 
-  vp.addEventListener('touchstart', function(e) {
-    if (r.snapRaf) { cancelAnimationFrame(r.snapRaf); r.snapRaf = 0; }
-    if (r.raf) { cancelAnimationFrame(r.raf); r.raf = 0; }
-    r.velocity = 0;
-    startX = lastX = e.touches[0].clientX;
-    lastT = Date.now();
-    startPos = r.pos;
-    e.preventDefault();
-  }, { passive: false });
-
-  vp.addEventListener('touchmove', function(e) {
-    var x = e.touches[0].clientX;
-    var dt = Math.max(1, Date.now() - lastT);
-    r.velocity = -(x - lastX) / dt; // px/ms; negative = swipe left → go right
-    lastX = x;
-    lastT = Date.now();
-    r.pos = Math.max(0, Math.min(_cfAlbums.length - 1, startPos - (x - startX) / r.sz));
-    _cfDoRender();
-    e.preventDefault();
-  }, { passive: false });
-
-  vp.addEventListener('touchend', function(e) {
-    r.velocity = r.velocity * 16 / r.sz; // convert px/ms → albums/frame at 60fps
-    _cfMomentum();
-    e.preventDefault();
-  }, { passive: false });
-
-  vp.addEventListener('touchcancel', function() {
-    r.velocity = 0;
-    _cfSnapTo(Math.round(r.pos));
-  });
-
-  vp.addEventListener('click', function(e) {
-    var el = e.target;
-    while (el && !el.classList.contains('cf-item')) el = el.parentElement;
+  function _cfHandleTap(touchX, touchY) {
+    var el = document.elementFromPoint(touchX, touchY);
+    while (el && !el.classList.contains('cf-item')) el = el && el.parentElement;
     if (!el || el._cfIdx === undefined || el._cfIdx < 0) return;
     var idx = el._cfIdx;
     if (idx !== _cfCenterIdx) { _cfSnapTo(idx); return; }
-    // Double-tap center album = play; single-tap = open album view
     var now = Date.now();
-    if (now - _cfLastTap.time < 350 && _cfLastTap.idx === idx) {
+    if (now - _cfLastTap.time < 380 && _cfLastTap.idx === idx) {
       _cfLastTap.time = 0; _cfLastTap.idx = -1;
       if (_cfLastTap.timer) { clearTimeout(_cfLastTap.timer); _cfLastTap.timer = 0; }
       playCfAlbum(idx);
@@ -4394,7 +4374,51 @@ function _cfAttachTouch() {
       cleanupCf();
       selectedAlbum = { name: _cfAlbums[idx].name, artist: _cfAlbums[idx].artist };
       render();
-    }, 360);
+    }, 380);
+  }
+
+  vp.addEventListener('touchstart', function(e) {
+    if (r.snapRaf) { cancelAnimationFrame(r.snapRaf); r.snapRaf = 0; }
+    if (r.raf) { cancelAnimationFrame(r.raf); r.raf = 0; }
+    r.velocity = 0;
+    startX = lastX = e.touches[0].clientX;
+    startT = lastT = Date.now();
+    startPos = r.pos;
+    e.preventDefault();
+  }, { passive: false });
+
+  vp.addEventListener('touchmove', function(e) {
+    var x = e.touches[0].clientX;
+    var dt = Math.max(1, Date.now() - lastT);
+    r.velocity = -(x - lastX) / dt;
+    lastX = x;
+    lastT = Date.now();
+    r.pos = Math.max(0, Math.min(_cfAlbums.length - 1, startPos - (x - startX) / r.sz));
+    _cfDoRender();
+    e.preventDefault();
+  }, { passive: false });
+
+  vp.addEventListener('touchend', function(e) {
+    var touch = e.changedTouches[0];
+    var isTap = Math.abs(touch.clientX - startX) < 12 && (Date.now() - startT) < 400;
+    if (isTap) {
+      r.velocity = 0;
+      _cfHandleTap(touch.clientX, touch.clientY);
+    } else {
+      r.velocity = r.velocity * 16 / r.sz;
+      _cfMomentum();
+    }
+    e.preventDefault();
+  }, { passive: false });
+
+  vp.addEventListener('touchcancel', function() {
+    r.velocity = 0;
+    _cfSnapTo(Math.round(r.pos));
+  });
+
+  // Desktop/mouse fallback
+  vp.addEventListener('click', function(e) {
+    _cfHandleTap(e.clientX, e.clientY);
   });
 }
 
