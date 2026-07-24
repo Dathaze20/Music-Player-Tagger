@@ -46,14 +46,6 @@
     </div>
   </div>
 
-  <!-- Reconnect banner -->
-  <div id="reconnectBanner" class="reconnect-banner hidden">
-    <div class="reconnect-content">
-      <span class="reconnect-icon">&#127925;</span>
-      <div class="reconnect-text">Tap to enable playback</div>
-    </div>
-  </div>
-
   <!-- Main content area -->
   <main class="main" id="mainContent"></main>
 
@@ -100,6 +92,10 @@
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
       <button class="drawer-item" id="favoritesBtn">
         <span class="icon" style="color:#f44;">&#10084;</span> Favorites
+      </button>
+      <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
+      <button class="drawer-item" id="setApiKeyBtn">
+        <span class="icon">&#128273;</span> <span id="apiKeyLabel">Set Gemini API Key</span>
       </button>
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
       <button class="drawer-item" id="clearLibBtn">

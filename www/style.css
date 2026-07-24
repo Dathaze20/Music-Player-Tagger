@@ -62,27 +62,6 @@ body {
   border-radius: 3px;
 }
 
-/* Reconnect banner */
-.reconnect-banner {
-  padding: 8px 16px;
-  cursor: pointer;
-  background: linear-gradient(90deg, rgba(0,168,158,0.15), rgba(240,180,41,0.1));
-  border-bottom: 1px solid rgba(0,168,158,0.2);
-  animation: fadeIn 0.3s;
-}
-.reconnect-banner:active { opacity: 0.7; }
-.reconnect-content {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.reconnect-icon { font-size: 16px; }
-.reconnect-text {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--primary);
-}
-
 /* Filter chips */
 .filter-chips {
   display: flex;
@@ -2055,6 +2034,25 @@ body {
   padding: 16px 20px 12px;
   flex-shrink: 0;
 }
+.te-ai-btn {
+  background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+  border: none;
+  border-radius: 20px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.te-ai-btn:disabled { opacity: 0.55; cursor: default; }
+@keyframes te-flash {
+  0%   { background: rgba(16,185,129,0.35); border-radius: 4px; }
+  70%  { background: rgba(16,185,129,0.15); }
+  100% { background: transparent; }
+}
+.te-ai-filled { animation: te-flash 1.2s ease-out; }
 .te-title {
   font-size: 16px;
   font-weight: 600;
