@@ -1596,6 +1596,19 @@ function renderAlphaStrip(listEl, letters, getScrollOffset) {
   });
   appEl.appendChild(strip);
 
+  // Position the strip to exactly cover the scrollable content area so it
+  // never overlaps the header, tabs, or mini player regardless of screen size.
+  requestAnimationFrame(function() {
+    if (!strip.parentNode) return;
+    var mc = document.getElementById('mainContent');
+    if (!mc) return;
+    var mcRect = mc.getBoundingClientRect();
+    strip.style.top = mcRect.top + 'px';
+    var mpEl = document.getElementById('miniPlayer');
+    var mpH = (mpEl && !mpEl.classList.contains('hidden')) ? mpEl.getBoundingClientRect().height : 0;
+    strip.style.bottom = mpH + 'px';
+  });
+
   var bubble = document.createElement('div');
   bubble.id = 'alphaBubble';
   bubble.className = 'alpha-bubble';

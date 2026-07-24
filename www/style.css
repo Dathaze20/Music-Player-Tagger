@@ -1638,8 +1638,6 @@ body {
 .alpha-strip {
   position: fixed;
   right: 0;
-  top: 0;
-  bottom: 0;
   width: 22px;
   display: -webkit-box;
   display: -webkit-flex;
@@ -1651,7 +1649,7 @@ body {
   align-items: center;
   -webkit-box-pack: center;
   justify-content: center;
-  padding: 108px 0 76px;
+  padding: 6px 0;
   z-index: 120;
   pointer-events: auto;
   -webkit-user-select: none;
