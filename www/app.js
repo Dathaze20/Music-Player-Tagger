@@ -638,11 +638,17 @@ var _libDb = null;
 var LIB_DB_NAME = 'muzio_library_idb';
 var LIB_STORE = 'songs';
 
+var EDITS_STORE = 'manual_edits';
+
 function openLibDb() {
   if (_libDb) return Promise.resolve(_libDb);
   return new Promise(function(resolve, reject) {
-    var req = indexedDB.open(LIB_DB_NAME, 1);
-    req.onupgradeneeded = function() { req.result.createObjectStore(LIB_STORE); };
+    var req = indexedDB.open(LIB_DB_NAME, 2);
+    req.onupgradeneeded = function() {
+      var db = req.result;
+      if (!db.objectStoreNames.contains(LIB_STORE))   db.createObjectStore(LIB_STORE);
+      if (!db.objectStoreNames.contains(EDITS_STORE)) db.createObjectStore(EDITS_STORE);
+    };
     req.onsuccess = function() { _libDb = req.result; resolve(_libDb); };
     req.onerror = function() { reject(req.error); };
   });
@@ -676,6 +682,66 @@ function loadLibraryIDB() {
       req.onerror = function() { resolve([]); };
     });
   }).catch(function() { return []; });
+}
+
+// ─── Manual Edits Store ───
+// A separate IDB store that records every tag the user has manually set.
+// Applied on top of library data after every load or scan so edits survive
+// cache clears, rescans, and reinstalls (as long as contentUri/filename matches).
+// Structured for future Google Drive / cloud backup.
+
+var _editsMap = Object.create(null); // contentUri||fn → edit object (in-memory mirror)
+
+function saveEdit(song) {
+  var key = song.contentUri || song.fn;
+  if (!key) return;
+  var edit = {
+    title: song.title, artist: song.artist, album: song.album,
+    albumArtist: song.albumArtist, year: song.year, genre: song.genre,
+    track: song.track, type: song.type, feat: song.feat,
+    syncedLyrics: song.syncedLyrics, lyrics: song.lyrics,
+    art: song.art, editedAt: Date.now()
+  };
+  _editsMap[key] = edit;
+  openLibDb().then(function(db) {
+    db.transaction(EDITS_STORE, 'readwrite').objectStore(EDITS_STORE).put(edit, key);
+  }).catch(function() {});
+}
+
+function loadAllEdits() {
+  return openLibDb().then(function(db) {
+    return new Promise(function(resolve) {
+      var result = Object.create(null);
+      var req = db.transaction(EDITS_STORE, 'readonly').objectStore(EDITS_STORE).openCursor();
+      req.onsuccess = function(e) {
+        var c = e.target.result;
+        if (c) { result[c.key] = c.value; c.continue(); }
+        else resolve(result);
+      };
+      req.onerror = function() { resolve(result); };
+    });
+  }).catch(function() { return Object.create(null); });
+}
+
+function applyEditsToSongs() {
+  if (!songs.length) return;
+  songs.forEach(function(s) {
+    var edit = _editsMap[s.contentUri] || _editsMap[s.fn];
+    if (!edit) return;
+    // Only override with non-empty saved values so a blank field can't erase good data
+    if (edit.title)       s.title       = edit.title;
+    if (edit.artist)      s.artist      = edit.artist;
+    if (edit.album)       s.album       = edit.album;
+    if (edit.albumArtist !== undefined && edit.albumArtist !== null) s.albumArtist = edit.albumArtist;
+    if (edit.year  !== undefined && edit.year  !== null) s.year  = edit.year;
+    if (edit.genre)       s.genre       = edit.genre;
+    if (edit.track)       s.track       = edit.track;
+    if (edit.type)        s.type        = edit.type;
+    if (edit.feat  !== undefined && edit.feat  !== null) s.feat  = edit.feat;
+    if (edit.syncedLyrics !== undefined && edit.syncedLyrics !== null) s.syncedLyrics = edit.syncedLyrics;
+    if (edit.lyrics !== undefined && edit.lyrics !== null) s.lyrics = edit.lyrics;
+    if (edit.art)         s.art         = edit.art;
+  });
 }
 
 function saveLibrary() {
@@ -3169,6 +3235,7 @@ function openSongEditModal(songId) {
 
   document.getElementById('teSaveBtn').onclick = function() {
     applyFormToSong();
+    saveEdit(song);
     finishSave();
     // On native, persist tags to the actual file immediately
     var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
@@ -3301,6 +3368,7 @@ function openEditModal(albumName, artistName) {
       if (newYear)        s.year        = newYear;
       if (newGenre)       s.genre       = newGenre;
       s.type = selectedType;
+      saveEdit(s);
     });
 
     if (selectedAlbum) {
@@ -3858,10 +3926,15 @@ restoreUIState();
 // so a cold first-launch (no saved state) would otherwise show a blank screen.
 render();
 
-// Always load from IndexedDB — it stores full metadata even when localStorage hits
-// quota and falls back to bare-minimum (no year/genre/lyrics). IDB has no quota limit.
-// Prefer IDB whenever it has at least as many songs as localStorage.
-loadLibraryIDB().then(function(saved) {
+// Load edits store first so they're ready to apply on top of any data source.
+// Then load the library from IDB (full metadata, no quota cap) and apply edits on top.
+loadAllEdits().then(function(edits) {
+  _editsMap = edits;
+  // Apply on top of whatever localStorage loaded synchronously (fast startup path)
+  applyEditsToSongs();
+  render();
+  return loadLibraryIDB();
+}).then(function(saved) {
   if (saved && saved.length > 0 && saved.length >= songs.length) {
     songs = saved.map(function(s) {
       s.id = genId();
@@ -3873,11 +3946,13 @@ loadLibraryIDB().then(function(saved) {
     songMap = Object.create(null);
     songs.forEach(function(s) { songMap[s.id] = s; });
     _countsCache = null;
-    render();
   }
+  applyEditsToSongs(); // always re-apply after IDB load
+  render();
   // nativeAutoScan is driven by deviceready + setTimeouts; only call here for brand-new installs
   if (songs.length === 0) nativeAutoScan();
 }).catch(function() {
+  applyEditsToSongs();
   if (songs.length === 0) nativeAutoScan();
 });
 
@@ -3990,6 +4065,7 @@ function nativeAutoScan() {
       return ex;
     });
 
+    applyEditsToSongs(); // restore manual edits on top of fresh scan data
     saveLibrary();
     render();
     backgroundLoadAllArt();
