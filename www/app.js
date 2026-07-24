@@ -4225,7 +4225,8 @@ loadAllEdits().then(function(edits) {
     });
     songMap = Object.create(null);
     songs.forEach(function(s) { songMap[s.id] = s; });
-    _countsCache = null;
+    _countsCache = null; _artistsCache = null; _albumsCache = null;
+    _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
   }
   applyEditsToSongs(); // always re-apply after IDB load
   _idbLoading = false; // IDB load complete — safe to scan if library is truly empty
