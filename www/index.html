@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Muzio AI - Smart Music Player</title>
-  <meta name="description" content="AI-powered music player with auto-tagging">
+  <meta name="description" content="Smart music player with tag editor">
   <meta name="theme-color" content="#00a89e">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -57,22 +57,6 @@
   <!-- Main content area -->
   <main class="main" id="mainContent"></main>
 
-  <!-- Tagging progress banner -->
-  <div id="taggingBanner" class="tagging-banner hidden">
-    <div class="tagging-content">
-      <div class="tagging-spinner" id="taggingSpinner"></div>
-      <div class="tagging-text">
-        <p id="taggingLabel">Auto-tagging music...</p>
-        <p id="taggingCurrent"></p>
-      </div>
-      <span class="tagging-count" id="taggingCount"></span>
-      <button id="taggingPauseBtn" class="tagging-pause-btn">&#9646;&#9646;</button>
-    </div>
-    <div class="tagging-progress">
-      <div class="tagging-progress-bar" id="taggingBar"></div>
-    </div>
-  </div>
-
   <!-- Mini player -->
   <div id="miniPlayer" class="mini-player hidden">
     <div class="mini-player-content" id="miniPlayerContent">
@@ -117,15 +101,12 @@
       <button class="drawer-item" id="favoritesBtn">
         <span class="icon" style="color:#f44;">&#10084;</span> Favorites
       </button>
-      <button class="drawer-item" id="settingsBtn">
-        <span class="icon">&#9881;</span> AI Settings
-      </button>
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
       <button class="drawer-item" id="clearLibBtn">
         <span class="icon" style="color:var(--text-faint);">&#128465;</span> Clear Library
       </button>
     </nav>
-    <div class="drawer-footer">Muzio AI v2.0 &bull; AI-Powered Music Tagging</div>
+    <div class="drawer-footer">Muzio AI v2.0</div>
   </div>
 
   <!-- Edit modal -->
@@ -141,58 +122,6 @@
 
   <!-- Audio element -->
   <audio id="audioEl" preload="metadata"></audio>
-
-  <!-- AI Settings Modal -->
-  <div id="settingsOverlay" class="modal-overlay hidden"></div>
-  <div id="settingsModal" class="edit-modal hidden">
-    <div class="edit-modal-header">
-      <div>
-        <h3>AI Settings</h3>
-        <p>Gemini AI for auto-tagging &amp; lyrics</p>
-      </div>
-      <button id="settingsClose">&times;</button>
-    </div>
-    <div class="edit-modal-body" style="gap:12px;">
-      <div class="edit-field">
-        <label>Google Gemini API Key</label>
-        <input type="password" id="apiKeyInput" placeholder="AIzaSy...">
-      </div>
-      <div class="settings-guide">
-        <p class="settings-guide-title">How to get a free API key:</p>
-        <ol class="settings-guide-steps">
-          <li><span>Go to <a href="https://aistudio.google.com/apikey" class="settings-link" id="apiKeyLink">aistudio.google.com/apikey</a></span></li>
-          <li><span>Sign in with your Google account</span></li>
-          <li><span>Tap <strong>Create API key</strong></span></li>
-          <li><span>Copy the key and paste it above</span></li>
-        </ol>
-        <p class="settings-guide-note">Free tier: 10 requests/min &bull; No credit card needed</p>
-      </div>
-      <button class="settings-test-btn" id="testApiKeyBtn">&#9654; Test Key</button>
-      <div id="testKeyResult" style="font-size:12px;min-height:16px;text-align:center;"></div>
-      <div class="settings-divider"></div>
-      <button class="settings-retag-btn" id="retagLibBtn">&#9881; Re-tag Library</button>
-      <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">Tags all songs missing genre, year, or art using AI</p>
-      <div class="settings-divider"></div>
-      <button class="settings-retag-btn" id="fixUnknownBtn">&#128269; Fix Unknown Artists &amp; Albums</button>
-      <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">AI identifies every song tagged as "Unknown Artist" or "Unknown Album"</p>
-      <div class="settings-divider"></div>
-      <button class="settings-retag-btn" id="fixSubgenreBtn">&#127925; Fix Subgenres</button>
-      <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">Replaces generic genre tags with specific subgenres (Boom-Bap, Drill, Trap, G-Funk&hellip;)</p>
-      <div class="settings-divider"></div>
-      <button class="settings-retag-btn" id="enrichLibBtn">&#127912; Fetch Art &amp; Lyrics</button>
-      <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">Downloads album artwork (iTunes) and time-synced lyrics (LRCLIB) for songs missing them</p>
-      <div id="sdCardSection" style="display:none;">
-        <div class="settings-divider"></div>
-        <div id="sdCardStatus" style="font-size:12px;text-align:center;min-height:16px;margin-bottom:4px;"></div>
-        <button class="settings-retag-btn" id="grantSdCardBtn">&#128190; Grant SD Card Access</button>
-        <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:0;">Required to permanently save tags to files on your portable SD card</p>
-      </div>
-    </div>
-    <div class="edit-modal-footer">
-      <button class="btn-cancel" id="settingsCancelBtn">Cancel</button>
-      <button class="btn-save" id="settingsSaveBtn">Save</button>
-    </div>
-  </div>
 
   <!-- Artist / Album Context Bottom Sheet -->
   <div id="bsOverlay" class="bs-overlay hidden"></div>

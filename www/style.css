@@ -709,38 +709,6 @@ body {
   color: var(--text-faint);
 }
 
-/* Tagging banner */
-.tagging-banner {
-  position: absolute;
-  top: 56px; left: 16px; right: 16px;
-  z-index: 30;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
-  animation: slideDown 0.3s ease;
-}
-.tagging-content { display: flex; align-items: center; gap: 12px; }
-.tagging-text p:first-child { font-size: 12px; color: var(--text-dim); }
-.tagging-text p:last-child { font-size: 11px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-.tagging-count { font-size: 12px; color: var(--primary); font-weight: 500; flex-shrink: 0; }
-.tagging-pause-btn { flex-shrink: 0; background: none; border: 1.5px solid var(--primary); border-radius: 50%; width: 32px; height: 32px; color: var(--primary); font-size: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.15s, color 0.15s; padding: 0; }
-.tagging-pause-btn:active, .tagging-pause-btn.paused { background: var(--primary); color: #fff; }
-.tagging-progress {
-  margin-top: 8px;
-  height: 4px;
-  background: var(--bg-secondary);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.tagging-progress-bar {
-  height: 100%;
-  background: var(--primary);
-  border-radius: 2px;
-  transition: width 0.5s;
-}
-
 /* Edit modal */
 .modal-overlay {
   position: absolute; inset: 0;
@@ -968,21 +936,6 @@ body {
   max-width: 260px;
   line-height: 1.5;
   margin-bottom: 8px;
-}
-.welcome-api-note {
-  font-size: 12px;
-  color: var(--text-faint);
-  margin-top: 8px;
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: rgba(255,255,255,0.15);
-  text-underline-offset: 3px;
-}
-.welcome-api-note:active { color: var(--primary); }
-.welcome-api-set {
-  font-size: 12px;
-  color: var(--emerald);
-  margin-top: 8px;
 }
 
 /* Scan more prompt */
@@ -2271,37 +2224,6 @@ body {
   padding: 13px 8px;
   cursor: pointer;
 }
-/* AI fill button in tag editor header */
-.te-header { position: relative; }
-.te-ai-btn {
-  background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
-  border: none;
-  border-radius: 20px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 6px 14px;
-  cursor: pointer;
-  letter-spacing: 0.3px;
-  flex-shrink: 0;
-}
-.te-ai-btn:disabled { opacity: 0.55; cursor: default; }
-.te-ai-hint {
-  display: none;
-  font-size: 12px;
-  color: var(--primary);
-  padding: 3px 0 2px;
-  cursor: pointer;
-  font-weight: 600;
-}
-.te-ai-hint.visible { display: block; }
-@keyframes te-flash {
-  0%   { background: rgba(16,185,129,0.35); border-radius: 4px; }
-  70%  { background: rgba(16,185,129,0.15); }
-  100% { background: transparent; }
-}
-.te-ai-filled { animation: te-flash 1.2s ease-out; }
-
 /* ─── Disc Header ─── */
 .disc-header {
   display: flex;
@@ -2660,15 +2582,6 @@ body {
   -webkit-backdrop-filter: blur(28px);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 22px;
-}
-
-/* ─── Tagging banner: glass ─── */
-.tagging-banner {
-  background: rgba(22, 28, 46, 0.97);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(0,168,158,0.18);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 
 /* ─── Scan more prompt: glass ─── */
