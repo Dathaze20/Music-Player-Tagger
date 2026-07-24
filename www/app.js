@@ -181,6 +181,59 @@ function backgroundLoadAllArt() {
   pump();
 }
 
+// Batch-fetch all missing arts for a VS window in a SINGLE IDB transaction.
+// One transaction with N parallel .get() calls takes ~5ms total vs N×5ms with
+// separate transactions — makes art appear instantly even on fast scrolling.
+// Pass rowsId to apply results to the DOM immediately; pass null for read-ahead.
+function batchPrefetchWindowArt(data, start, end, rowsId) {
+  var missing = [];
+  var seen = {};
+  for (var i = start; i < end; i++) {
+    var item = data[i];
+    if (!item) continue;
+    var uris = item.albumArtUris ? item.albumArtUris : (item.albumArtUri ? [item.albumArtUri] : []);
+    for (var j = 0; j < uris.length; j++) {
+      var uri = uris[j];
+      if (uri && !seen[uri] && !artCache[uri] && !artInFlight[uri]) {
+        seen[uri] = true;
+        missing.push(uri);
+      }
+    }
+  }
+  if (!missing.length) return;
+  openArtDb().then(function(db) {
+    var tx = db.transaction(ART_STORE_NAME, 'readonly');
+    var store = tx.objectStore(ART_STORE_NAME);
+    var pending = missing.length;
+    var anyFound = false;
+    missing.forEach(function(uri) {
+      if (artCache[uri]) {
+        if (!--pending && anyFound && rowsId) _applyArtToRows(document.getElementById(rowsId));
+        return;
+      }
+      var req = store.get(uri);
+      req.onsuccess = function() {
+        if (req.result) { artCacheSet(uri, req.result); anyFound = true; }
+        if (!--pending && anyFound && rowsId) _applyArtToRows(document.getElementById(rowsId));
+      };
+      req.onerror = function() {
+        if (!--pending && anyFound && rowsId) _applyArtToRows(document.getElementById(rowsId));
+      };
+    });
+  }).catch(function() {});
+}
+
+function _applyArtToRows(rows) {
+  if (!rows) return;
+  rows.querySelectorAll('.art-lazy[data-lazy-uri]').forEach(function(el) {
+    if (el.dataset.loaded) return;
+    var uris = (el.dataset.lazyUri || '').split('|').filter(Boolean);
+    if (uris.length && uris.every(function(u) { return artCache[u]; })) {
+      applyArt(el, uris.map(function(u) { return artCache[u]; }));
+    }
+  });
+}
+
 function loadLazyEl(el) {
   var urisStr = el.dataset.lazyUri || '';
   var uris = urisStr.split('|').filter(Boolean);
@@ -288,6 +341,12 @@ function renderVsWindow(start) {
   rows.innerHTML = parts.join('');
   rows.style.top = (start * VS_ROW_H) + 'px';
   initLazyArt(rows);
+  // Single IDB transaction for all missing arts in this window → instant art
+  batchPrefetchWindowArt(_vsData, start, end, 'vsRows');
+  // Read-ahead: warm cache for the next window before the user scrolls there
+  var naStart = end;
+  var naEnd = Math.min(_vsData.length, naStart + VS_BUFFER * 2 + 20);
+  if (naStart < _vsData.length) batchPrefetchWindowArt(_vsData, naStart, naEnd, null);
 }
 
 function artistRowHTML(a) {
@@ -331,6 +390,12 @@ function renderArtistVsWindow(start) {
   rows.innerHTML = parts.join('');
   rows.style.top = (start * VS_ROW_H) + 'px';
   initLazyArt(rows);
+  // Single IDB transaction for all missing arts in this window → instant art
+  batchPrefetchWindowArt(_vsArtistData, start, end, 'vsArtistRows');
+  // Read-ahead: warm cache for the next window before the user scrolls there
+  var naStart = end;
+  var naEnd = Math.min(_vsArtistData.length, naStart + VS_BUFFER * 2 + 20);
+  if (naStart < _vsArtistData.length) batchPrefetchWindowArt(_vsArtistData, naStart, naEnd, null);
 }
 
 // ─── Swipe Gestures (song rows) ───
@@ -4117,7 +4182,6 @@ function saveUIState() {
       albumSortMode: albumSortMode,
       albumArtistsOnly: albumArtistsOnly,
       currentPlaylistId: currentPlaylistId,
-      scroll: document.getElementById('mainContent').scrollTop,
       time: currentTime,
       shuffled: isShuffled,
       repeat: repeatMode,
@@ -4169,13 +4233,6 @@ function restoreUIState() {
     }
 
     render();
-
-    if (state.scroll) {
-      setTimeout(function() {
-        var mc = document.getElementById('mainContent');
-        if (mc) mc.scrollTop = state.scroll;
-      }, 80);
-    }
 
     if (state.nowPlaying && currentSong) {
       setTimeout(function() { renderNowPlaying(); }, 120);
