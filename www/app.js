@@ -4305,12 +4305,13 @@ loadAllEdits().then(function(edits) {
   applyEditsToSongs(); // always re-apply after IDB load
   _idbLoading = false; // IDB load complete — safe to scan if library is truly empty
   scheduleStartupRender();
-  // Now that IDB is done we know for sure whether the library is empty
-  if (songs.length === 0) nativeAutoScan();
+  // Always call nativeAutoScan: when library is empty it triggers a full scan;
+  // when songs exist it reconnects playback URLs via Capacitor.convertFileSrc.
+  nativeAutoScan();
 }).catch(function() {
   _idbLoading = false;
   applyEditsToSongs();
-  if (songs.length === 0) nativeAutoScan();
+  nativeAutoScan();
 });
 
 // Load persisted art from IndexedDB — after the first session all thumbnails are
