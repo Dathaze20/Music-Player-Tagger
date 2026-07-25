@@ -4362,55 +4362,79 @@ function nativeAutoScan() {
   // whether the library is truly empty or was just slow to load.
   if (_idbLoading && songs.length === 0) return;
 
-  // Already have songs — reconnect playback URLs and return, unless we know the
-  // library is truncated (localStorage quota saved only 2000 of 15000, then the
-  // art-refresh path overwrote IDB with the short list).  In that case fall
-  // through to a full scan so we recover the missing songs.
+  // Already have songs — reconnect playback URLs, then silently query MediaStore
+  // to detect a truncated library (muzio_library_count can't be trusted because
+  // saveLibrary() may have been called while songs was still at 2000, resetting
+  // the count). MediaStore is the only ground truth.
   if (songs.length > 0 && !_forceRescan) {
     var needsUrl = songs.filter(function(s) { return !s.url; });
-    var reconnected = 0;
     needsUrl.forEach(function(s) {
       try {
         if (s.contentUri) {
           s.url = window.Capacitor.convertFileSrc(s.contentUri);
-          reconnected++;
         } else if (s.nativePath) {
           s.url = window.Capacitor.convertFileSrc(s.nativePath.replace('file://', ''));
-          reconnected++;
         }
       } catch(e) {}
     });
     render();
     backgroundLoadAllArt();
 
-    // Silently refresh album-art metadata for songs that have none.
-    // Guard saveLibrary() so a partial in-memory library never overwrites IDB.
-    var needsArtRefresh = songs.some(function(s) { return !s.albumArtUri && !s.art; });
-    if (needsArtRefresh) {
-      var _fullCount = parseInt(localStorage.getItem('muzio_library_count') || '0');
-      NativeBridge.scanAllMusic(null).then(function(files) {
-        var byUri = {};
-        var byFn = {};
+    // Always query MediaStore on cold start — it's a fast DB call, not a
+    // filesystem scan — so we can detect a truncated library even when the
+    // stored count metadata was itself corrupted to the wrong value.
+    NativeBridge.scanAllMusic(null).then(function(files) {
+      if (!files || !files.length) return;
+
+      // MediaStore has materially more songs than our library → we lost data.
+      // Rebuild: merge scan results with whatever metadata we have in memory.
+      if (files.length > Math.floor(songs.length * 1.05) + 10) {
+        var _byUri = Object.create(null), _byFn = Object.create(null);
         songs.forEach(function(s) {
-          if (s.contentUri) byUri[s.contentUri] = s;
-          byFn[s.fn] = s;
+          if (s.contentUri) _byUri[s.contentUri] = s;
+          if (s.fn)         _byFn[s.fn] = s;
         });
-        var updated = 0;
-        files.forEach(function(f) {
-          var s = byUri[f.contentUri] || byFn[f.name];
-          if (!s) return;
-          if (f.art && !s.art) { s.art = f.art; updated++; }
-          if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
-          if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
-          if (f.genre && !s.genre) s.genre = f.genre;
+        songs = files.map(function(f) {
+          var ns = NativeBridge.toSong(f);
+          var ex = _byUri[ns.contentUri] || _byFn[ns.fn];
+          if (!ex) return ns;
+          ex.url         = ns.url         || ex.url;
+          ex.contentUri  = ns.contentUri  || ex.contentUri;
+          ex.nativePath  = ns.nativePath  || ex.nativePath;
+          ex.albumArtUri = ns.albumArtUri || ex.albumArtUri;
+          ex.dur         = ns.dur         || ex.dur;
+          return ex;
         });
-        if (updated > 0 && (_fullCount === 0 || songs.length >= _fullCount)) {
-          saveLibrary();
-        }
-        if (updated > 0) render();
-      }).catch(function() {});
-    }
-    return; // library is loaded — no full scan needed
+        songMap = Object.create(null);
+        songs.forEach(function(s) { if (!s.id) s.id = genId(); songMap[s.id] = s; });
+        _countsCache = null; _artistsCache = null; _albumsCache = null;
+        _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
+        applyEditsToSongs();
+        saveLibrary();
+        render();
+        backgroundLoadAllArt();
+        showToast('Library restored: ' + songs.length + ' songs', 3000);
+        return;
+      }
+
+      // Library size looks right — just refresh missing art/metadata.
+      var byUri = {}, byFn = {};
+      songs.forEach(function(s) {
+        if (s.contentUri) byUri[s.contentUri] = s;
+        byFn[s.fn] = s;
+      });
+      var updated = 0;
+      files.forEach(function(f) {
+        var s = byUri[f.contentUri] || byFn[f.name];
+        if (!s) return;
+        if (f.art && !s.art) { s.art = f.art; updated++; }
+        if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
+        if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
+        if (f.genre && !s.genre) s.genre = f.genre;
+      });
+      if (updated > 0) { saveLibrary(); render(); }
+    }).catch(function() {});
+    return;
   }
   _forceRescan = false;
 
