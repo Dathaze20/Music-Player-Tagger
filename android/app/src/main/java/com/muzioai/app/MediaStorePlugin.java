@@ -1,14 +1,24 @@
 package com.muzioai.app;
 
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.media.MediaMetadata;
 import android.media.MediaScannerConnection;
+import android.media.session.MediaSession;
+import android.media.session.PlaybackState;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -49,25 +59,40 @@ import java.util.logging.Logger;
 @CapacitorPlugin(
     name = "MediaStore",
     permissions = {
-        @Permission(alias = "audioApi33", strings = { "android.permission.READ_MEDIA_AUDIO" }),
-        @Permission(alias = "audioLegacy", strings = { "android.permission.READ_EXTERNAL_STORAGE" }),
-        @Permission(alias = "writeStorage", strings = { "android.permission.WRITE_EXTERNAL_STORAGE" })
+        @Permission(alias = "audioApi33",       strings = { "android.permission.READ_MEDIA_AUDIO" }),
+        @Permission(alias = "audioLegacy",      strings = { "android.permission.READ_EXTERNAL_STORAGE" }),
+        @Permission(alias = "writeStorage",     strings = { "android.permission.WRITE_EXTERNAL_STORAGE" }),
+        @Permission(alias = "postNotifications",strings = { "android.permission.POST_NOTIFICATIONS" })
     }
 )
 public class MediaStorePlugin extends Plugin {
 
-    private static final String TAG           = "MediaStorePlugin";
-    private static final int    WRITE_REQUEST_CODE        = 9001;
-    private static final int    SAF_REQUEST_CODE          = 9002;
+    private static final String TAG                    = "MediaStorePlugin";
+    private static final int    WRITE_REQUEST_CODE     = 9001;
+    private static final int    SAF_REQUEST_CODE       = 9002;
     private static final int    WRITE_ACCESS_REQUEST_CODE = 9003;
-    private static final String PREFS_NAME    = "muzio_prefs";
-    private static final String PREF_SAF_URI  = "saf_tree_uri";
+    private static final String PREFS_NAME             = "muzio_prefs";
+    private static final String PREF_SAF_URI           = "saf_tree_uri";
+
+    // ─── Media notification constants ──────────────────────────────────────────
+    private static final String NOTIF_CHANNEL_ID  = "muzio_playback";
+    private static final int    NOTIF_ID          = 7001;
+    private static final String ACTION_PREV       = "com.muzioai.app.ACTION_PREV";
+    private static final String ACTION_PLAY_PAUSE = "com.muzioai.app.ACTION_PLAY_PAUSE";
+    private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
+    private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
 
     // Saved state for async activity callbacks
     private PluginCall savedWriteCall;
     private Uri        pendingWriteUri;
     private PluginCall savedSafCall;
     private PluginCall savedWriteAccessCall;
+
+    // ─── Media notification state ──────────────────────────────────────────────
+    private NotificationManager notifMgr;
+    private MediaSession        mediaSession;
+    private BroadcastReceiver   notifReceiver;
+    private boolean             receiverRegistered = false;
 
     // Silence jaudiotagger's overly verbose logging
     static {
@@ -578,6 +603,201 @@ public class MediaStorePlugin extends Plugin {
     }
 
     private String nvl(String s) { return s == null ? "" : s; }
+
+    // ─── Media notification ────────────────────────────────────────────────────
+
+    private void ensureNotifManager() {
+        if (notifMgr == null) {
+            notifMgr = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+        }
+    }
+
+    private void ensureNotifChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        if (notifMgr.getNotificationChannel(NOTIF_CHANNEL_ID) != null) return;
+        NotificationChannel ch = new NotificationChannel(
+            NOTIF_CHANNEL_ID, "Now Playing", NotificationManager.IMPORTANCE_LOW);
+        ch.setDescription("Muzio AI playback controls");
+        ch.setShowBadge(false);
+        ch.setSound(null, null);
+        notifMgr.createNotificationChannel(ch);
+    }
+
+    private void ensureMediaSession() {
+        if (mediaSession != null) return;
+        mediaSession = new MediaSession(getContext(), "MuzioAI");
+        mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS |
+                              MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
+        mediaSession.setActive(true);
+    }
+
+    private void ensureReceiver() {
+        if (receiverRegistered) return;
+        notifReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                String action = intent.getAction();
+                if (action == null) return;
+                final String ev;
+                if (ACTION_PREV.equals(action))            ev = "prev";
+                else if (ACTION_PLAY_PAUSE.equals(action)) ev = "playPause";
+                else if (ACTION_NEXT.equals(action))       ev = "next";
+                else if (ACTION_CLOSE.equals(action))      { hideNotifInternal(); ev = "close"; }
+                else return;
+                if (getBridge() == null || getBridge().getWebView() == null) return;
+                getBridge().getActivity().runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        getBridge().getWebView().evaluateJavascript(
+                            "document.dispatchEvent(new CustomEvent('muzioMediaAction',{detail:{action:'"
+                            + ev + "'}}));", null);
+                    }
+                });
+            }
+        };
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_PREV);
+        filter.addAction(ACTION_PLAY_PAUSE);
+        filter.addAction(ACTION_NEXT);
+        filter.addAction(ACTION_CLOSE);
+        if (Build.VERSION.SDK_INT >= 33) {
+            getContext().registerReceiver(notifReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            getContext().registerReceiver(notifReceiver, filter);
+        }
+        receiverRegistered = true;
+    }
+
+    @PluginMethod
+    public void updateMediaNotification(PluginCall call) {
+        // On Android 13+ POST_NOTIFICATIONS must be granted before showing anything
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (getPermissionState("postNotifications") != PermissionState.GRANTED) {
+                requestPermissionForAlias("postNotifications", call, "notifPermissionCallback");
+                return;
+            }
+        }
+        doUpdateMediaNotification(call);
+    }
+
+    @PermissionCallback
+    private void notifPermissionCallback(PluginCall call) {
+        // Permission was just requested — proceed regardless of outcome:
+        // if denied, notifMgr.notify() silently does nothing (expected behaviour).
+        doUpdateMediaNotification(call);
+    }
+
+    private void doUpdateMediaNotification(PluginCall call) {
+        String title   = nvl(call.getString("title",   ""));
+        String artist  = nvl(call.getString("artist",  ""));
+        String album   = nvl(call.getString("album",   ""));
+        String artData = nvl(call.getString("art",     ""));
+        boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", false));
+
+        ensureNotifManager();
+        ensureNotifChannel();
+        ensureMediaSession();
+        ensureReceiver();
+
+        // Decode album art bitmap
+        Bitmap artBmp = null;
+        if (!artData.isEmpty()) {
+            try {
+                int comma = artData.indexOf(',');
+                String b64 = comma >= 0 ? artData.substring(comma + 1) : artData;
+                byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
+                artBmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            } catch (Exception e) {
+                Log.w(TAG, "art decode: " + e.getMessage());
+            }
+        }
+
+        // Update MediaSession metadata (drives lock-screen art and title)
+        MediaMetadata.Builder metaB = new MediaMetadata.Builder()
+            .putString(MediaMetadata.METADATA_KEY_TITLE,  title)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+            .putString(MediaMetadata.METADATA_KEY_ALBUM,  album);
+        if (artBmp != null) {
+            metaB.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,    artBmp)
+                 .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, artBmp);
+        }
+        mediaSession.setMetadata(metaB.build());
+
+        long actions = PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
+                     | PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                     | PlaybackState.ACTION_STOP;
+        PlaybackState pb = new PlaybackState.Builder()
+            .setActions(actions)
+            .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
+                      PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+            .build();
+        mediaSession.setPlaybackState(pb);
+
+        // PendingIntents for action buttons
+        int piFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+        PendingIntent piPrev  = PendingIntent.getBroadcast(getContext(), 1001, new Intent(ACTION_PREV),       piFlags);
+        PendingIntent piPlay  = PendingIntent.getBroadcast(getContext(), 1002, new Intent(ACTION_PLAY_PAUSE), piFlags);
+        PendingIntent piNext  = PendingIntent.getBroadcast(getContext(), 1003, new Intent(ACTION_NEXT),       piFlags);
+        PendingIntent piClose = PendingIntent.getBroadcast(getContext(), 1004, new Intent(ACTION_CLOSE),      piFlags);
+
+        // Tap notification body → bring app to foreground
+        Intent openIntent = new Intent(getContext(), getActivity().getClass());
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent piOpen = PendingIntent.getActivity(getContext(), 1000, openIntent, piFlags);
+
+        int playIcon  = playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play;
+        String playLbl = playing ? "Pause" : "Play";
+        String sub = artist.isEmpty() ? album : (album.isEmpty() ? artist : artist + " • " + album);
+
+        Notification.Builder nb = new Notification.Builder(getContext());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nb.setChannelId(NOTIF_CHANNEL_ID);
+        }
+        nb.setSmallIcon(getContext().getApplicationInfo().icon)
+          .setContentTitle(title.isEmpty() ? "Muzio AI" : title)
+          .setContentText(sub)
+          .setLargeIcon(artBmp)
+          .setContentIntent(piOpen)
+          .setDeleteIntent(piClose)
+          .setOngoing(playing)
+          .setVisibility(Notification.VISIBILITY_PUBLIC)
+          .addAction(android.R.drawable.ic_media_previous, "Previous", piPrev)
+          .addAction(playIcon, playLbl, piPlay)
+          .addAction(android.R.drawable.ic_media_next, "Next", piNext)
+          .setStyle(new Notification.MediaStyle()
+              .setMediaSession(mediaSession.getSessionToken())
+              .setShowActionsInCompactView(0, 1, 2));
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nb.setColorized(true);
+        }
+
+        notifMgr.notify(NOTIF_ID, nb.build());
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void hideMediaNotification(PluginCall call) {
+        hideNotifInternal();
+        call.resolve();
+    }
+
+    private void hideNotifInternal() {
+        if (notifMgr != null) notifMgr.cancel(NOTIF_ID);
+        if (mediaSession != null) {
+            try { mediaSession.setActive(false); mediaSession.release(); } catch (Exception ignored) {}
+            mediaSession = null;
+        }
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        hideNotifInternal();
+        if (receiverRegistered && notifReceiver != null) {
+            try { getContext().unregisterReceiver(notifReceiver); } catch (Exception ignored) {}
+            notifReceiver = null;
+            receiverRegistered = false;
+        }
+    }
 
     // ─── MediaStore query ─────────────────────────────────────────────────────
 

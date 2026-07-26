@@ -244,9 +244,32 @@ var NativeBridge = (function() {
     return plugin.getSdCardTreeUri();
   }
 
+  // Show / update the native Android media notification in the notification shade and lock screen.
+  // Passes current song metadata and playback state to the Java-side NotificationCompat builder.
+  function updateMediaNotification(params) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.updateMediaNotification) return Promise.resolve();
+    return plugin.updateMediaNotification({
+      title:   String(params.title   || ''),
+      artist:  String(params.artist  || ''),
+      album:   String(params.album   || ''),
+      art:     String(params.art     || ''),
+      playing: !!params.playing,
+    }).catch(function(e) { console.warn('updateMediaNotification:', e); });
+  }
+
+  // Remove the media notification (e.g. when the user taps close or playback stops).
+  function hideMediaNotification() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.hideMediaNotification) return;
+    plugin.hideMediaNotification().catch(function() {});
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
            readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
            requestWriteAccess: requestWriteAccess,
-           requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri };
+           requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri,
+           updateMediaNotification: updateMediaNotification,
+           hideMediaNotification: hideMediaNotification };
 })();

@@ -737,10 +737,11 @@ function updateMediaSession() {
   var artUri = currentSong.albumArtUri;
   var artData = (artUri && artCacheHD[artUri]) ? artCacheHD[artUri]
               : (artUri && artCache[artUri]) ? artCache[artUri] : '';
+  var sessionAlbum = (currentSong.album && currentSong.album !== 'Unknown Album') ? currentSong.album : '';
   navigator.mediaSession.metadata = new MediaMetadata({
     title:  currentSong.title  || '',
     artist: currentSong.artist || '',
-    album:  (currentSong.album && currentSong.album !== 'Unknown Album') ? currentSong.album : '',
+    album:  sessionAlbum,
     artwork: artData ? [{ src: artData, sizes: '512x512', type: 'image/jpeg' }] : []
   });
   navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
@@ -748,6 +749,16 @@ function updateMediaSession() {
     try {
       navigator.mediaSession.setPositionState({ duration: duration, playbackRate: playbackRate, position: Math.min(currentTime, duration) });
     } catch(e) {}
+  }
+  // Push to native Android media notification (notification shade + lock screen)
+  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+    NativeBridge.updateMediaNotification({
+      title:   currentSong.title  || '',
+      artist:  currentSong.artist || '',
+      album:   sessionAlbum,
+      art:     artData,
+      playing: isPlaying,
+    });
   }
 }
 
@@ -4497,6 +4508,20 @@ setTimeout(nativeAutoScan, 2000);  // last resort for slow devices
 
 // Lock screen / notification controls
 initMediaSession();
+
+// Handle media control events fired by the native Android notification buttons
+document.addEventListener('muzioMediaAction', function(e) {
+  var action = e && e.detail && e.detail.action;
+  if (action === 'prev')      handlePrev();
+  else if (action === 'next') handleNext();
+  else if (action === 'playPause') togglePlay();
+  else if (action === 'close') {
+    if (isPlaying) togglePlay();
+    if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+      NativeBridge.hideMediaNotification();
+    }
+  }
+});
 
 // ─── Inline 3D Cover Flow (Albums tab) ───
 
