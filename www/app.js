@@ -732,6 +732,9 @@ function maybePreloadNext() {
 
 // ─── Media Session (lock screen / notification controls) ───
 
+// Track last-pushed native notification state to avoid redundant bridge calls
+var _lastNotifKey = '';
+
 function updateMediaSession() {
   if (!('mediaSession' in navigator) || !currentSong) return;
   var artUri = currentSong.albumArtUri;
@@ -750,15 +753,19 @@ function updateMediaSession() {
       navigator.mediaSession.setPositionState({ duration: duration, playbackRate: playbackRate, position: Math.min(currentTime, duration) });
     } catch(e) {}
   }
-  // Push to native Android media notification (notification shade + lock screen)
+  // Push to native Android media notification — only when something meaningful changed
   if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
-    NativeBridge.updateMediaNotification({
-      title:   currentSong.title  || '',
-      artist:  currentSong.artist || '',
-      album:   sessionAlbum,
-      art:     artData,
-      playing: isPlaying,
-    });
+    var notifKey = (currentSong.id || '') + '|' + (isPlaying ? '1' : '0') + '|' + (artData ? '1' : '0');
+    if (notifKey !== _lastNotifKey) {
+      _lastNotifKey = notifKey;
+      NativeBridge.updateMediaNotification({
+        title:   currentSong.title  || '',
+        artist:  currentSong.artist || '',
+        album:   sessionAlbum,
+        art:     artData,
+        playing: isPlaying,
+      });
+    }
   }
 }
 
@@ -3143,6 +3150,7 @@ function playSong(song, songList) {
   preloadedUrl = '';
   preloadedSong = null;
   _miniLastSongId = '';
+  _lastNotifKey = ''; // force notification refresh for new song
   loadCurrentSongArt(song);
   saveLibraryLater();
   queue = songList || songs;
@@ -3177,6 +3185,8 @@ function syncPlaybackUI() {
     el.classList.toggle('paused', !isPlaying);
   });
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  // Keep native notification in sync with play/pause state
+  updateMediaSession();
 }
 
 function togglePlay() {

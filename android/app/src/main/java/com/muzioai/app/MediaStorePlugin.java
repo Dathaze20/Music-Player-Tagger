@@ -748,11 +748,15 @@ public class MediaStorePlugin extends Plugin {
         String playLbl = playing ? "Pause" : "Play";
         String sub = artist.isEmpty() ? album : (album.isEmpty() ? artist : artist + " • " + album);
 
+        int notifIcon = getContext().getResources().getIdentifier(
+            "ic_muzio_notification", "drawable", getContext().getPackageName());
+        if (notifIcon == 0) notifIcon = android.R.drawable.ic_media_play;
+
         Notification.Builder nb = new Notification.Builder(getContext());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nb.setChannelId(NOTIF_CHANNEL_ID);
         }
-        nb.setSmallIcon(getContext().getApplicationInfo().icon)
+        nb.setSmallIcon(notifIcon)
           .setContentTitle(title.isEmpty() ? "Muzio AI" : title)
           .setContentText(sub)
           .setLargeIcon(artBmp)
@@ -771,7 +775,11 @@ public class MediaStorePlugin extends Plugin {
             nb.setColorized(true);
         }
 
-        notifMgr.notify(NOTIF_ID, nb.build());
+        try {
+            notifMgr.notify(NOTIF_ID, nb.build());
+        } catch (Exception e) {
+            Log.e(TAG, "notify failed: " + e.getMessage(), e);
+        }
         call.resolve();
     }
 
