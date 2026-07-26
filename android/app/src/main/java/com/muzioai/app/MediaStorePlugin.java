@@ -625,10 +625,21 @@ public class MediaStorePlugin extends Plugin {
 
     private void ensureMediaSession() {
         if (mediaSession != null) return;
-        mediaSession = new MediaSession(getContext(), "MuzioAI");
-        mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS |
-                              MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
-        mediaSession.setActive(true);
+        try {
+            mediaSession = new MediaSession(getContext(), "MuzioAI");
+            // setFlags(FLAG_HANDLES_MEDIA_BUTTONS) throws IllegalArgumentException on API 34+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                //noinspection deprecation
+                mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS |
+                                      MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
+            }
+            // setCallback is required on API 34+ for the session to be considered active
+            mediaSession.setCallback(new MediaSession.Callback() {});
+            mediaSession.setActive(true);
+        } catch (Exception e) {
+            Log.e(TAG, "ensureMediaSession failed: " + e.getMessage(), e);
+            mediaSession = null;
+        }
     }
 
     private void ensureReceiver() {
@@ -693,10 +704,16 @@ public class MediaStorePlugin extends Plugin {
         String artData = nvl(call.getString("art",     ""));
         boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", false));
 
-        ensureNotifManager();
-        ensureNotifChannel();
-        ensureMediaSession();
-        ensureReceiver();
+        Log.d(TAG, "doUpdateMediaNotification: title=" + title + " playing=" + playing);
+
+        try {
+            ensureNotifManager();
+            ensureNotifChannel();
+            ensureMediaSession();
+            ensureReceiver();
+        } catch (Exception e) {
+            Log.e(TAG, "setup failed: " + e.getMessage(), e);
+        }
 
         // Decode album art bitmap
         Bitmap artBmp = null;
@@ -706,31 +723,38 @@ public class MediaStorePlugin extends Plugin {
                 String b64 = comma >= 0 ? artData.substring(comma + 1) : artData;
                 byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
                 artBmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                Log.d(TAG, "art decoded: " + (artBmp != null ? artBmp.getWidth() + "x" + artBmp.getHeight() : "null"));
             } catch (Exception e) {
                 Log.w(TAG, "art decode: " + e.getMessage());
             }
         }
 
         // Update MediaSession metadata (drives lock-screen art and title)
-        MediaMetadata.Builder metaB = new MediaMetadata.Builder()
-            .putString(MediaMetadata.METADATA_KEY_TITLE,  title)
-            .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
-            .putString(MediaMetadata.METADATA_KEY_ALBUM,  album);
-        if (artBmp != null) {
-            metaB.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,    artBmp)
-                 .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, artBmp);
-        }
-        mediaSession.setMetadata(metaB.build());
+        if (mediaSession != null) {
+            try {
+                MediaMetadata.Builder metaB = new MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE,  title)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+                    .putString(MediaMetadata.METADATA_KEY_ALBUM,  album);
+                if (artBmp != null) {
+                    metaB.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,    artBmp)
+                         .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, artBmp);
+                }
+                mediaSession.setMetadata(metaB.build());
 
-        long actions = PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
-                     | PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS
-                     | PlaybackState.ACTION_STOP;
-        PlaybackState pb = new PlaybackState.Builder()
-            .setActions(actions)
-            .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
-                      PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
-            .build();
-        mediaSession.setPlaybackState(pb);
+                long actions = PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
+                             | PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                             | PlaybackState.ACTION_STOP;
+                PlaybackState pb = new PlaybackState.Builder()
+                    .setActions(actions)
+                    .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
+                              PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                    .build();
+                mediaSession.setPlaybackState(pb);
+            } catch (Exception e) {
+                Log.e(TAG, "MediaSession update failed: " + e.getMessage(), e);
+            }
+        }
 
         // PendingIntents for action buttons
         int piFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
@@ -751,32 +775,37 @@ public class MediaStorePlugin extends Plugin {
         int notifIcon = getContext().getResources().getIdentifier(
             "ic_muzio_notification", "drawable", getContext().getPackageName());
         if (notifIcon == 0) notifIcon = android.R.drawable.ic_media_play;
-
-        Notification.Builder nb = new Notification.Builder(getContext());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nb.setChannelId(NOTIF_CHANNEL_ID);
-        }
-        nb.setSmallIcon(notifIcon)
-          .setContentTitle(title.isEmpty() ? "Muzio AI" : title)
-          .setContentText(sub)
-          .setLargeIcon(artBmp)
-          .setContentIntent(piOpen)
-          .setDeleteIntent(piClose)
-          .setOngoing(playing)
-          .setVisibility(Notification.VISIBILITY_PUBLIC)
-          .addAction(android.R.drawable.ic_media_previous, "Previous", piPrev)
-          .addAction(playIcon, playLbl, piPlay)
-          .addAction(android.R.drawable.ic_media_next, "Next", piNext)
-          .setStyle(new Notification.MediaStyle()
-              .setMediaSession(mediaSession.getSessionToken())
-              .setShowActionsInCompactView(0, 1, 2));
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nb.setColorized(true);
-        }
+        Log.d(TAG, "notifIcon=" + notifIcon);
 
         try {
+            Notification.Builder nb = new Notification.Builder(getContext());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nb.setChannelId(NOTIF_CHANNEL_ID);
+            }
+            nb.setSmallIcon(notifIcon)
+              .setContentTitle(title.isEmpty() ? "Muzio AI" : title)
+              .setContentText(sub)
+              .setLargeIcon(artBmp)
+              .setContentIntent(piOpen)
+              .setDeleteIntent(piClose)
+              .setOngoing(true)
+              .setVisibility(Notification.VISIBILITY_PUBLIC)
+              .addAction(android.R.drawable.ic_media_previous, "Previous", piPrev)
+              .addAction(playIcon, playLbl, piPlay)
+              .addAction(android.R.drawable.ic_media_next, "Next", piNext);
+
+            if (mediaSession != null) {
+                nb.setStyle(new Notification.MediaStyle()
+                    .setMediaSession(mediaSession.getSessionToken())
+                    .setShowActionsInCompactView(0, 1, 2));
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nb.setColorized(true);
+            }
+
             notifMgr.notify(NOTIF_ID, nb.build());
+            Log.d(TAG, "notification posted successfully");
         } catch (Exception e) {
             Log.e(TAG, "notify failed: " + e.getMessage(), e);
         }
