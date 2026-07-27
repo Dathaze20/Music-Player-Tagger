@@ -94,7 +94,7 @@ public class MuzioPlaybackService extends Service {
     @Override
     public void onDestroy() {
         isRunning = false;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        if (Build.VERSION.SDK_INT >= 33) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {
             //noinspection deprecation
