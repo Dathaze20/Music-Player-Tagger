@@ -759,11 +759,13 @@ function updateMediaSession() {
     if (notifKey !== _lastNotifKey) {
       _lastNotifKey = notifKey;
       NativeBridge.updateMediaNotification({
-        title:   currentSong.title  || '',
-        artist:  currentSong.artist || '',
-        album:   sessionAlbum,
-        art:     artData,
-        playing: isPlaying,
+        title:    currentSong.title  || '',
+        artist:   currentSong.artist || '',
+        album:    sessionAlbum,
+        art:      artData,
+        playing:  isPlaying,
+        position: Math.round(currentTime * 1000),
+        duration: Math.round((duration || 0) * 1000),
       });
     }
   }

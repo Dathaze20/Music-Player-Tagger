@@ -673,14 +673,21 @@ public class MediaStorePlugin extends Plugin {
         String  album   = nvl(call.getString("album",   ""));
         String  art     = nvl(call.getString("art",     ""));
         boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", false));
+        // JS sends position/duration as milliseconds (integer)
+        Double posD = call.getDouble("position", 0.0);
+        Double durD = call.getDouble("duration", 0.0);
+        long position = posD != null ? posD.longValue() : 0L;
+        long duration = durD != null ? durD.longValue() : 0L;
 
         Intent intent = new Intent(getContext(), MuzioPlaybackService.class);
         intent.setAction(MuzioPlaybackService.ACTION_UPDATE);
-        intent.putExtra("title",   title);
-        intent.putExtra("artist",  artist);
-        intent.putExtra("album",   album);
-        intent.putExtra("art",     art);
-        intent.putExtra("playing", playing);
+        intent.putExtra("title",    title);
+        intent.putExtra("artist",   artist);
+        intent.putExtra("album",    album);
+        intent.putExtra("art",      art);
+        intent.putExtra("playing",  playing);
+        intent.putExtra("position", position);
+        intent.putExtra("duration", duration);
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O

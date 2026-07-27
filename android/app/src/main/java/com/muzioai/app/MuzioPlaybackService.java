@@ -9,6 +9,9 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -48,14 +51,18 @@ public class MuzioPlaybackService extends Service {
 
     private NotificationManager notifMgr;
     private MediaSession        mediaSession;
+    private AudioManager        audioManager;
+    private AudioFocusRequest   audioFocusReq;   // API 26+ only
+    private boolean             audioFocusHeld = false;
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
     @Override
     public void onCreate() {
         super.onCreate();
-        isRunning = true;
-        notifMgr  = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        isRunning    = true;
+        notifMgr     = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        audioManager = (AudioManager)         getSystemService(AUDIO_SERVICE);
         ensureChannel();
         ensureMediaSession();
     }
@@ -67,17 +74,19 @@ public class MuzioPlaybackService extends Service {
             return START_NOT_STICKY;
         }
         // ACTION_UPDATE (or null = re-delivery after process restart)
-        String  title   = intent != null ? intent.getStringExtra("title")   : "";
-        String  artist  = intent != null ? intent.getStringExtra("artist")  : "";
-        String  album   = intent != null ? intent.getStringExtra("album")   : "";
-        String  art     = intent != null ? intent.getStringExtra("art")     : "";
-        boolean playing = intent != null && intent.getBooleanExtra("playing", false);
+        String  title    = intent != null ? intent.getStringExtra("title")   : "";
+        String  artist   = intent != null ? intent.getStringExtra("artist")  : "";
+        String  album    = intent != null ? intent.getStringExtra("album")   : "";
+        String  art      = intent != null ? intent.getStringExtra("art")     : "";
+        boolean playing  = intent != null && intent.getBooleanExtra("playing",  false);
+        long    position = intent != null ? intent.getLongExtra("position",  0L) : 0L;
+        long    duration = intent != null ? intent.getLongExtra("duration",  0L) : 0L;
         updateForeground(
             title   != null ? title   : "",
             artist  != null ? artist  : "",
             album   != null ? album   : "",
             art     != null ? art     : "",
-            playing
+            playing, position, duration
         );
         return START_STICKY;
     }
@@ -100,6 +109,7 @@ public class MuzioPlaybackService extends Service {
             //noinspection deprecation
             stopForeground(true);
         }
+        abandonAudioFocus();
         releaseMediaSession();
         super.onDestroy();
     }
@@ -128,6 +138,24 @@ public class MuzioPlaybackService extends Service {
                     MediaSession.FLAG_HANDLES_MEDIA_BUTTONS |
                     MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
             }
+
+            // Required: declare this as a local music session so Samsung One UI
+            // recognises it as a media source and shows the Quick Panel widget.
+            // Without USAGE_MEDIA, Samsung's media router filters the session out.
+            AudioAttributes audioAttrs = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+            mediaSession.setPlaybackToLocal(audioAttrs);
+
+            // Required for lock screen controls: Samsung hides the lock screen
+            // widget if tapping it cannot launch a host activity.
+            int piFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+            Intent openAct = new Intent(this, MainActivity.class);
+            openAct.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            mediaSession.setSessionActivity(
+                PendingIntent.getActivity(this, 2000, openAct, piFlags));
+
             // Callback required on API 34+ for the session to be considered active;
             // routes hardware/Bluetooth button presses to the WebView via broadcasts
             mediaSession.setCallback(new MediaSession.Callback() {
@@ -136,6 +164,8 @@ public class MuzioPlaybackService extends Service {
                 @Override public void onSkipToNext()     { broadcast(ACTION_NEXT); }
                 @Override public void onSkipToPrevious() { broadcast(ACTION_PREV); }
                 @Override public void onStop()           { broadcast(ACTION_CLOSE); }
+                // onSeekTo: system interpolates from last-reported position at 1.0x rate
+                @Override public void onSeekTo(long pos) {}
             });
             mediaSession.setActive(true);
         } catch (Exception e) {
@@ -157,10 +187,58 @@ public class MuzioPlaybackService extends Service {
         sendBroadcast(i);
     }
 
+    // ── Audio focus ──────────────────────────────────────────────────────────
+
+    private void requestAudioFocus() {
+        if (audioManager == null || audioFocusHeld) return;
+        int result;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            AudioAttributes attrs = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+            audioFocusReq = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attrs)
+                .setOnAudioFocusChangeListener(new AudioManager.OnAudioFocusChangeListener() {
+                    @Override public void onAudioFocusChange(int focusChange) {
+                        // WebView manages actual audio — no action needed here
+                    }
+                })
+                .build();
+            result = audioManager.requestAudioFocus(audioFocusReq);
+        } else {
+            //noinspection deprecation
+            result = audioManager.requestAudioFocus(
+                new AudioManager.OnAudioFocusChangeListener() {
+                    @Override public void onAudioFocusChange(int focusChange) {}
+                },
+                AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        }
+        audioFocusHeld = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+        Log.d(TAG, "requestAudioFocus result=" + result + " held=" + audioFocusHeld);
+    }
+
+    private void abandonAudioFocus() {
+        if (audioManager == null || !audioFocusHeld) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusReq != null) {
+            audioManager.abandonAudioFocusRequest(audioFocusReq);
+        } else {
+            //noinspection deprecation
+            audioManager.abandonAudioFocus(null);
+        }
+        audioFocusHeld = false;
+        Log.d(TAG, "abandonAudioFocus");
+    }
+
     // ── Core notification update ─────────────────────────────────────────────
 
     private void updateForeground(String title, String artist, String album,
-                                  String artData, boolean playing) {
+                                  String artData, boolean playing,
+                                  long positionMs, long durationMs) {
+        // Audio focus must be held while playing so Samsung treats us as an active audio source
+        if (playing) { requestAudioFocus(); }
+        else         { abandonAudioFocus(); }
+
         // Decode album art
         Bitmap artBmp = null;
         if (!artData.isEmpty()) {
@@ -181,6 +259,10 @@ public class MuzioPlaybackService extends Service {
                     .putString(MediaMetadata.METADATA_KEY_TITLE,  title)
                     .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
                     .putString(MediaMetadata.METADATA_KEY_ALBUM,  album);
+                // Duration required: Samsung disables the seek bar if this is missing or 0
+                if (durationMs > 0) {
+                    meta.putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs);
+                }
                 if (artBmp != null) {
                     meta.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,    artBmp)
                         .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, artBmp);
@@ -191,12 +273,14 @@ public class MuzioPlaybackService extends Service {
                              | PlaybackState.ACTION_PAUSE
                              | PlaybackState.ACTION_SKIP_TO_NEXT
                              | PlaybackState.ACTION_SKIP_TO_PREVIOUS
-                             | PlaybackState.ACTION_STOP;
+                             | PlaybackState.ACTION_STOP
+                             | PlaybackState.ACTION_SEEK_TO;
+                // Real position + rate=1.0 lets the system interpolate the seek bar forward
                 mediaSession.setPlaybackState(new PlaybackState.Builder()
                     .setActions(actions)
                     .setState(
                         playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
-                        PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                        positionMs, 1.0f)
                     .build());
             } catch (Exception e) {
                 Log.e(TAG, "MediaSession update: " + e.getMessage(), e);
