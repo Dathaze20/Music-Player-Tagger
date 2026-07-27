@@ -736,24 +736,12 @@ function maybePreloadNext() {
 var _lastNotifKey = '';
 
 function updateMediaSession() {
-  if (!('mediaSession' in navigator) || !currentSong) return;
+  if (!currentSong) return;
   var artUri = currentSong.albumArtUri;
   var artData = (artUri && artCacheHD[artUri]) ? artCacheHD[artUri]
               : (artUri && artCache[artUri]) ? artCache[artUri] : '';
   var sessionAlbum = (currentSong.album && currentSong.album !== 'Unknown Album') ? currentSong.album : '';
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title:  currentSong.title  || '',
-    artist: currentSong.artist || '',
-    album:  sessionAlbum,
-    artwork: artData ? [{ src: artData, sizes: '512x512', type: 'image/jpeg' }] : []
-  });
-  navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-  if (navigator.mediaSession.setPositionState && duration > 0) {
-    try {
-      navigator.mediaSession.setPositionState({ duration: duration, playbackRate: playbackRate, position: Math.min(currentTime, duration) });
-    } catch(e) {}
-  }
-  // Push to native Android media notification — only when something meaningful changed
+  // Push to native Android notification — fires regardless of Web MediaSession API availability
   if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
     var notifKey = (currentSong.id || '') + '|' + (isPlaying ? '1' : '0') + '|' + (artData ? '1' : '0');
     if (notifKey !== _lastNotifKey) {
@@ -768,6 +756,19 @@ function updateMediaSession() {
         duration: Math.round((duration || 0) * 1000),
       });
     }
+  }
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title:  currentSong.title  || '',
+    artist: currentSong.artist || '',
+    album:  sessionAlbum,
+    artwork: artData ? [{ src: artData, sizes: '512x512', type: 'image/jpeg' }] : []
+  });
+  navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  if (navigator.mediaSession.setPositionState && duration > 0) {
+    try {
+      navigator.mediaSession.setPositionState({ duration: duration, playbackRate: playbackRate, position: Math.min(currentTime, duration) });
+    } catch(e) {}
   }
 }
 
@@ -4504,6 +4505,10 @@ function nativeAutoScan() {
     render();
     backgroundLoadAllArt();
     showToast('Loaded ' + newSongs.length + ' songs!', 3000);
+    // Proactively request notification permission so the dialog appears on first launch
+    if (typeof NativeBridge !== 'undefined' && NativeBridge.requestNotificationPermission) {
+      NativeBridge.requestNotificationPermission().catch(function() {});
+    }
   }).catch(function(e) {
     nativeScanning = false;
     var msg = e && e.message ? e.message : String(e);

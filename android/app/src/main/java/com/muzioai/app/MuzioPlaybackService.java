@@ -10,8 +10,6 @@ import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -53,18 +51,14 @@ public class MuzioPlaybackService extends Service {
 
     private NotificationManager notifMgr;
     private MediaSession        mediaSession;
-    private AudioManager        audioManager;
-    private AudioFocusRequest   audioFocusReq;   // API 26+ only
-    private boolean             audioFocusHeld = false;
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
     @Override
     public void onCreate() {
         super.onCreate();
-        isRunning    = true;
-        notifMgr     = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        audioManager = (AudioManager)         getSystemService(AUDIO_SERVICE);
+        isRunning = true;
+        notifMgr  = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         ensureChannel();
         ensureMediaSession();
     }
@@ -111,7 +105,6 @@ public class MuzioPlaybackService extends Service {
             //noinspection deprecation
             stopForeground(true);
         }
-        abandonAudioFocus();
         releaseMediaSession();
         super.onDestroy();
     }
@@ -193,58 +186,11 @@ public class MuzioPlaybackService extends Service {
         sendBroadcast(i);
     }
 
-    // ── Audio focus ──────────────────────────────────────────────────────────
-
-    private void requestAudioFocus() {
-        if (audioManager == null || audioFocusHeld) return;
-        int result;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            AudioAttributes attrs = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build();
-            audioFocusReq = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attrs)
-                .setOnAudioFocusChangeListener(new AudioManager.OnAudioFocusChangeListener() {
-                    @Override public void onAudioFocusChange(int focusChange) {
-                        // WebView manages actual audio — no action needed here
-                    }
-                })
-                .build();
-            result = audioManager.requestAudioFocus(audioFocusReq);
-        } else {
-            //noinspection deprecation
-            result = audioManager.requestAudioFocus(
-                new AudioManager.OnAudioFocusChangeListener() {
-                    @Override public void onAudioFocusChange(int focusChange) {}
-                },
-                AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-        }
-        audioFocusHeld = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
-        Log.d(TAG, "requestAudioFocus result=" + result + " held=" + audioFocusHeld);
-    }
-
-    private void abandonAudioFocus() {
-        if (audioManager == null || !audioFocusHeld) return;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusReq != null) {
-            audioManager.abandonAudioFocusRequest(audioFocusReq);
-        } else {
-            //noinspection deprecation
-            audioManager.abandonAudioFocus(null);
-        }
-        audioFocusHeld = false;
-        Log.d(TAG, "abandonAudioFocus");
-    }
-
     // ── Core notification update ─────────────────────────────────────────────
 
     private void updateForeground(String title, String artist, String album,
                                   String artData, boolean playing,
                                   long positionMs, long durationMs) {
-        // Audio focus must be held while playing so Samsung treats us as an active audio source
-        if (playing) { requestAudioFocus(); }
-        else         { abandonAudioFocus(); }
-
         // Decode album art
         Bitmap artBmp = null;
         if (!artData.isEmpty()) {

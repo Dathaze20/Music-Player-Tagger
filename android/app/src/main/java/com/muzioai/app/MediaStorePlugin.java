@@ -654,6 +654,21 @@ public class MediaStorePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void requestNotificationPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33
+                && getPermissionState("postNotifications") != PermissionState.GRANTED) {
+            requestPermissionForAlias("postNotifications", call, "proactiveNotifPermCallback");
+        } else {
+            call.resolve();
+        }
+    }
+
+    @PermissionCallback
+    private void proactiveNotifPermCallback(PluginCall call) {
+        call.resolve();
+    }
+
+    @PluginMethod
     public void updateMediaNotification(PluginCall call) {
         // Android 13+: need POST_NOTIFICATIONS before the service can post
         if (Build.VERSION.SDK_INT >= 33

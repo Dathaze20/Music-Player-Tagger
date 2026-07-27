@@ -267,11 +267,20 @@ var NativeBridge = (function() {
     plugin.hideMediaNotification().catch(function() {});
   }
 
+  // Ask Android for POST_NOTIFICATIONS permission (API 33+) before the first song plays.
+  // Safe to call on older Android — the Java side no-ops if permission is not needed.
+  function requestNotificationPermission() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.requestNotificationPermission) return Promise.resolve();
+    return plugin.requestNotificationPermission().catch(function() {});
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
            readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
            requestWriteAccess: requestWriteAccess,
            requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri,
            updateMediaNotification: updateMediaNotification,
-           hideMediaNotification: hideMediaNotification };
+           hideMediaNotification: hideMediaNotification,
+           requestNotificationPermission: requestNotificationPermission };
 })();
