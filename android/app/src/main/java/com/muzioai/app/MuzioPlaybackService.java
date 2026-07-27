@@ -42,6 +42,8 @@ public class MuzioPlaybackService extends Service {
     private static final String ACTION_PLAY_PAUSE = "com.muzioai.app.ACTION_PLAY_PAUSE";
     private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
     private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
+    static final String         ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
+    static final String         EXTRA_SEEK_MS     = "seek_ms";
 
     private static final String NOTIF_CHANNEL_ID = "muzio_playback";
     static final int             NOTIF_ID         = 7001;
@@ -164,8 +166,12 @@ public class MuzioPlaybackService extends Service {
                 @Override public void onSkipToNext()     { broadcast(ACTION_NEXT); }
                 @Override public void onSkipToPrevious() { broadcast(ACTION_PREV); }
                 @Override public void onStop()           { broadcast(ACTION_CLOSE); }
-                // onSeekTo: system interpolates from last-reported position at 1.0x rate
-                @Override public void onSeekTo(long pos) {}
+                @Override public void onSeekTo(long pos) {
+                    Intent si = new Intent(ACTION_SEEK);
+                    si.setPackage(getPackageName());
+                    si.putExtra(EXTRA_SEEK_MS, pos);
+                    sendBroadcast(si);
+                }
             });
             mediaSession.setActive(true);
         } catch (Exception e) {

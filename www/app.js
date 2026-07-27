@@ -4527,7 +4527,14 @@ document.addEventListener('muzioMediaAction', function(e) {
   if (action === 'prev')      handlePrev();
   else if (action === 'next') handleNext();
   else if (action === 'playPause') togglePlay();
-  else if (action === 'close') {
+  else if (action === 'seekTo') {
+    var posMs = e.detail.positionMs;
+    if (typeof posMs === 'number' && audio) {
+      audio.currentTime = posMs / 1000;
+      _lastNotifKey = ''; // force position update on next updateMediaSession call
+      updateMediaSession();
+    }
+  } else if (action === 'close') {
     if (isPlaying) togglePlay();
     if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
       NativeBridge.hideMediaNotification();

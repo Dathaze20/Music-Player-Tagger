@@ -72,6 +72,7 @@ public class MediaStorePlugin extends Plugin {
     private static final String ACTION_PLAY_PAUSE = "com.muzioai.app.ACTION_PLAY_PAUSE";
     private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
     private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
+    private static final String ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
 
     // Saved state for async activity callbacks
     private PluginCall savedWriteCall;
@@ -611,21 +612,27 @@ public class MediaStorePlugin extends Plugin {
                 String action = intent.getAction();
                 if (action == null) return;
                 final String ev;
-                if      (ACTION_PREV.equals(action))       ev = "prev";
-                else if (ACTION_PLAY_PAUSE.equals(action)) ev = "playPause";
-                else if (ACTION_NEXT.equals(action))       ev = "next";
+                final long seekMs;
+                if      (ACTION_PREV.equals(action))       { ev = "prev";      seekMs = -1; }
+                else if (ACTION_PLAY_PAUSE.equals(action)) { ev = "playPause"; seekMs = -1; }
+                else if (ACTION_NEXT.equals(action))       { ev = "next";      seekMs = -1; }
                 else if (ACTION_CLOSE.equals(action)) {
                     stopService();
-                    ev = "close";
-                }
-                else return;
+                    ev = "close"; seekMs = -1;
+                } else if (ACTION_SEEK.equals(action)) {
+                    ev = "seekTo";
+                    seekMs = intent.getLongExtra(MuzioPlaybackService.EXTRA_SEEK_MS, 0L);
+                } else return;
                 if (getBridge() == null || getBridge().getWebView() == null) return;
                 getBridge().getActivity().runOnUiThread(new Runnable() {
                     @Override public void run() {
                         if (getBridge() == null || getBridge().getWebView() == null) return;
-                        getBridge().getWebView().evaluateJavascript(
-                            "document.dispatchEvent(new CustomEvent('muzioMediaAction'," +
-                            "{detail:{action:'" + ev + "'}}));", null);
+                        String js = seekMs >= 0
+                            ? "document.dispatchEvent(new CustomEvent('muzioMediaAction'," +
+                              "{detail:{action:'seekTo',positionMs:" + seekMs + "}}));"
+                            : "document.dispatchEvent(new CustomEvent('muzioMediaAction'," +
+                              "{detail:{action:'" + ev + "'}}));";
+                        getBridge().getWebView().evaluateJavascript(js, null);
                     }
                 });
             }
@@ -635,6 +642,7 @@ public class MediaStorePlugin extends Plugin {
         filter.addAction(ACTION_PLAY_PAUSE);
         filter.addAction(ACTION_NEXT);
         filter.addAction(ACTION_CLOSE);
+        filter.addAction(ACTION_SEEK);
         // Use Application context — receiver must outlive Activity (service stays alive)
         Context appCtx = getContext().getApplicationContext();
         if (Build.VERSION.SDK_INT >= 33) {

@@ -250,11 +250,13 @@ var NativeBridge = (function() {
     var plugin = getPlugin('MediaStore');
     if (!plugin || !plugin.updateMediaNotification) return Promise.resolve();
     return plugin.updateMediaNotification({
-      title:   String(params.title   || ''),
-      artist:  String(params.artist  || ''),
-      album:   String(params.album   || ''),
-      art:     String(params.art     || ''),
-      playing: !!params.playing,
+      title:    String(params.title   || ''),
+      artist:   String(params.artist  || ''),
+      album:    String(params.album   || ''),
+      art:      String(params.art     || ''),
+      playing:  !!params.playing,
+      position: Number(params.position || 0),
+      duration: Number(params.duration || 0),
     }).catch(function(e) { console.warn('updateMediaNotification:', e); });
   }
 
