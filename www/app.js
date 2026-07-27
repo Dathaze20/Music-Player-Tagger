@@ -804,6 +804,36 @@ function showToast(msg, duration) {
   setTimeout(function() { t.classList.add('fade-out'); setTimeout(function() { t.remove(); }, 300); }, duration || 2500);
 }
 
+// Show a one-time battery optimization banner for Samsung/Android users.
+// Once dismissed or acted on it never appears again (stored in localStorage).
+function maybeShowBatteryBanner() {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  if (localStorage.getItem('muzio_battery_banner_done')) return;
+  NativeBridge.isBatteryOptimizationExempt().then(function(res) {
+    if (res && res.exempt) { localStorage.setItem('muzio_battery_banner_done', '1'); return; }
+    var old = document.querySelector('.battery-banner');
+    if (old) return;
+    var b = document.createElement('div');
+    b.className = 'battery-banner';
+    b.innerHTML = '<div class="battery-banner-text">'
+      + '<div class="battery-banner-title">&#9889; Keep music playing in background</div>'
+      + '<div class="battery-banner-sub">Disable battery optimization so Muzio AI isn\'t paused by the system.</div>'
+      + '</div>'
+      + '<button class="battery-banner-fix">Fix it</button>'
+      + '<button class="battery-banner-dismiss">&#10005;</button>';
+    document.body.appendChild(b);
+    b.querySelector('.battery-banner-fix').onclick = function() {
+      localStorage.setItem('muzio_battery_banner_done', '1');
+      b.remove();
+      NativeBridge.requestBatteryOptimizationExemption();
+    };
+    b.querySelector('.battery-banner-dismiss').onclick = function() {
+      localStorage.setItem('muzio_battery_banner_done', '1');
+      b.remove();
+    };
+  }).catch(function() {});
+}
+
 // ─── Persistence (localStorage + IndexedDB) ───
 
 var _saveLibraryTimer = null;
@@ -2741,7 +2771,7 @@ function renderNowPlaying() {
     + '<div class="np-header">'
     + '<button id="npClose">&#8744;</button>'
     + '<div class="np-header-center"><div class="np-label">Playing From</div>'
-    + '<div class="np-header-album">' + escHtml(currentSong.album && currentSong.album !== 'Unknown Album' ? currentSong.album : currentSong.artist) + '</div></div>'
+    + '<div class="np-header-album" id="npAlbumBtn">' + escHtml(currentSong.album && currentSong.album !== 'Unknown Album' ? currentSong.album : currentSong.artist) + '</div></div>'
     + '<button id="npEditBtn">&#9998;</button>'
     + '</div>'
     + '<div class="np-art-full" id="npArtImg">'
@@ -2756,7 +2786,7 @@ function renderNowPlaying() {
     + '<div class="np-title-marquee" id="npTitleMarquee"><span class="np-song-title" id="npTitleInner">' + escHtml(currentSong.title)
     + (currentSong.feat ? '<span class="feat"> ft. ' + escHtml(currentSong.feat) + '</span>' : '')
     + '</span></div>'
-    + '<div class="np-song-artist">' + escHtml(currentSong.artist) + '</div>'
+    + '<div class="np-song-artist" id="npArtistBtn">' + escHtml(currentSong.artist) + '</div>'
     + '</div>'
     + '<button id="npQueueBtn" title="Queue">&#9776;</button>'
     + '</div>'
@@ -2851,7 +2881,49 @@ function renderNowPlaying() {
     if (btn) { btn.innerHTML = heartSvg(s.fav); btn.classList.toggle('fav-active', s.fav); }
   };
   document.getElementById('npQueueBtn').onclick = function() { openQueuePanel(); };
-  document.getElementById('npSeek').oninput = function(e) { audio.currentTime = parseFloat(e.target.value); };
+  document.getElementById('npSeek').oninput = function(e) {
+    audio.currentTime = parseFloat(e.target.value);
+    _lastNotifKey = '';
+    updateMediaSession();
+  };
+
+  // Tap album name at top → go to that album
+  var npAlbumBtnEl = document.getElementById('npAlbumBtn');
+  if (npAlbumBtnEl && currentSong) {
+    var _tapAlbum  = (currentSong.album && currentSong.album !== 'Unknown Album') ? currentSong.album : null;
+    var _tapArtist = currentSong.artist || '';
+    if (_tapAlbum) {
+      npAlbumBtnEl.onclick = function() {
+        showNowPlaying = false;
+        var npEl = document.getElementById('nowPlaying');
+        if (npEl) npEl.classList.add('hidden');
+        _npSeekEl = null; _npFillEl = null; _npTime0El = null;
+        selectedAlbum  = { name: _tapAlbum, artist: _tapArtist };
+        selectedArtist = null;
+        currentTab = 'albums';
+        updateMiniPlayer();
+        render();
+      };
+    }
+  }
+
+  // Tap artist name → go to that artist's page
+  var npArtistBtnEl = document.getElementById('npArtistBtn');
+  if (npArtistBtnEl && currentSong && currentSong.artist) {
+    var _tapArtistName = currentSong.artist;
+    npArtistBtnEl.onclick = function() {
+      showNowPlaying = false;
+      var npEl = document.getElementById('nowPlaying');
+      if (npEl) npEl.classList.add('hidden');
+      _npSeekEl = null; _npFillEl = null; _npTime0El = null;
+      selectedArtist = _tapArtistName;
+      selectedAlbum  = null;
+      currentTab = 'artists';
+      updateMiniPlayer();
+      render();
+    };
+  }
+
   document.getElementById('npSpeed').onclick = function() {
     var idx = SPEEDS.indexOf(playbackRate);
     playbackRate = SPEEDS[(idx + 1) % SPEEDS.length];
@@ -4509,6 +4581,8 @@ function nativeAutoScan() {
     if (typeof NativeBridge !== 'undefined' && NativeBridge.requestNotificationPermission) {
       NativeBridge.requestNotificationPermission().catch(function() {});
     }
+    // Show battery optimization banner once — critical for background playback on Samsung
+    setTimeout(maybeShowBatteryBanner, 3000);
   }).catch(function(e) {
     nativeScanning = false;
     var msg = e && e.message ? e.message : String(e);

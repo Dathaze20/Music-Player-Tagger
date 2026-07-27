@@ -15,6 +15,7 @@ import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.os.PowerManager;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.Settings;
@@ -727,6 +728,37 @@ public class MediaStorePlugin extends Plugin {
     @PluginMethod
     public void hideMediaNotification(PluginCall call) {
         stopService();
+        call.resolve();
+    }
+
+    /** Returns whether the app is already exempt from battery optimizations. */
+    @PluginMethod
+    public void isBatteryOptimizationExempt(PluginCall call) {
+        JSObject ret = new JSObject();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            ret.put("exempt", pm != null && pm.isIgnoringBatteryOptimizations(getContext().getPackageName()));
+        } else {
+            ret.put("exempt", true); // pre-M doesn't have Doze
+        }
+        call.resolve(ret);
+    }
+
+    /** Launches the system dialog asking the user to whitelist this app from battery optimization. */
+    @PluginMethod
+    public void requestBatteryOptimizationExemption(PluginCall call) {
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+            getActivity().startActivity(intent);
+        } catch (Exception e) {
+            // Fallback: open the app's battery settings page
+            try {
+                Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                fallback.setData(Uri.parse("package:" + getContext().getPackageName()));
+                getActivity().startActivity(fallback);
+            } catch (Exception ignored) {}
+        }
         call.resolve();
     }
 

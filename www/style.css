@@ -446,7 +446,9 @@ body {
 .np-header-album {
   font-size: 13px; font-weight: 600; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer;
 }
+.np-header-album:active { opacity: 0.7; }
 .np-label { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; }
 
 /* Album art — padded with rounded corners so blurred background shows on sides */
@@ -505,7 +507,8 @@ body {
   font-weight: 700;
 }
 .np-song-title .feat { color: rgba(255,255,255,0.45); font-size: 15px; font-weight: 400; }
-.np-song-artist { font-size: 14px; color: rgba(255,255,255,0.55); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-song-artist { font-size: 14px; color: rgba(255,255,255,0.9); font-weight: 700; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.np-song-artist:active { opacity: 0.6; }
 .np-song-album { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
 
 /* Keep old .np-art for any legacy references */
@@ -985,6 +988,23 @@ body {
   white-space: nowrap;
 }
 .toast-msg.fade-out { opacity: 0; transition: opacity 0.3s; }
+
+/* Battery optimization banner */
+.battery-banner {
+  position: fixed; bottom: 80px; left: 12px; right: 12px;
+  background: #1e293b; color: #e2e8f0;
+  border: 1px solid #334155; border-radius: 14px;
+  padding: 12px 14px; z-index: 190;
+  display: flex; align-items: center; gap: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  animation: slideUp 0.35s ease;
+}
+.battery-banner-text { flex: 1; font-size: 13px; line-height: 1.4; }
+.battery-banner-title { font-weight: 700; font-size: 13.5px; margin-bottom: 2px; }
+.battery-banner-sub { color: #94a3b8; font-size: 12px; }
+.battery-banner-fix { background: #00a89e; color: #fff; border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.battery-banner-fix:active { opacity: 0.8; }
+.battery-banner-dismiss { background: none; border: none; color: #64748b; font-size: 20px; line-height: 1; cursor: pointer; padding: 4px; }
 
 /* Sort bar */
 .sort-bar {
@@ -2507,7 +2527,7 @@ body {
   box-shadow: 0 6px 32px rgba(0,0,0,0.5), 0 0 0 3px rgba(255,255,255,0.12), 0 0 44px rgba(0,168,158,0.18) !important;
 }
 .np-song-title  { font-size: 21px; font-weight: 700; letter-spacing: -0.3px; }
-.np-song-artist { font-size: 14.5px; letter-spacing: 0; }
+.np-song-artist { font-size: 14.5px; letter-spacing: 0; font-weight: 700; color: rgba(255,255,255,0.9); cursor: pointer; }
 .np-seek-track  { height: 4px; background: rgba(255,255,255,0.12); border-radius: 4px; }
 .np-seek-fill   { background: linear-gradient(90deg, var(--primary), #00e0d6); }
 .np-progress input[type=range]::-webkit-slider-thumb {

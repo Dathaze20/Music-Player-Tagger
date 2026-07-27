@@ -275,6 +275,20 @@ var NativeBridge = (function() {
     return plugin.requestNotificationPermission().catch(function() {});
   }
 
+  // Returns { exempt: boolean } — whether the app is already whitelisted from battery optimization.
+  function isBatteryOptimizationExempt() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.isBatteryOptimizationExempt) return Promise.resolve({ exempt: true });
+    return plugin.isBatteryOptimizationExempt().catch(function() { return { exempt: true }; });
+  }
+
+  // Opens the system dialog to whitelist the app from battery optimization.
+  function requestBatteryOptimizationExemption() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.requestBatteryOptimizationExemption) return Promise.resolve();
+    return plugin.requestBatteryOptimizationExemption().catch(function() {});
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
            readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
@@ -282,5 +296,7 @@ var NativeBridge = (function() {
            requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri,
            updateMediaNotification: updateMediaNotification,
            hideMediaNotification: hideMediaNotification,
-           requestNotificationPermission: requestNotificationPermission };
+           requestNotificationPermission: requestNotificationPermission,
+           isBatteryOptimizationExempt: isBatteryOptimizationExempt,
+           requestBatteryOptimizationExemption: requestBatteryOptimizationExemption };
 })();
