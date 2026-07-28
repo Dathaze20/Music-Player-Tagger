@@ -5105,10 +5105,10 @@ function _cfDoRender() {
     var op = Math.max(0.28, 1 - absP * 0.18);
     // Push center album toward viewer; side albums recede naturally
     var tz = Math.round(Math.max(0, (1 - Math.min(absP, 1)) * 26));
-    // Gyro parallax: subtle tilt on center album blends to zero on sides
+    // Gyro parallax: tilt on center album blends to zero on sides
     var tiltBlend = Math.max(0, 1 - absP);
-    var gyroRX = _cfGyroY * 0.18 * tiltBlend;
-    var gyroRY = _cfGyroX * 0.10 * tiltBlend;
+    var gyroRX = _cfGyroY * 0.40 * tiltBlend;
+    var gyroRY = _cfGyroX * 0.25 * tiltBlend;
     var xf = 'translateZ(' + tz + 'px) rotateX(' + gyroRX.toFixed(2) + 'deg) rotateY(' + (rotY + gyroRY).toFixed(1) + 'deg)';
     el.style.webkitTransform = xf;
     el.style.transform = xf;
@@ -5116,18 +5116,27 @@ function _cfDoRender() {
     // Mark the active center album for the CSS glow ring
     if (absP < 0.25) el.classList.add('cf-item-active');
     else el.classList.remove('cf-item-active');
-    // Dynamic specular glare: light angle shifts with rotation and gyro
-    var glareEl = el.querySelector('.cf-glare');
-    if (glareEl) {
-      var lx = Math.max(5, Math.min(95, 50 - rotY * 0.55 + _cfGyroX * 1.8));
-      var ly = Math.max(5, Math.min(70, 18 - _cfGyroY * 1.4));
-      var glOp = Math.max(0, 0.42 - absP * 0.11);
-      glareEl.style.background = 'radial-gradient(ellipse 65% 45% at ' + lx.toFixed(0) + '% ' + ly.toFixed(0) + '%, rgba(255,255,255,' + glOp.toFixed(2) + ') 0%, transparent 70%)';
-    }
 
+    // Paint item first so .cf-glare div exists before we update it
     if (el._cfIdx !== albumIdx) {
       el._cfIdx = albumIdx;
       _cfPaintItem(el, albumIdx, sz, refH);
+    }
+
+    // Dynamic specular glare — runs every frame so light sweeps as phone tilts
+    var glareEl = el.querySelector('.cf-glare');
+    if (glareEl) {
+      var lx = Math.max(5, Math.min(95, 50 - rotY * 0.55 + _cfGyroX * 5.0));
+      var ly = Math.max(5, Math.min(80, 18 - _cfGyroY * 4.0));
+      var glOp = Math.max(0, 0.58 - absP * 0.12);
+      glareEl.style.background = 'radial-gradient(ellipse 65% 45% at ' + lx.toFixed(0) + '% ' + ly.toFixed(0) + '%, rgba(255,255,255,' + glOp.toFixed(2) + ') 0%, transparent 70%)';
+    }
+    // Reflection parallax: mirror shifts opposite direction as phone rolls
+    var refEl = el.querySelector('.cf-reflection-wrap');
+    if (refEl) {
+      var refTx = (_cfGyroX * 3.5 * tiltBlend).toFixed(1);
+      refEl.style.webkitTransform = 'scaleY(-1) translateX(' + refTx + 'px)';
+      refEl.style.transform = 'scaleY(-1) translateX(' + refTx + 'px)';
     }
   }
 
