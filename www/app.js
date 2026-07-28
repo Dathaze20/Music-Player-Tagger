@@ -3808,7 +3808,11 @@ function callGeminiTag(song, _retried) {
       if (!part || !part.text) throw new Error('Empty response part');
       return JSON.parse(part.text);
     });
-  }).catch(function(err) { clearTimeout(tid); throw err; });
+  }).catch(function(err) {
+    clearTimeout(tid);
+    if (err && err.name === 'AbortError') throw new Error('Request timed out — Gemini took over 35s');
+    throw err;
+  });
 }
 
 // ─── Edit Modals ───
