@@ -1326,7 +1326,7 @@ var queue = [];
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
 var _GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture.\n\n';
+var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture. Research this release from your knowledge and return correct values for every field — do not leave fields blank if you know the answer.\n\n';
 var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre (e.g. "Trap", "Boom Bap", "Drill") not a broad category\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
 var sortMode = 'title';
 var artistSortMode = 'az';
@@ -3728,15 +3728,17 @@ function callGeminiTag(song, _retried) {
   if (song.title  && !/^unknown/i.test(song.title))  ctx += 'Title: '  + song.title  + '\n';
   if (song.artist && !/^unknown/i.test(song.artist)) ctx += 'Artist: ' + song.artist + '\n';
   if (song.album  && !/^unknown/i.test(song.album))  ctx += 'Album: '  + song.album  + '\n';
-  if (song.year)  ctx += 'Year: '  + song.year  + '\n';
+  // 1970 = Unix epoch / corrupt ID3 date — treat as missing, do not send to model
+  if (song.year && String(song.year).trim() !== '1970') ctx += 'Year: ' + song.year + '\n';
   if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
   if (song.track) ctx += 'Track: ' + song.track + '\n';
   var prompt = _GEMINI_EXPERTISE
-    + (ctx ? 'Existing metadata (confirm identity, fill missing fields):\n' + ctx + '\n' : '')
+    + (ctx ? 'File tags (use to identify the release; correct anything wrong):\n' + ctx + '\n' : '')
     + 'Filename: ' + (song.fn || '') + '\n\n'
-    + 'Return ONLY a JSON object:\n'
+    + 'Return ONLY a JSON object with accurate values for all fields:\n'
     + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
     + _GEMINI_TAG_RULES
+    + '- Fill every field you know — do not leave known fields blank\n'
     + '- Return ONLY the JSON object, no markdown, no explanation';
   var ctrl = new AbortController();
   var tid = setTimeout(function() { ctrl.abort(); }, 35000);
@@ -3751,8 +3753,8 @@ function callGeminiTag(song, _retried) {
   }).then(function(res) {
     clearTimeout(tid);
     if (res.status === 429) {
-      if (_retried) throw new Error('Rate limited — try again in a moment');
-      return new Promise(function(resolve) { setTimeout(resolve, 8000); })
+      if (_retried) throw new Error('Rate limited — wait a minute then try again');
+      return new Promise(function(resolve) { setTimeout(resolve, 22000); })
         .then(function() { return callGeminiTag(song, true); });
     }
     return res.json().then(function(data) {
@@ -4061,7 +4063,11 @@ function openEditModal(albumName, artistName) {
           function fill(id, val) {
             if (!val) return;
             var el = document.getElementById(id);
-            if (el && !el.value.trim()) { el.value = val; filled++; }
+            if (!el) return;
+            var cur = el.value.trim();
+            // Always overwrite corrupt 1970 year; only fill truly empty fields otherwise
+            if (cur && !(id === 'editYear' && cur === '1970')) return;
+            el.value = val; filled++;
           }
           fill('editArtist',      String(r.artist      || '').trim());
           fill('editAlbumArtist', String(r.albumArtist || '').trim());
