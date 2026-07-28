@@ -3955,12 +3955,7 @@ function openSongEditModal(songId) {
         lyrics:       song.syncedLyrics || song.lyrics || '',
         artBase64:    artBase64         || '',
       });
-    }).then(function() {
-      showToast('Saved to file ✓');
-    }).catch(function(err) {
-      var msg = err && err.message ? err.message : String(err);
-      showToast('File write failed: ' + msg, 4000);
-    });
+    }).catch(function() {});  // file write is best-effort; in-app save already confirmed
   };
 
   if (apiKey) {
@@ -4122,19 +4117,11 @@ function openEditModal(albumName, artistName) {
     var toWrite = albumSongs.filter(function(s) { return s.contentUri; });
     if (!toWrite.length) return;
 
-    showToast('Writing tags to ' + toWrite.length + ' files…');
     var done = 0;
     var failed = 0;
 
     function writeNext(i) {
-      if (i >= toWrite.length) {
-        if (failed > 0) {
-          showToast(done + ' files saved, ' + failed + ' failed');
-        } else {
-          showToast('All ' + done + ' files saved permanently ✓');
-        }
-        return;
-      }
+      if (i >= toWrite.length) return;  // file write is best-effort; in-app save already confirmed
       var s = toWrite[i];
       var artPromise = s.albumArtUri
         ? NativeBridge.readAlbumArt(s.albumArtUri, 500).catch(function() { return ''; })
@@ -4156,9 +4143,8 @@ function openEditModal(albumName, artistName) {
       }).then(function() {
         done++;
         writeNext(i + 1);
-      }).catch(function(err) {
+      }).catch(function() {
         failed++;
-        var msg = err && err.message ? err.message : String(err);
         writeNext(i + 1);
       });
     }
