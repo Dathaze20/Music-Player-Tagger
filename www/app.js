@@ -2251,8 +2251,14 @@ function renderAlbums(el) {
     if (a) { cleanupCf(); selectedAlbum = { name: a.name, artist: a.artist }; render(); }
   };
 
-  // Init inline cover flow
-  startInlineCf(filtered);
+  // Init inline cover flow — defer one frame so the browser finishes laying
+  // out cfStage before startInlineCf reads offsetWidth/clientHeight.
+  // Without this, chip-filter re-renders can read 0 dimensions and
+  // misposition all albums off-screen (black stage).
+  var _cfBootAlbums = filtered;
+  requestAnimationFrame(function() {
+    if (document.getElementById('cfViewport')) startInlineCf(_cfBootAlbums);
+  });
 }
 
 function renderPlaylists(el) {

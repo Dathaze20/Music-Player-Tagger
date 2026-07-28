@@ -3514,8 +3514,12 @@ body.cf-ls #miniPlayer { display: none !important; }
 /* Explicit height on buttons — Samsung Bold font ignores padding-based sizing */
 #cfStage.cf-ls .cf-actions {
   align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
 }
+/* All three buttons the same compact icon size — Play is no longer flex:1 */
 #cfStage.cf-ls .cf-btn-play {
+  flex: 0 0 auto;
   height: 34px;
   line-height: 34px;
   padding: 0 14px;
@@ -3525,6 +3529,7 @@ body.cf-ls #miniPlayer { display: none !important; }
 }
 #cfStage.cf-ls .cf-btn-shuffle,
 #cfStage.cf-ls .cf-btn-open {
+  flex: 0 0 auto;
   height: 34px;
   line-height: 34px;
   padding: 0 14px;
@@ -3541,38 +3546,43 @@ body.cf-ls #miniPlayer { display: none !important; }
 }
 
 /* ─── Now Playing: landscape two-column layout ─── */
-/* Art on the left, info + controls on the right.
-   Uses CSS grid so no HTML restructuring is needed.
-   Only fires when phone is actually rotated (height < 500px). */
+/* Art fills the left column, info + controls stack on the right.
+   Uses CSS grid; no HTML restructuring needed.
+   Fires only when the phone is actually rotated (height < 500px).
+   Art is sized with align-self:stretch + aspect-ratio:1 to avoid
+   unreliable 100vh/dvh values on Capacitor WebView. */
 @media (orientation: landscape) and (max-height: 500px) {
   .now-playing .np-content {
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto 1fr auto;
-    overflow: hidden;
     height: 100%;
+    overflow: hidden;
+    min-width: 0;
   }
 
-  /* Header: right column, top row */
+  /* Header: right column, top */
   .now-playing .np-header {
-    grid-column: 2;
-    grid-row: 1;
+    grid-column: 2; grid-row: 1;
     padding: 5px 14px;
+    min-width: 0;
   }
 
-  /* Art: left column, all rows — square filling screen height */
+  /* Art: left column spanning all rows.
+     align-self:stretch + aspect-ratio:1 makes it square = grid height,
+     without touching vh which misbehaves on Android WebView. */
   .now-playing .np-art-full {
-    grid-column: 1;
-    grid-row: 1 / 4;
-    width: calc(100vh - 36px) !important;
-    height: calc(100vh - 36px) !important;
-    max-width: calc(100vh - 36px) !important;
-    max-height: calc(100vh - 36px) !important;
-    aspect-ratio: unset !important;
-    margin: 18px 14px 18px 10px !important;
+    grid-column: 1; grid-row: 1 / 4;
+    align-self: stretch !important;
+    width: auto !important;
+    height: auto !important;
+    aspect-ratio: 1 !important;
+    max-width: 50vw !important;
+    min-width: 0 !important;
+    margin: 10px 12px !important;
     border-radius: 12px !important;
-    align-self: center;
     flex-shrink: 0 !important;
+    overflow: hidden !important;
     box-shadow: 0 8px 32px rgba(0,0,0,0.7);
   }
   .now-playing .np-art-full img,
@@ -3581,53 +3591,47 @@ body.cf-ls #miniPlayer { display: none !important; }
     height: 100% !important;
     border-radius: 0 !important;
   }
-  /* No room for lyrics overlay in landscape */
   .now-playing .np-art-lyrics { display: none !important; }
 
-  /* Song info: right column, middle row */
+  /* Song info: right column, middle row — centered vertically */
   .now-playing .np-info-row {
-    grid-column: 2;
-    grid-row: 2;
+    grid-column: 2; grid-row: 2;
     padding: 4px 14px;
-    align-self: end;
+    align-self: center;
     min-width: 0;
     overflow: hidden;
   }
   .now-playing .np-song-title {
     font-size: 15px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .now-playing .np-song-artist {
-    font-size: 12px;
-    margin-top: 1px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 12px; margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
   /* Controls: right column, bottom row */
   .now-playing .np-controls {
-    grid-column: 2;
-    grid-row: 3;
-    padding: 0 14px 4px;
-    align-self: start;
-    flex-shrink: 0;
+    grid-column: 2; grid-row: 3;
+    padding: 0 14px 6px;
+    align-self: end;
     min-width: 0;
-    overflow: hidden;
-  }
-  .now-playing .np-progress { margin-bottom: 4px; }
-  .now-playing .np-main-controls {
-    margin-bottom: 2px;
-    gap: 4px;
-  }
-  .now-playing .np-main-controls button {
-    width: 36px;
-    height: 36px;
-    font-size: 16px;
-    padding: 0;
     flex-shrink: 0;
   }
-  .now-playing .np-times { margin-top: 1px; font-size: 10px; }
+
+  /* Hide bottom-row extras and volume slider — not enough vertical room */
+  .now-playing .np-bottom { display: none !important; }
+  .now-playing .np-vol-ghost { display: none !important; }
+
+  /* Tighter controls */
+  .now-playing .np-progress { margin-bottom: 4px; }
+  .now-playing .np-main-controls { margin-bottom: 0; gap: 0; }
+  .now-playing .np-main-controls button { font-size: 20px; padding: 6px; }
+  /* Play button: 52px overrides the portrait 72px with !important */
+  .now-playing .np-play-btn {
+    width: 52px !important;
+    height: 52px !important;
+    font-size: 20px !important;
+  }
+  .now-playing .np-times { margin-top: 2px; font-size: 10px; }
 }
