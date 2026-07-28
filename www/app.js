@@ -3813,7 +3813,6 @@ function callGeminiTag(song, _retried) {
     if (err && err.name === 'AbortError') throw new Error('Timed out after 60s — check your internet connection');
     if (err && err.name === 'TypeError') throw new Error('Network error — can\'t reach Gemini. Is mobile data/WiFi on?');
     throw err;
-    });
   });
 }
 
