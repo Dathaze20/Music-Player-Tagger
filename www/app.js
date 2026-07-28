@@ -3728,18 +3728,32 @@ function callGeminiTag(song, _retried) {
   if (song.title  && !/^unknown/i.test(song.title))  ctx += 'Title: '  + song.title  + '\n';
   if (song.artist && !/^unknown/i.test(song.artist)) ctx += 'Artist: ' + song.artist + '\n';
   if (song.album  && !/^unknown/i.test(song.album))  ctx += 'Album: '  + song.album  + '\n';
-  // 1970 = Unix epoch / corrupt ID3 date — treat as missing, do not send to model
+  // 1970 = Unix epoch / corrupt ID3 date — treat as missing
   if (song.year && String(song.year).trim() !== '1970') ctx += 'Year: ' + song.year + '\n';
   if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
   if (song.track) ctx += 'Track: ' + song.track + '\n';
+
+  // Collect album art as base64 for visual identification
+  var artUri = song.art || (song.albumArtUri && (artCacheHD[song.albumArtUri] || artCache[song.albumArtUri])) || '';
+  var artPart = null;
+  if (artUri && artUri.indexOf('data:') === 0) {
+    var mimeEnd = artUri.indexOf(';');
+    var mime = mimeEnd > 5 ? artUri.substring(5, mimeEnd) : 'image/jpeg';
+    var b64 = artUri.replace(/^data:[^;]+;base64,/, '');
+    if (b64.length > 100) artPart = { inlineData: { mimeType: mime, data: b64 } };
+  }
+
+  var hasArt = !!artPart;
   var prompt = _GEMINI_EXPERTISE
-    + (ctx ? 'File tags (use to identify the release; correct anything wrong):\n' + ctx + '\n' : '')
+    + (hasArt ? 'The album cover image is attached — use it to visually identify the release.\n' : '')
+    + (ctx ? 'File tags (may be incomplete or wrong — correct using your knowledge and the image):\n' + ctx + '\n' : '')
     + 'Filename: ' + (song.fn || '') + '\n\n'
-    + 'Return ONLY a JSON object with accurate values for all fields:\n'
-    + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":0,"year":"","genre":"","releaseType":"","featuredArtists":""}\n\n'
-    + _GEMINI_TAG_RULES
-    + '- Fill every field you know — do not leave known fields blank\n'
-    + '- Return ONLY the JSON object, no markdown, no explanation';
+    + 'Fill ALL fields accurately from your knowledge of this release:';
+
+  var parts = [];
+  if (artPart) parts.push(artPart);
+  parts.push({ text: prompt });
+
   var ctrl = new AbortController();
   var tid = setTimeout(function() { ctrl.abort(); }, 35000);
   return fetch(_GEMINI_URL, {
@@ -3747,7 +3761,7 @@ function callGeminiTag(song, _retried) {
     signal: ctrl.signal,
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts: parts }],
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: {
@@ -4078,7 +4092,11 @@ function openEditModal(albumName, artistName) {
     if (editAiBtn) {
       editAiBtn.onclick = function() {
         editAiBtn.disabled = true; editAiBtn.textContent = 'Analyzing…';
-        callGeminiTag(first).then(function(r) {
+        // Pre-fetch art into cache so callGeminiTag can send it as image
+        var artFetch = (first.albumArtUri && !artCache[first.albumArtUri])
+          ? fetchThumbnail(first.albumArtUri).catch(function() {})
+          : Promise.resolve();
+        artFetch.then(function() { return callGeminiTag(first); }).then(function(r) {
           editAiBtn.disabled = false; editAiBtn.innerHTML = '&#10004; Done';
           var filled = 0;
           function fill(id, val) {
