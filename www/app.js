@@ -3793,15 +3793,17 @@ function lookupMusicBrainz(song) {
       if (/^\d{4}$/.test(y) && y !== '1970') result.year = y;
     }
 
-    // Album artist from artist-credit array
+    // Album artist from artist-credit array; capture artist MBID for genre fallback
     var ac = rel['artist-credit'];
+    var artistMbid = '';
     if (ac && ac.length) {
       result.albumArtist = ac.map(function(c) {
         return (c.artist ? c.artist.name : '') + (c.joinphrase || '');
       }).join('').trim();
+      if (ac[0] && ac[0].artist) artistMbid = ac[0].artist.id || '';
     }
 
-    // Release type
+    // Release type + genre from release-group
     var rg = rel['release-group'];
     if (rg) {
       var pt = (rg['primary-type'] || '').toLowerCase();
@@ -3809,12 +3811,35 @@ function lookupMusicBrainz(song) {
       else if (pt === 'single') result.releaseType = 'Single';
       else if (pt === 'ep')     result.releaseType = 'EP';
 
+      // MusicBrainz marks mixtapes as a secondary type
+      var sec = (rg['secondary-types'] || []).map(function(s) { return (s + '').toLowerCase(); });
+      if (sec.indexOf('mixtape/street') !== -1 || sec.indexOf('mixtape') !== -1) {
+        result.releaseType = 'Mixtape';
+      }
+
       // Genre from crowd-sourced tags (sorted by vote count)
       var tags = (rg.tags || []).slice().sort(function(a, b) { return (b.count||0) - (a.count||0); });
       if (tags.length && tags[0].name) {
         var g = tags[0].name;
         result.genre = g.charAt(0).toUpperCase() + g.slice(1);
       }
+    }
+
+    // Genre fallback: artist-level tags (almost always populated even when release-group isn't)
+    if (!result.genre && artistMbid) {
+      return fetch('https://musicbrainz.org/ws/2/artist/' + artistMbid + '?inc=tags&fmt=json', {
+        headers: { 'User-Agent': 'MuzioAI/1.0 (music-player-tagger)' }
+      }).then(function(r2) {
+        if (!r2.ok) return Object.keys(result).length ? result : null;
+        return r2.json().then(function(ad) {
+          var atags = (ad.tags || []).slice().sort(function(a,b) { return (b.count||0) - (a.count||0); });
+          if (atags.length && atags[0].name) {
+            var ag = atags[0].name;
+            result.genre = ag.charAt(0).toUpperCase() + ag.slice(1);
+          }
+          return Object.keys(result).length ? result : null;
+        });
+      }).catch(function() { return Object.keys(result).length ? result : null; });
     }
 
     return Object.keys(result).length ? result : null;
