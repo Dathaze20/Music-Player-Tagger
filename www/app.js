@@ -3746,7 +3746,7 @@ function callGeminiTag(song, _retried) {
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }
+      generationConfig: { responseMimeType: 'application/json' }
     })
   }).then(function(res) {
     clearTimeout(tid);
@@ -3755,12 +3755,21 @@ function callGeminiTag(song, _retried) {
       return new Promise(function(resolve) { setTimeout(resolve, 8000); })
         .then(function() { return callGeminiTag(song, true); });
     }
-    if (res.status >= 500) throw new Error('Gemini server error');
-    return res.json();
+    return res.json().then(function(data) {
+      if (res.status >= 400) {
+        var msg = (data && data.error && data.error.message) ? data.error.message : ('Gemini error ' + res.status);
+        throw new Error(msg);
+      }
+      return data;
+    });
   }).then(function(data) {
-    if (!data.candidates || !data.candidates[0]) throw new Error('No response from Gemini');
-    var text = data.candidates[0].content.parts[0].text.trim();
-    text = text.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
+    if (!data.candidates || !data.candidates[0]) {
+      var blocked = data.promptFeedback && data.promptFeedback.blockReason;
+      throw new Error(blocked ? ('Blocked: ' + blocked) : 'No response from Gemini');
+    }
+    var part = data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0];
+    if (!part || !part.text) throw new Error('Empty Gemini response');
+    var text = part.text.trim().replace(/^```json?\s*/, '').replace(/```\s*$/, '');
     return JSON.parse(text);
   }).catch(function(err) { clearTimeout(tid); throw err; });
 }
@@ -5105,11 +5114,8 @@ function _cfDoRender() {
     var op = Math.max(0.28, 1 - absP * 0.18);
     // Push center album toward viewer; side albums recede naturally
     var tz = Math.round(Math.max(0, (1 - Math.min(absP, 1)) * 26));
-    // Gyro parallax: tilt on center album blends to zero on sides
     var tiltBlend = Math.max(0, 1 - absP);
-    var gyroRX = _cfGyroY * 0.40 * tiltBlend;
-    var gyroRY = _cfGyroX * 0.25 * tiltBlend;
-    var xf = 'translateZ(' + tz + 'px) rotateX(' + gyroRX.toFixed(2) + 'deg) rotateY(' + (rotY + gyroRY).toFixed(1) + 'deg)';
+    var xf = 'translateZ(' + tz + 'px) rotateY(' + rotY.toFixed(1) + 'deg)';
     el.style.webkitTransform = xf;
     el.style.transform = xf;
     el.style.opacity = op.toFixed(3);
