@@ -4914,6 +4914,7 @@ document.addEventListener('muzioMediaAction', function(e) {
 var _cfAlbums = [];
 var _cfCenterIdx = 0;
 var _cfR = null; // runtime state; null when CF not active
+var _cfGyroX = 0, _cfGyroY = 0, _cfGyroHandler = null, _cfGyroRaf = 0;
 // rotateY degrees per slot distance; 65° for slot 1 gives the classic CF fan
 var _CF_ANGLES = [0, 65, 70, 72, 75];
 
@@ -5034,6 +5035,7 @@ function startInlineCf(albums) {
   updateCfGlow(startIdx);
   _cfAttachTouch();
   _cfPlaySwipeHint();
+  _cfStartGyro();
 }
 
 function _cfPlaySwipeHint() {
@@ -5103,13 +5105,25 @@ function _cfDoRender() {
     var op = Math.max(0.28, 1 - absP * 0.18);
     // Push center album toward viewer; side albums recede naturally
     var tz = Math.round(Math.max(0, (1 - Math.min(absP, 1)) * 26));
-    var xf = 'translateZ(' + tz + 'px) rotateY(' + rotY.toFixed(1) + 'deg)';
+    // Gyro parallax: subtle tilt on center album blends to zero on sides
+    var tiltBlend = Math.max(0, 1 - absP);
+    var gyroRX = _cfGyroY * 0.18 * tiltBlend;
+    var gyroRY = _cfGyroX * 0.10 * tiltBlend;
+    var xf = 'translateZ(' + tz + 'px) rotateX(' + gyroRX.toFixed(2) + 'deg) rotateY(' + (rotY + gyroRY).toFixed(1) + 'deg)';
     el.style.webkitTransform = xf;
     el.style.transform = xf;
     el.style.opacity = op.toFixed(3);
     // Mark the active center album for the CSS glow ring
     if (absP < 0.25) el.classList.add('cf-item-active');
     else el.classList.remove('cf-item-active');
+    // Dynamic specular glare: light angle shifts with rotation and gyro
+    var glareEl = el.querySelector('.cf-glare');
+    if (glareEl) {
+      var lx = Math.max(5, Math.min(95, 50 - rotY * 0.55 + _cfGyroX * 1.8));
+      var ly = Math.max(5, Math.min(70, 18 - _cfGyroY * 1.4));
+      var glOp = Math.max(0, 0.42 - absP * 0.11);
+      glareEl.style.background = 'radial-gradient(ellipse 65% 45% at ' + lx.toFixed(0) + '% ' + ly.toFixed(0) + '%, rgba(255,255,255,' + glOp.toFixed(2) + ') 0%, transparent 70%)';
+    }
 
     if (el._cfIdx !== albumIdx) {
       el._cfIdx = albumIdx;
@@ -5141,7 +5155,7 @@ function _cfPaintItem(el, albumIdx, sz, refH) {
     ? '<img src="' + cached + '" alt="" style="width:' + sz + 'px;height:' + sz + 'px;object-fit:cover;">'
     : '<div style="width:' + sz + 'px;height:' + sz + 'px;background:' + gradCss + ';"></div>';
 
-  el.innerHTML = '<div class="cf-item-inner" style="width:' + sz + 'px;height:' + sz + 'px;overflow:hidden;border-radius:4px;position:relative;">' + artHtml + badge + '</div>'
+  el.innerHTML = '<div class="cf-item-inner" style="width:' + sz + 'px;height:' + sz + 'px;overflow:hidden;border-radius:4px;position:relative;">' + artHtml + badge + '<div class="cf-glare"></div></div>'
     + '<div style="position:absolute;bottom:' + refH + 'px;left:0;right:0;height:16px;background:-webkit-linear-gradient(top,transparent,rgba(0,0,0,0.6));background:linear-gradient(to bottom,transparent,rgba(0,0,0,0.6));"></div>'
     + '<div class="cf-reflection-wrap" style="position:absolute;top:' + sz + 'px;left:0;width:' + sz + 'px;height:' + refH + 'px;overflow:hidden;-webkit-transform:scaleY(-1);transform:scaleY(-1);opacity:0.32;-webkit-mask-image:-webkit-linear-gradient(top,rgba(0,0,0,0.9),transparent);mask-image:linear-gradient(to bottom,rgba(0,0,0,0.9),transparent);">' + refHtml + '</div>';
 
@@ -5151,7 +5165,7 @@ function _cfPaintItem(el, albumIdx, sz, refH) {
         if (!data || capturedEl._cfIdx !== capturedIdx) return;
         var inner = capturedEl.querySelector('.cf-item-inner');
         if (inner) {
-          inner.innerHTML = '<img class="cf-item-art" src="' + data + '" alt="" style="width:' + capturedSz + 'px;height:' + capturedSz + 'px;object-fit:cover;opacity:0;-webkit-transition:opacity 0.28s ease;transition:opacity 0.28s ease;">' + capturedBadge;
+          inner.innerHTML = '<img class="cf-item-art" src="' + data + '" alt="" style="width:' + capturedSz + 'px;height:' + capturedSz + 'px;object-fit:cover;opacity:0;-webkit-transition:opacity 0.28s ease;transition:opacity 0.28s ease;">' + capturedBadge + '<div class="cf-glare"></div>';
           var img = inner.querySelector('img');
           requestAnimationFrame(function() { if (img) img.style.opacity = '1'; });
         }
@@ -5252,19 +5266,23 @@ function _cfMomentum() {
   r.raf = requestAnimationFrame(_cfMomentum);
 }
 
-function _cfSnapTo(target) {
+function _cfSnapTo(target, sv) {
   var r = _cfR;
   if (!r) return;
   target = Math.max(0, Math.min(_cfAlbums.length - 1, target));
+  sv = sv || 0;
   var diff = target - r.pos;
-  if (Math.abs(diff) < 0.003) {
+  if (Math.abs(diff) < 0.003 && Math.abs(sv) < 0.003) {
     r.pos = target;
     _cfDoRender();
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch(e) {}
     return;
   }
-  r.pos += diff * 0.22;
+  // Spring-damper: accumulate toward target with damping
+  sv = sv * 0.68 + diff * 0.28;
+  r.pos = Math.max(0, Math.min(_cfAlbums.length - 1, r.pos + sv));
   _cfDoRender();
-  r.snapRaf = requestAnimationFrame(function() { _cfSnapTo(target); });
+  r.snapRaf = requestAnimationFrame(function() { _cfSnapTo(target, sv); });
 }
 
 function cleanupCf() {
@@ -5278,9 +5296,45 @@ function cleanupCf() {
     if (_cfR.snapRaf) cancelAnimationFrame(_cfR.snapRaf);
     _cfR = null;
   }
+  _cfStopGyro();
   _cfAlbums = [];
   var main = document.getElementById('mainContent');
   if (main) main.classList.remove('albums-cf-mode');
+}
+
+function _cfStartGyro() {
+  if (_cfGyroHandler) return;
+  _cfGyroX = 0; _cfGyroY = 0;
+  _cfGyroHandler = function(e) {
+    var gx = Math.max(-20, Math.min(20, e.gamma || 0));
+    // subtract ~30° resting beta so flat-ish hold = neutral
+    var gy = Math.max(-20, Math.min(20, (e.beta || 0) - 30));
+    _cfGyroX = _cfGyroX * 0.82 + gx * 0.18;
+    _cfGyroY = _cfGyroY * 0.82 + gy * 0.18;
+  };
+  window.addEventListener('deviceorientation', _cfGyroHandler, { passive: true });
+  _cfStartGyroLoop();
+}
+
+function _cfStopGyro() {
+  if (_cfGyroHandler) {
+    window.removeEventListener('deviceorientation', _cfGyroHandler);
+    _cfGyroHandler = null;
+  }
+  if (_cfGyroRaf) { cancelAnimationFrame(_cfGyroRaf); _cfGyroRaf = 0; }
+  _cfGyroX = 0; _cfGyroY = 0;
+}
+
+function _cfStartGyroLoop() {
+  if (_cfGyroRaf) return;
+  (function loop() {
+    _cfGyroRaf = 0;
+    var r = _cfR;
+    if (!r || !_cfGyroHandler) return;
+    // Only update from gyro when carousel is idle (no fling or snap in progress)
+    if (!r.raf && !r.snapRaf) _cfDoRender();
+    _cfGyroRaf = requestAnimationFrame(loop);
+  })();
 }
 
 function updateCfInfo(idx) {
