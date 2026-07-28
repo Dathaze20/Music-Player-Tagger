@@ -5107,6 +5107,7 @@ var _cfAlbums = [];
 var _cfCenterIdx = 0;
 var _cfR = null; // runtime state; null when CF not active
 var _cfGyroX = 0, _cfGyroY = 0, _cfGyroHandler = null, _cfGyroRaf = 0;
+var _cfOrientListener = null;
 // rotateY degrees per slot distance; 65° for slot 1 gives the classic CF fan
 var _CF_ANGLES = [0, 65, 70, 72, 75];
 
@@ -5148,25 +5149,42 @@ function startInlineCf(albums) {
   var vp = document.getElementById('cfViewport');
   if (!vp) return;
   vp.innerHTML = '';
-  vp.style.cssText = 'position:absolute;inset:0;overflow:hidden;-webkit-perspective:700px;perspective:700px;';
-
-  // Read ACTUAL rendered dimensions (forces synchronous reflow)
+  // Detect landscape before applying full-screen class
   var stage = document.getElementById('cfStage');
   var stageW = Math.max(200, vp.offsetWidth || window.innerWidth);
-  var rawStageH = Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : Math.max(200, window.innerHeight - 160));
+  var isLandscape = window.innerWidth > window.innerHeight;
+
+  // Landscape: cover flow owns the whole screen (class must be applied before reading clientHeight)
+  if (isLandscape) {
+    document.body.classList.add('cf-ls');
+    if (stage) stage.classList.add('cf-ls');
+  } else {
+    document.body.classList.remove('cf-ls');
+    if (stage) stage.classList.remove('cf-ls');
+  }
+
+  // Perspective: deeper for the larger landscape covers
+  var lsPersp = isLandscape ? '1200px' : '700px';
+  vp.style.cssText = 'position:absolute;inset:0;overflow:hidden;-webkit-perspective:' + lsPersp + ';perspective:' + lsPersp + ';';
+
+  // Read ACTUAL rendered dimensions (landscape stage is now fixed full-screen so clientHeight = vh)
+  var rawStageH = Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : Math.max(200, window.innerHeight - (isLandscape ? 0 : 160)));
   var mpEl = document.getElementById('miniPlayer');
-  var mpH = (mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;
+  var mpH = (!isLandscape && mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;
   var stageH = Math.max(200, rawStageH - mpH);
   if (mpH > 0) {
     var botGlass = document.querySelector('.cf-bot-glass');
     if (botGlass) botGlass.style.paddingBottom = (16 + mpH) + 'px';
   }
-  var isLandscape = stageW > stageH;
 
-  // CD-sized center album: ~43% of stage width; capped for large screens
-  var sz = Math.max(130, Math.min(Math.round(stageW * (isLandscape ? 0.38 : 0.43)), 180));
-  // Floor at 60% from stage top — album in upper half, generous glass floor below
-  var floorY = Math.round(stageH * (isLandscape ? 0.62 : 0.60));
+  // Landscape: album fills available vertical space — 3× bigger than portrait cap
+  var sz = isLandscape
+    ? Math.max(180, Math.min(stageH - 175, 340))
+    : Math.max(130, Math.min(Math.round(stageW * 0.43), 180));
+  // Landscape: floor just below the album + top-padding; portrait: 60% down
+  var floorY = isLandscape
+    ? Math.min(sz + 54, Math.round(stageH * 0.62))
+    : Math.round(stageH * 0.60);
   var refH = Math.round(sz * 0.35);
 
   var floor = document.getElementById('cfFloor');
@@ -5228,6 +5246,74 @@ function startInlineCf(albums) {
   _cfAttachTouch();
   _cfPlaySwipeHint();
   _cfStartGyro();
+
+  // Re-layout on rotation — one listener for portrait ↔ landscape transitions
+  if (_cfOrientListener) window.removeEventListener('resize', _cfOrientListener);
+  _cfOrientListener = _cfHandleResize;
+  window.addEventListener('resize', _cfOrientListener);
+}
+
+// Re-layout cover flow when device rotates — applies/removes fullscreen, rescales covers.
+function _cfHandleResize() {
+  if (!_cfR) return;
+  var stage = document.getElementById('cfStage');
+  var vp    = document.getElementById('cfViewport');
+  if (!stage || !vp) return;
+
+  var isLs = window.innerWidth > window.innerHeight;
+
+  if (isLs) {
+    document.body.classList.add('cf-ls');
+    stage.classList.add('cf-ls');
+  } else {
+    document.body.classList.remove('cf-ls');
+    stage.classList.remove('cf-ls');
+  }
+
+  // Wait for the browser to finish the rotation layout
+  setTimeout(function() {
+    if (!_cfR) return;
+
+    var lsPersp = isLs ? '1200px' : '700px';
+    vp.style.webkitPerspective = lsPersp;
+    vp.style.perspective = lsPersp;
+
+    var stageW = Math.max(200, vp.offsetWidth  || window.innerWidth);
+    var stageH = Math.max(200, stage.clientHeight || window.innerHeight);
+
+    var sz, floorY;
+    if (isLs) {
+      sz      = Math.max(180, Math.min(stageH - 175, 340));
+      floorY  = Math.min(sz + 54, Math.round(stageH * 0.62));
+    } else {
+      var mpEl = document.getElementById('miniPlayer');
+      var mpH  = (mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;
+      stageH   = Math.max(200, stageH - mpH);
+      sz       = Math.max(130, Math.min(Math.round(stageW * 0.43), 180));
+      floorY   = Math.round(stageH * 0.60);
+    }
+    var refH = Math.round(sz * 0.35);
+
+    var floor = document.getElementById('cfFloor');
+    if (floor) floor.style.top = floorY + 'px';
+    var spec = document.getElementById('cfSpecular');
+    if (spec) spec.style.top = floorY + 'px';
+    var csh = document.getElementById('cfCenterShadow');
+    if (csh) {
+      var shW = Math.round(sz * 0.78);
+      csh.style.top = (floorY - 14) + 'px';
+      csh.style.width = shW + 'px';
+      csh.style.marginLeft = '-' + Math.round(shW / 2) + 'px';
+    }
+    var glow = document.getElementById('cfGlow');
+    if (glow) glow.style.top = Math.round(floorY - sz * 0.5) + 'px';
+
+    var r = _cfR;
+    r.sz = sz; r.refH = refH; r.floorY = floorY;
+    r.stageW = stageW; r.positions = _cfBuildPositions(sz);
+    r.items.forEach(function(el) { el._cfIdx = -1; });
+    _cfDoRender();
+  }, 220);
 }
 
 function _cfPlaySwipeHint() {
@@ -5495,6 +5581,14 @@ function cleanupCf() {
     _cfR = null;
   }
   _cfStopGyro();
+  if (_cfOrientListener) {
+    window.removeEventListener('resize', _cfOrientListener);
+    _cfOrientListener = null;
+  }
+  // Exit landscape fullscreen mode
+  document.body.classList.remove('cf-ls');
+  var cfst = document.getElementById('cfStage');
+  if (cfst) cfst.classList.remove('cf-ls');
   _cfAlbums = [];
   var main = document.getElementById('mainContent');
   if (main) main.classList.remove('albums-cf-mode');

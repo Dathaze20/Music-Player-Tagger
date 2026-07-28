@@ -3472,3 +3472,50 @@ body {
   color: var(--text-dim);
   white-space: nowrap;
 }
+
+/* ─── Landscape full-screen Cover Flow ─── */
+
+/* Hide chrome so covers own the whole screen */
+body.cf-ls #header,
+body.cf-ls #tabBar,
+body.cf-ls #miniPlayer { display: none !important; }
+
+/* Stage becomes a fixed full-screen layer */
+#cfStage.cf-ls {
+  position: fixed !important;
+  left: 0 !important; right: 0 !important;
+  top: 0 !important; bottom: 0 !important;
+  z-index: 9000;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+}
+
+/* Filter chips take too much vertical room in landscape — hide them */
+#cfStage.cf-ls .cf-top-glass { display: none !important; }
+
+/* Compact horizontal bottom strip: left-align text, tighter padding */
+#cfStage.cf-ls .cf-bot-glass {
+  padding: 8px 28px 14px;
+  text-align: left;
+}
+#cfStage.cf-ls .cf-info-name {
+  font-size: 19px;
+  letter-spacing: -0.5px;
+}
+#cfStage.cf-ls .cf-info-meta {
+  font-size: 12px;
+  margin: 2px 0 10px;
+}
+
+/* Slightly larger play button in landscape — more thumb room */
+#cfStage.cf-ls .cf-btn-play  { padding: 14px; font-size: 16px; }
+#cfStage.cf-ls .cf-btn-shuffle,
+#cfStage.cf-ls .cf-btn-open  { padding: 14px 16px; font-size: 18px; }
+
+/* Bigger ambient glow in landscape */
+#cfStage.cf-ls .cf-glow {
+  width: 500px;
+  height: 500px;
+  opacity: 0.50;
+}
