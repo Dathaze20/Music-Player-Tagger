@@ -3756,75 +3756,63 @@ function callGeminiTag(song, _retried) {
   if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
   if (song.track) ctx += 'Track: ' + song.track + '\n';
 
-  // Prefer cached data: URI (full base64 JPEG) over the http://localhost/... converted URL —
-  // song.art is always the Capacitor-converted HTTP URL, never a data: URI, so checking it
-  // first would always bypass the cache and send no image.
-  var rawArtUri = (song.albumArtUri && (artCacheHD[song.albumArtUri] || artCache[song.albumArtUri])) || song.art || '';
-  var artResizePromise = (rawArtUri && rawArtUri.indexOf('data:') === 0)
-    ? _resizeArtToBase64(rawArtUri, 512, 0.75)
-    : Promise.resolve(null);
+  // Text-only — no image payload. Images were exhausting the free-tier input token quota
+  // in a single request (a 3000×3000px cover encodes to ~13 MB of base64 = tens of thousands
+  // of tokens). Gemini identifies well-known releases accurately from filename + text tags alone.
+  var prompt = _GEMINI_EXPERTISE
+    + (ctx ? 'Known file tags (may be incomplete or wrong):\n' + ctx + '\n' : '')
+    + 'Filename: ' + (song.fn || '') + '\n\n'
+    + _GEMINI_TAG_RULES
+    + '\nReturn ONLY a JSON object with exactly these keys — no markdown, no explanation:\n'
+    + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":"","year":"","genre":"","releaseType":"","featuredArtists":""}';
 
-  return artResizePromise.then(function(b64) {
-    var artPart = (b64 && b64.length > 50) ? { inlineData: { mimeType: 'image/jpeg', data: b64 } } : null;
-
-    var hasArt = !!artPart;
-    var prompt = _GEMINI_EXPERTISE
-      + (hasArt ? 'The album cover image is attached — use it as a primary identification signal.\n' : '')
-      + (ctx ? 'Known file tags (may be incomplete or wrong):\n' + ctx + '\n' : '')
-      + 'Filename: ' + (song.fn || '') + '\n\n'
-      + _GEMINI_TAG_RULES
-      + '\nReturn ONLY a JSON object with exactly these keys — no markdown, no explanation:\n'
-      + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":"","year":"","genre":"","releaseType":"","featuredArtists":""}';
-
-    var parts = [];
-    if (artPart) parts.push(artPart);
-    parts.push({ text: prompt });
-
-    var ctrl = new AbortController();
-    var tid = setTimeout(function() { ctrl.abort(); }, 60000);
-    return fetch(_GEMINI_URL, {
-      method: 'POST',
-      signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
-      body: JSON.stringify({
-        contents: [{ parts: parts }],
-        generationConfig: { responseMimeType: 'application/json' }
-      })
-    }).then(function(res) {
-      clearTimeout(tid);
-      return res.text().then(function(raw) {
-        var data = null;
-        try { data = JSON.parse(raw); } catch(e) {}
-        if (res.status === 429) {
-          if (_retried) {
-            var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Daily quota reached — try again tomorrow or get a fresh key at aistudio.google.com';
-            throw new Error('HTTP 429: ' + retryMsg);
-          }
-          return new Promise(function(resolve) { setTimeout(resolve, 22000); })
-            .then(function() { return callGeminiTag(song, true); });
+  // API key as URL query param — more reliable in WebView environments than custom headers
+  var url = _GEMINI_URL + '?key=' + encodeURIComponent(apiKey);
+  var ctrl = new AbortController();
+  var tid = setTimeout(function() { ctrl.abort(); }, 60000);
+  return fetch(url, {
+    method: 'POST',
+    signal: ctrl.signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: 'application/json' }
+    })
+  }).then(function(res) {
+    clearTimeout(tid);
+    return res.text().then(function(raw) {
+      var data = null;
+      try { data = JSON.parse(raw); } catch(e) {}
+      if (res.status === 429) {
+        if (_retried) {
+          var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Daily quota reached — try again tomorrow or get a fresh key at aistudio.google.com';
+          throw new Error('HTTP 429: ' + retryMsg);
         }
-        if (res.status >= 400) {
-          var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 200);
-          throw new Error('HTTP ' + res.status + ': ' + errMsg);
-        }
-        if (!data) throw new Error('Non-JSON response: ' + raw.substring(0, 100));
-        if (!data.candidates || !data.candidates[0]) {
-          var blocked = data.promptFeedback && data.promptFeedback.blockReason;
-          throw new Error(blocked ? ('Blocked: ' + blocked) : 'No response candidates');
-        }
-        var cand = data.candidates[0];
-        var part = cand.content && cand.content.parts && cand.content.parts[0];
-        if (!part || !part.text) {
-          throw new Error('Empty Gemini response (finish: ' + (cand.finishReason || '?') + ')');
-        }
-        try { return JSON.parse(part.text); }
-        catch(e) { throw new Error('Bad JSON from Gemini: ' + part.text.substring(0, 80)); }
-      });
-    }).catch(function(err) {
-      clearTimeout(tid);
-      if (err && err.name === 'AbortError') throw new Error('Timed out after 60s — check your internet connection');
-      if (err && err.name === 'TypeError') throw new Error('Network error — can\'t reach Gemini. Is mobile data/WiFi on?');
-      throw err;
+        return new Promise(function(resolve) { setTimeout(resolve, 22000); })
+          .then(function() { return callGeminiTag(song, true); });
+      }
+      if (res.status >= 400) {
+        var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 200);
+        throw new Error('HTTP ' + res.status + ': ' + errMsg);
+      }
+      if (!data) throw new Error('Non-JSON response: ' + raw.substring(0, 100));
+      if (!data.candidates || !data.candidates[0]) {
+        var blocked = data.promptFeedback && data.promptFeedback.blockReason;
+        throw new Error(blocked ? ('Blocked: ' + blocked) : 'No response candidates');
+      }
+      var cand = data.candidates[0];
+      var part = cand.content && cand.content.parts && cand.content.parts[0];
+      if (!part || !part.text) {
+        throw new Error('Empty Gemini response (finish: ' + (cand.finishReason || '?') + ')');
+      }
+      try { return JSON.parse(part.text); }
+      catch(e) { throw new Error('Bad JSON from Gemini: ' + part.text.substring(0, 80)); }
+    });
+  }).catch(function(err) {
+    clearTimeout(tid);
+    if (err && err.name === 'AbortError') throw new Error('Timed out after 60s — check your internet connection');
+    if (err && err.name === 'TypeError') throw new Error('Network error — can\'t reach Gemini. Is mobile data/WiFi on?');
+    throw err;
     });
   });
 }
@@ -4114,11 +4102,7 @@ function openEditModal(albumName, artistName) {
     if (editAiBtn) {
       editAiBtn.onclick = function() {
         editAiBtn.disabled = true; editAiBtn.textContent = 'Analyzing…';
-        // Pre-fetch art into cache so callGeminiTag can send it as image
-        var artFetch = (first.albumArtUri && !artCache[first.albumArtUri])
-          ? fetchThumbnail(first.albumArtUri).catch(function() {})
-          : Promise.resolve();
-        artFetch.then(function() { return callGeminiTag(first); }).then(function(r) {
+        callGeminiTag(first).then(function(r) {
           editAiBtn.disabled = false; editAiBtn.innerHTML = '&#10004; Done';
           var filled = 0;
           function fill(id, val) {
@@ -4571,9 +4555,9 @@ document.getElementById('setApiKeyBtn').onclick = function() {
     document.getElementById('apiKeyLabel').textContent = 'Gemini Key: …' + val.slice(-6);
     showToast('Testing key…', 2000);
     // Fire a trivial Gemini ping to validate the key immediately
-    fetch(_GEMINI_URL, {
+    fetch(_GEMINI_URL + '?key=' + encodeURIComponent(val), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': val },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: 'Reply with the single word: ready' }] }],
         generationConfig: { responseMimeType: 'text/plain' }
