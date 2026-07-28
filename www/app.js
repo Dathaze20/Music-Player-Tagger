@@ -5167,8 +5167,12 @@ function startInlineCf(albums) {
   var lsPersp = isLandscape ? '1200px' : '700px';
   vp.style.cssText = 'position:absolute;inset:0;overflow:hidden;-webkit-perspective:' + lsPersp + ';perspective:' + lsPersp + ';';
 
-  // Read ACTUAL rendered dimensions (landscape stage is now fixed full-screen so clientHeight = vh)
-  var rawStageH = Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : Math.max(200, window.innerHeight - (isLandscape ? 0 : 160)));
+  // Read ACTUAL rendered dimensions.
+  // In landscape the stage is fixed full-screen, but 100dvh on Capacitor WebView can
+  // inflate clientHeight past window.innerHeight — cap it to avoid off-screen positioning.
+  var rawStageH = isLandscape
+    ? Math.min(window.innerHeight, Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : window.innerHeight))
+    : Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : Math.max(200, window.innerHeight - 160));
   var mpEl = document.getElementById('miniPlayer');
   var mpH = (!isLandscape && mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;
   var stageH = Math.max(200, rawStageH - mpH);
@@ -5177,13 +5181,13 @@ function startInlineCf(albums) {
     if (botGlass) botGlass.style.paddingBottom = (16 + mpH) + 'px';
   }
 
-  // Landscape: album fills available vertical space — 3× bigger than portrait cap
+  // Landscape: sz fills ~57% of height, floor at 70% → leaves 30% for the info strip.
+  // Portrait: size based on stage width.
   var sz = isLandscape
-    ? Math.max(180, Math.min(stageH - 175, 340))
+    ? Math.max(160, Math.min(Math.round(stageH * 0.57), 270))
     : Math.max(130, Math.min(Math.round(stageW * 0.43), 180));
-  // Landscape: floor just below the album + top-padding; portrait: 60% down
   var floorY = isLandscape
-    ? Math.min(sz + 54, Math.round(stageH * 0.62))
+    ? Math.round(stageH * 0.70)
     : Math.round(stageH * 0.60);
   var refH = Math.round(sz * 0.35);
 
@@ -5279,12 +5283,15 @@ function _cfHandleResize() {
     vp.style.perspective = lsPersp;
 
     var stageW = Math.max(200, vp.offsetWidth  || window.innerWidth);
-    var stageH = Math.max(200, stage.clientHeight || window.innerHeight);
+    // Cap landscape height to window.innerHeight — 100dvh on Capacitor WebView inflates clientHeight.
+    var stageH = isLs
+      ? Math.min(window.innerHeight, Math.max(200, stage.clientHeight || window.innerHeight))
+      : Math.max(200, stage.clientHeight || window.innerHeight);
 
     var sz, floorY;
     if (isLs) {
-      sz      = Math.max(180, Math.min(stageH - 175, 340));
-      floorY  = Math.min(sz + 54, Math.round(stageH * 0.62));
+      sz     = Math.max(160, Math.min(Math.round(stageH * 0.57), 270));
+      floorY = Math.round(stageH * 0.70);
     } else {
       var mpEl = document.getElementById('miniPlayer');
       var mpH  = (mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;

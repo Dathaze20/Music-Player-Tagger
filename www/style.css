@@ -3488,7 +3488,6 @@ body.cf-ls #miniPlayer { display: none !important; }
   z-index: 9000;
   width: 100vw !important;
   height: 100vh !important;
-  height: 100dvh !important;
 }
 
 /* Filter chips take too much vertical room in landscape — hide them */
@@ -3500,29 +3499,38 @@ body.cf-ls #miniPlayer { display: none !important; }
   text-align: left;
 }
 #cfStage.cf-ls .cf-counter {
-  font-size: 10px;
-  margin-bottom: 1px;
+  display: none;
 }
 #cfStage.cf-ls .cf-info-name {
-  font-size: 16px;
+  font-size: 15px;
   letter-spacing: -0.3px;
+  margin-bottom: 1px;
 }
 #cfStage.cf-ls .cf-info-meta {
   font-size: 11px;
-  margin: 1px 0 6px;
+  margin: 0 0 6px;
 }
 
-/* Small compact buttons — the bold-font A16 setting inflates them otherwise */
+/* Explicit height on buttons — Samsung Bold font ignores padding-based sizing */
+#cfStage.cf-ls .cf-actions {
+  align-items: center;
+}
 #cfStage.cf-ls .cf-btn-play {
-  padding: 8px 10px;
+  height: 34px;
+  line-height: 34px;
+  padding: 0 14px;
   font-size: 13px;
-  border-radius: 10px;
+  border-radius: 8px;
+  box-sizing: border-box;
 }
 #cfStage.cf-ls .cf-btn-shuffle,
 #cfStage.cf-ls .cf-btn-open {
-  padding: 8px 10px;
+  height: 34px;
+  line-height: 34px;
+  padding: 0 14px;
   font-size: 14px;
-  border-radius: 10px;
+  border-radius: 8px;
+  box-sizing: border-box;
 }
 
 /* Bigger ambient glow in landscape */
@@ -3582,19 +3590,44 @@ body.cf-ls #miniPlayer { display: none !important; }
     grid-row: 2;
     padding: 4px 14px;
     align-self: end;
+    min-width: 0;
+    overflow: hidden;
   }
-  .now-playing .np-song-title { font-size: 16px; }
-  .now-playing .np-song-artist { font-size: 13px; margin-top: 1px; }
+  .now-playing .np-song-title {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .now-playing .np-song-artist {
+    font-size: 12px;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   /* Controls: right column, bottom row */
   .now-playing .np-controls {
     grid-column: 2;
     grid-row: 3;
-    padding: 0 14px 6px;
+    padding: 0 14px 4px;
     align-self: start;
     flex-shrink: 0;
+    min-width: 0;
+    overflow: hidden;
   }
-  .now-playing .np-progress { margin-bottom: 6px; }
-  .now-playing .np-main-controls { margin-bottom: 4px; }
-  .now-playing .np-times { margin-top: 2px; }
+  .now-playing .np-progress { margin-bottom: 4px; }
+  .now-playing .np-main-controls {
+    margin-bottom: 2px;
+    gap: 4px;
+  }
+  .now-playing .np-main-controls button {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .now-playing .np-times { margin-top: 1px; font-size: 10px; }
 }
