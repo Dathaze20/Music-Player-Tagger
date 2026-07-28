@@ -3783,27 +3783,31 @@ function callGeminiTag(song, _retried) {
     })
   }).then(function(res) {
     clearTimeout(tid);
-    if (res.status === 429) {
-      if (_retried) throw new Error('Rate limited — wait a minute then try again');
-      return new Promise(function(resolve) { setTimeout(resolve, 22000); })
-        .then(function() { return callGeminiTag(song, true); });
-    }
-    return res.json().then(function(data) {
-      if (res.status >= 400) {
-        var msg = (data && data.error && data.error.message) ? data.error.message : ('HTTP ' + res.status);
-        throw new Error(msg);
+    return res.text().then(function(raw) {
+      var data = null;
+      try { data = JSON.parse(raw); } catch(e) {}
+      // Show real status in all error cases — no more guessing
+      if (res.status === 429) {
+        if (_retried) {
+          var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Quota exhausted — get a new API key at aistudio.google.com';
+          throw new Error('HTTP 429: ' + retryMsg);
+        }
+        return new Promise(function(resolve) { setTimeout(resolve, 22000); })
+          .then(function() { return callGeminiTag(song, true); });
       }
-      return data;
+      if (res.status >= 400) {
+        var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 120);
+        throw new Error('HTTP ' + res.status + ': ' + errMsg);
+      }
+      if (!data) throw new Error('Could not parse response');
+      if (!data.candidates || !data.candidates[0]) {
+        var blocked = data.promptFeedback && data.promptFeedback.blockReason;
+        throw new Error(blocked ? ('Blocked: ' + blocked) : 'No candidates (status ' + res.status + ')');
+      }
+      var part = data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0];
+      if (!part || !part.text) throw new Error('Empty response part');
+      return JSON.parse(part.text);
     });
-  }).then(function(data) {
-    if (!data.candidates || !data.candidates[0]) {
-      var blocked = data.promptFeedback && data.promptFeedback.blockReason;
-      throw new Error(blocked ? ('Blocked: ' + blocked) : 'No candidates in response');
-    }
-    var part = data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0];
-    if (!part || !part.text) throw new Error('Empty response part');
-    // responseSchema guarantees clean JSON — no markdown stripping needed
-    return JSON.parse(part.text);
   }).catch(function(err) { clearTimeout(tid); throw err; });
 }
 
