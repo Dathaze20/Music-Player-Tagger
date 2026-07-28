@@ -1251,7 +1251,7 @@ var _eqNodes  = [];
 var EQ_FREQS  = [60, 230, 910, 3600, 14000];
 var EQ_TYPES  = ['lowshelf', 'peaking', 'peaking', 'peaking', 'highshelf'];
 var EQ_PRESETS = {
-  'Flat':       [0, 0, 0, 0, 0],
+  'Default':    [0, 0, 0, 0, 0],
   'Bass Boost': [6, 4, 0, -1, -1],
   'Hip-Hop':    [5, 3, -1, 2, 1],
   'Treble':     [-1, -1, 1, 4, 6],
