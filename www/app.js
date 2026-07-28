@@ -3722,6 +3722,29 @@ function handleFileImport(files) {
 
 // ─── Tag Editor AI Fill ───
 
+// Resize album art to at most maxPx × maxPx JPEG before sending — avoids 10–15 MB
+// base64 blobs that choke the WebView on low-RAM devices like the Galaxy A16.
+function _resizeArtToBase64(dataUrl, maxPx, quality) {
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width, h = img.height;
+      var scale = Math.min(1, maxPx / Math.max(w, h, 1));
+      var tw = Math.max(1, Math.round(w * scale));
+      var th = Math.max(1, Math.round(h * scale));
+      try {
+        var canvas = document.createElement('canvas');
+        canvas.width = tw; canvas.height = th;
+        canvas.getContext('2d').drawImage(img, 0, 0, tw, th);
+        var out = canvas.toDataURL('image/jpeg', quality);
+        resolve(out.replace(/^data:[^;]+;base64,/, '') || null);
+      } catch(e) { resolve(null); }
+    };
+    img.onerror = function() { resolve(null); };
+    img.src = dataUrl;
+  });
+}
+
 function callGeminiTag(song, _retried) {
   if (!apiKey) return Promise.resolve({});
   var ctx = '';
@@ -3733,85 +3756,84 @@ function callGeminiTag(song, _retried) {
   if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
   if (song.track) ctx += 'Track: ' + song.track + '\n';
 
-  // Collect album art as base64 for visual identification
-  var artUri = song.art || (song.albumArtUri && (artCacheHD[song.albumArtUri] || artCache[song.albumArtUri])) || '';
-  var artPart = null;
-  if (artUri && artUri.indexOf('data:') === 0) {
-    var mimeEnd = artUri.indexOf(';');
-    var mime = mimeEnd > 5 ? artUri.substring(5, mimeEnd) : 'image/jpeg';
-    var b64 = artUri.replace(/^data:[^;]+;base64,/, '');
-    if (b64.length > 100) artPart = { inlineData: { mimeType: mime, data: b64 } };
-  }
+  // Resize album art to 512×512 JPEG before encoding — keeps payload ≤ ~100 KB
+  var rawArtUri = song.art || (song.albumArtUri && (artCacheHD[song.albumArtUri] || artCache[song.albumArtUri])) || '';
+  var artResizePromise = (rawArtUri && rawArtUri.indexOf('data:') === 0)
+    ? _resizeArtToBase64(rawArtUri, 512, 0.75)
+    : Promise.resolve(null);
 
-  var hasArt = !!artPart;
-  var prompt = _GEMINI_EXPERTISE
-    + (hasArt ? 'The album cover image is attached — use it to visually identify the release.\n' : '')
-    + (ctx ? 'File tags (may be incomplete or wrong — correct using your knowledge and the image):\n' + ctx + '\n' : '')
-    + 'Filename: ' + (song.fn || '') + '\n\n'
-    + 'Fill ALL fields accurately from your knowledge of this release:';
+  return artResizePromise.then(function(b64) {
+    var artPart = (b64 && b64.length > 50) ? { inlineData: { mimeType: 'image/jpeg', data: b64 } } : null;
 
-  var parts = [];
-  if (artPart) parts.push(artPart);
-  parts.push({ text: prompt });
+    var hasArt = !!artPart;
+    var prompt = _GEMINI_EXPERTISE
+      + (hasArt ? 'The album cover image is attached — use it to visually identify the release.\n' : '')
+      + (ctx ? 'File tags (may be incomplete or wrong — correct using your knowledge and the image):\n' + ctx + '\n' : '')
+      + 'Filename: ' + (song.fn || '') + '\n\n'
+      + 'Fill ALL fields accurately from your knowledge of this release:';
 
-  var ctrl = new AbortController();
-  var tid = setTimeout(function() { ctrl.abort(); }, 35000);
-  return fetch(_GEMINI_URL, {
-    method: 'POST',
-    signal: ctrl.signal,
-    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
-    body: JSON.stringify({
-      contents: [{ parts: parts }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            title:          { type: 'STRING' },
-            artist:         { type: 'STRING' },
-            album:          { type: 'STRING' },
-            albumArtist:    { type: 'STRING' },
-            trackNumber:    { type: 'STRING' },
-            year:           { type: 'STRING' },
-            genre:          { type: 'STRING' },
-            releaseType:    { type: 'STRING' },
-            featuredArtists:{ type: 'STRING' }
-          },
-          required: ['title','artist','album','albumArtist','trackNumber','year','genre','releaseType','featuredArtists']
+    var parts = [];
+    if (artPart) parts.push(artPart);
+    parts.push({ text: prompt });
+
+    var ctrl = new AbortController();
+    var tid = setTimeout(function() { ctrl.abort(); }, 35000);
+    return fetch(_GEMINI_URL, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+      body: JSON.stringify({
+        contents: [{ parts: parts }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              title:          { type: 'STRING' },
+              artist:         { type: 'STRING' },
+              album:          { type: 'STRING' },
+              albumArtist:    { type: 'STRING' },
+              trackNumber:    { type: 'STRING' },
+              year:           { type: 'STRING' },
+              genre:          { type: 'STRING' },
+              releaseType:    { type: 'STRING' },
+              featuredArtists:{ type: 'STRING' }
+            },
+            required: ['title','artist','album','albumArtist','trackNumber','year','genre','releaseType','featuredArtists']
+          }
         }
-      }
-    })
-  }).then(function(res) {
-    clearTimeout(tid);
-    return res.text().then(function(raw) {
-      var data = null;
-      try { data = JSON.parse(raw); } catch(e) {}
-      // Show real status in all error cases — no more guessing
-      if (res.status === 429) {
-        if (_retried) {
-          var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Quota exhausted — get a new API key at aistudio.google.com';
-          throw new Error('HTTP 429: ' + retryMsg);
+      })
+    }).then(function(res) {
+      clearTimeout(tid);
+      return res.text().then(function(raw) {
+        var data = null;
+        try { data = JSON.parse(raw); } catch(e) {}
+        if (res.status === 429) {
+          if (_retried) {
+            var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Quota exhausted — get a new API key at aistudio.google.com';
+            throw new Error('HTTP 429: ' + retryMsg);
+          }
+          return new Promise(function(resolve) { setTimeout(resolve, 22000); })
+            .then(function() { return callGeminiTag(song, true); });
         }
-        return new Promise(function(resolve) { setTimeout(resolve, 22000); })
-          .then(function() { return callGeminiTag(song, true); });
-      }
-      if (res.status >= 400) {
-        var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 120);
-        throw new Error('HTTP ' + res.status + ': ' + errMsg);
-      }
-      if (!data) throw new Error('Could not parse response');
-      if (!data.candidates || !data.candidates[0]) {
-        var blocked = data.promptFeedback && data.promptFeedback.blockReason;
-        throw new Error(blocked ? ('Blocked: ' + blocked) : 'No candidates (status ' + res.status + ')');
-      }
-      var part = data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0];
-      if (!part || !part.text) throw new Error('Empty response part');
-      return JSON.parse(part.text);
+        if (res.status >= 400) {
+          var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 120);
+          throw new Error('HTTP ' + res.status + ': ' + errMsg);
+        }
+        if (!data) throw new Error('Could not parse response');
+        if (!data.candidates || !data.candidates[0]) {
+          var blocked = data.promptFeedback && data.promptFeedback.blockReason;
+          throw new Error(blocked ? ('Blocked: ' + blocked) : 'No candidates (status ' + res.status + ')');
+        }
+        var part = data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0];
+        if (!part || !part.text) throw new Error('Empty response part');
+        return JSON.parse(part.text);
+      });
+    }).catch(function(err) {
+      clearTimeout(tid);
+      if (err && err.name === 'AbortError') throw new Error('Request timed out — Gemini took over 35s');
+      throw err;
     });
-  }).catch(function(err) {
-    clearTimeout(tid);
-    if (err && err.name === 'AbortError') throw new Error('Request timed out — Gemini took over 35s');
-    throw err;
   });
 }
 
