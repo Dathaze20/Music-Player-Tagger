@@ -3748,7 +3748,24 @@ function callGeminiTag(song, _retried) {
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' }
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            title:          { type: 'STRING' },
+            artist:         { type: 'STRING' },
+            album:          { type: 'STRING' },
+            albumArtist:    { type: 'STRING' },
+            trackNumber:    { type: 'STRING' },
+            year:           { type: 'STRING' },
+            genre:          { type: 'STRING' },
+            releaseType:    { type: 'STRING' },
+            featuredArtists:{ type: 'STRING' }
+          },
+          required: ['title','artist','album','albumArtist','trackNumber','year','genre','releaseType','featuredArtists']
+        }
+      }
     })
   }).then(function(res) {
     clearTimeout(tid);
@@ -3759,27 +3776,21 @@ function callGeminiTag(song, _retried) {
     }
     return res.json().then(function(data) {
       if (res.status >= 400) {
-        var msg = (data && data.error && data.error.message) ? data.error.message : ('Gemini error ' + res.status);
+        var msg = (data && data.error && data.error.message) ? data.error.message : ('HTTP ' + res.status);
         throw new Error(msg);
       }
       return data;
     });
   }).then(function(data) {
-    console.log('[Gemini] raw response:', JSON.stringify(data));
     if (!data.candidates || !data.candidates[0]) {
       var blocked = data.promptFeedback && data.promptFeedback.blockReason;
-      var errMsg = blocked ? ('Blocked: ' + blocked) : 'No response from Gemini';
-      console.warn('[Gemini] no candidates:', errMsg, data);
-      throw new Error(errMsg);
+      throw new Error(blocked ? ('Blocked: ' + blocked) : 'No candidates in response');
     }
     var part = data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0];
-    if (!part || !part.text) { console.warn('[Gemini] empty part:', data.candidates[0]); throw new Error('Empty Gemini response'); }
-    var text = part.text.trim().replace(/^```json?\s*/, '').replace(/```\s*$/, '');
-    console.log('[Gemini] parsed text:', text);
-    var result = JSON.parse(text);
-    console.log('[Gemini] result object:', result);
-    return result;
-  }).catch(function(err) { clearTimeout(tid); console.error('[Gemini] error:', err); throw err; });
+    if (!part || !part.text) throw new Error('Empty response part');
+    // responseSchema guarantees clean JSON — no markdown stripping needed
+    return JSON.parse(part.text);
+  }).catch(function(err) { clearTimeout(tid); throw err; });
 }
 
 // ─── Edit Modals ───
@@ -3998,10 +4009,14 @@ function openSongEditModal(songId) {
               b.classList.toggle('active', b.dataset.type === result.releaseType);
             });
           }
-          showToast(filled > 0 ? '✓ AI filled ' + filled + ' field' + (filled !== 1 ? 's' : '') : 'AI: song not recognized');
+          if (filled > 0) {
+            showToast('✓ AI: ' + [result.year, result.genre, result.releaseType].filter(Boolean).join(' · '));
+          } else {
+            showToast('AI reached Gemini but 0 fields filled — all already had values', 4000);
+          }
         }).catch(function(err) {
           teAiBtn.disabled = false; teAiBtn.innerHTML = '&#10024; AI Fill';
-          showToast('AI error: ' + (err && err.message ? err.message : String(err)));
+          showToast('AI error: ' + (err && err.message ? err.message : String(err)), 5000);
         });
       };
     }
@@ -4065,16 +4080,14 @@ function openEditModal(albumName, artistName) {
         editAiBtn.disabled = true; editAiBtn.textContent = 'Analyzing…';
         callGeminiTag(first).then(function(r) {
           editAiBtn.disabled = false; editAiBtn.innerHTML = '&#10004; Done';
-          console.log('[Gemini] album fill result:', r);
           var filled = 0;
           function fill(id, val) {
             if (!val) return;
             var el = document.getElementById(id);
-            if (!el) { console.warn('[Gemini] field missing from DOM:', id); return; }
+            if (!el) return;
             var cur = el.value.trim();
-            if (cur && !(id === 'editYear' && cur === '1970')) { console.log('[Gemini] skip non-empty:', id, cur); return; }
+            if (cur && !(id === 'editYear' && cur === '1970')) return;
             el.value = val; filled++;
-            console.log('[Gemini] filled:', id, '->', val);
           }
           fill('editArtist',      String(r.artist      || '').trim());
           fill('editAlbumArtist', String(r.albumArtist || '').trim());
@@ -4088,10 +4101,14 @@ function openEditModal(albumName, artistName) {
             activeTypeBtn = modal.querySelector('.type-btn[data-type="' + rtype + '"]');
             if (activeTypeBtn) { activeTypeBtn.className = 'type-btn active-' + rtype.toLowerCase(); filled++; }
           }
-          showToast(filled > 0 ? '✓ AI filled ' + filled + ' field' + (filled !== 1 ? 's' : '') : 'AI: album not recognized');
+          if (filled > 0) {
+            showToast('✓ AI: ' + [r.year, r.genre, r.releaseType].filter(Boolean).join(' · '));
+          } else {
+            showToast('AI reached Gemini but 0 fields filled — all already had values', 4000);
+          }
         }).catch(function(err) {
           editAiBtn.disabled = false; editAiBtn.innerHTML = '&#10024; AI Fill';
-          showToast('AI error: ' + (err && err.message ? err.message : String(err)));
+          showToast('AI error: ' + (err && err.message ? err.message : String(err)), 5000);
         });
       };
     }
