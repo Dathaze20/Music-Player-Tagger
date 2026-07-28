@@ -3765,15 +3765,21 @@ function callGeminiTag(song, _retried) {
       return data;
     });
   }).then(function(data) {
+    console.log('[Gemini] raw response:', JSON.stringify(data));
     if (!data.candidates || !data.candidates[0]) {
       var blocked = data.promptFeedback && data.promptFeedback.blockReason;
-      throw new Error(blocked ? ('Blocked: ' + blocked) : 'No response from Gemini');
+      var errMsg = blocked ? ('Blocked: ' + blocked) : 'No response from Gemini';
+      console.warn('[Gemini] no candidates:', errMsg, data);
+      throw new Error(errMsg);
     }
     var part = data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0];
-    if (!part || !part.text) throw new Error('Empty Gemini response');
+    if (!part || !part.text) { console.warn('[Gemini] empty part:', data.candidates[0]); throw new Error('Empty Gemini response'); }
     var text = part.text.trim().replace(/^```json?\s*/, '').replace(/```\s*$/, '');
-    return JSON.parse(text);
-  }).catch(function(err) { clearTimeout(tid); throw err; });
+    console.log('[Gemini] parsed text:', text);
+    var result = JSON.parse(text);
+    console.log('[Gemini] result object:', result);
+    return result;
+  }).catch(function(err) { clearTimeout(tid); console.error('[Gemini] error:', err); throw err; });
 }
 
 // ─── Edit Modals ───
@@ -4059,15 +4065,16 @@ function openEditModal(albumName, artistName) {
         editAiBtn.disabled = true; editAiBtn.textContent = 'Analyzing…';
         callGeminiTag(first).then(function(r) {
           editAiBtn.disabled = false; editAiBtn.innerHTML = '&#10004; Done';
+          console.log('[Gemini] album fill result:', r);
           var filled = 0;
           function fill(id, val) {
             if (!val) return;
             var el = document.getElementById(id);
-            if (!el) return;
+            if (!el) { console.warn('[Gemini] field missing from DOM:', id); return; }
             var cur = el.value.trim();
-            // Always overwrite corrupt 1970 year; only fill truly empty fields otherwise
-            if (cur && !(id === 'editYear' && cur === '1970')) return;
+            if (cur && !(id === 'editYear' && cur === '1970')) { console.log('[Gemini] skip non-empty:', id, cur); return; }
             el.value = val; filled++;
+            console.log('[Gemini] filled:', id, '->', val);
           }
           fill('editArtist',      String(r.artist      || '').trim());
           fill('editAlbumArtist', String(r.albumArtist || '').trim());
