@@ -3756,8 +3756,10 @@ function callGeminiTag(song, _retried) {
   if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
   if (song.track) ctx += 'Track: ' + song.track + '\n';
 
-  // Resize album art to 512×512 JPEG before encoding — keeps payload ≤ ~100 KB
-  var rawArtUri = song.art || (song.albumArtUri && (artCacheHD[song.albumArtUri] || artCache[song.albumArtUri])) || '';
+  // Prefer cached data: URI (full base64 JPEG) over the http://localhost/... converted URL —
+  // song.art is always the Capacitor-converted HTTP URL, never a data: URI, so checking it
+  // first would always bypass the cache and send no image.
+  var rawArtUri = (song.albumArtUri && (artCacheHD[song.albumArtUri] || artCache[song.albumArtUri])) || song.art || '';
   var artResizePromise = (rawArtUri && rawArtUri.indexOf('data:') === 0)
     ? _resizeArtToBase64(rawArtUri, 512, 0.75)
     : Promise.resolve(null);
@@ -3767,41 +3769,26 @@ function callGeminiTag(song, _retried) {
 
     var hasArt = !!artPart;
     var prompt = _GEMINI_EXPERTISE
-      + (hasArt ? 'The album cover image is attached — use it to visually identify the release.\n' : '')
-      + (ctx ? 'File tags (may be incomplete or wrong — correct using your knowledge and the image):\n' + ctx + '\n' : '')
+      + (hasArt ? 'The album cover image is attached — use it as a primary identification signal.\n' : '')
+      + (ctx ? 'Known file tags (may be incomplete or wrong):\n' + ctx + '\n' : '')
       + 'Filename: ' + (song.fn || '') + '\n\n'
-      + 'Fill ALL fields accurately from your knowledge of this release:';
+      + _GEMINI_TAG_RULES
+      + '\nReturn ONLY a JSON object with exactly these keys — no markdown, no explanation:\n'
+      + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":"","year":"","genre":"","releaseType":"","featuredArtists":""}';
 
     var parts = [];
     if (artPart) parts.push(artPart);
     parts.push({ text: prompt });
 
     var ctrl = new AbortController();
-    var tid = setTimeout(function() { ctrl.abort(); }, 35000);
+    var tid = setTimeout(function() { ctrl.abort(); }, 60000);
     return fetch(_GEMINI_URL, {
       method: 'POST',
       signal: ctrl.signal,
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ parts: parts }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              title:          { type: 'STRING' },
-              artist:         { type: 'STRING' },
-              album:          { type: 'STRING' },
-              albumArtist:    { type: 'STRING' },
-              trackNumber:    { type: 'STRING' },
-              year:           { type: 'STRING' },
-              genre:          { type: 'STRING' },
-              releaseType:    { type: 'STRING' },
-              featuredArtists:{ type: 'STRING' }
-            },
-            required: ['title','artist','album','albumArtist','trackNumber','year','genre','releaseType','featuredArtists']
-          }
-        }
+        generationConfig: { responseMimeType: 'application/json' }
       })
     }).then(function(res) {
       clearTimeout(tid);
@@ -3810,28 +3797,33 @@ function callGeminiTag(song, _retried) {
         try { data = JSON.parse(raw); } catch(e) {}
         if (res.status === 429) {
           if (_retried) {
-            var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Quota exhausted — get a new API key at aistudio.google.com';
+            var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Daily quota reached — try again tomorrow or get a fresh key at aistudio.google.com';
             throw new Error('HTTP 429: ' + retryMsg);
           }
           return new Promise(function(resolve) { setTimeout(resolve, 22000); })
             .then(function() { return callGeminiTag(song, true); });
         }
         if (res.status >= 400) {
-          var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 120);
+          var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 200);
           throw new Error('HTTP ' + res.status + ': ' + errMsg);
         }
-        if (!data) throw new Error('Could not parse response');
+        if (!data) throw new Error('Non-JSON response: ' + raw.substring(0, 100));
         if (!data.candidates || !data.candidates[0]) {
           var blocked = data.promptFeedback && data.promptFeedback.blockReason;
-          throw new Error(blocked ? ('Blocked: ' + blocked) : 'No candidates (status ' + res.status + ')');
+          throw new Error(blocked ? ('Blocked: ' + blocked) : 'No response candidates');
         }
-        var part = data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0];
-        if (!part || !part.text) throw new Error('Empty response part');
-        return JSON.parse(part.text);
+        var cand = data.candidates[0];
+        var part = cand.content && cand.content.parts && cand.content.parts[0];
+        if (!part || !part.text) {
+          throw new Error('Empty Gemini response (finish: ' + (cand.finishReason || '?') + ')');
+        }
+        try { return JSON.parse(part.text); }
+        catch(e) { throw new Error('Bad JSON from Gemini: ' + part.text.substring(0, 80)); }
       });
     }).catch(function(err) {
       clearTimeout(tid);
-      if (err && err.name === 'AbortError') throw new Error('Request timed out — Gemini took over 35s');
+      if (err && err.name === 'AbortError') throw new Error('Timed out after 60s — check your internet connection');
+      if (err && err.name === 'TypeError') throw new Error('Network error — can\'t reach Gemini. Is mobile data/WiFi on?');
       throw err;
     });
   });
@@ -4577,7 +4569,29 @@ document.getElementById('setApiKeyBtn').onclick = function() {
   if (val) {
     localStorage.setItem('gemini_api_key', val);
     document.getElementById('apiKeyLabel').textContent = 'Gemini Key: …' + val.slice(-6);
-    showToast('API key saved — AI Fill is ready in the tag editor');
+    showToast('Testing key…', 2000);
+    // Fire a trivial Gemini ping to validate the key immediately
+    fetch(_GEMINI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': val },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Reply with the single word: ready' }] }],
+        generationConfig: { responseMimeType: 'text/plain' }
+      })
+    }).then(function(res) {
+      return res.text().then(function(raw) {
+        if (res.status === 200) {
+          showToast('✓ Key works — Gemini is connected', 4000);
+        } else {
+          var data = null; try { data = JSON.parse(raw); } catch(e) {}
+          var msg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 120);
+          showToast('Key test failed — HTTP ' + res.status + ': ' + msg, 6000);
+        }
+      });
+    }).catch(function(err) {
+      var msg = (err && err.name === 'TypeError') ? 'No internet — check WiFi or mobile data' : (err && err.message ? err.message : String(err));
+      showToast('Key test failed: ' + msg, 6000);
+    });
   } else {
     localStorage.removeItem('gemini_api_key');
     document.getElementById('apiKeyLabel').textContent = 'Set Gemini API Key';
