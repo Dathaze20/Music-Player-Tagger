@@ -1588,6 +1588,11 @@ function render() {
     }
   }
 
+  // Subtle fade-in on every navigation — makes transitions feel premium
+  main.classList.remove('content-fade-in');
+  void main.offsetWidth; // force reflow so animation restarts
+  main.classList.add('content-fade-in');
+
   updateMiniPlayer();
   saveUIStateLater();
 }
@@ -2476,8 +2481,13 @@ function renderGenres(el) {
   html += '<div class="genre-grid">';
   genreList.forEach(function(g) {
     var gd = genreMap[g];
+    var gr = getGrad(g);
     html += '<div class="genre-card" data-genre="' + escHtml(g) + '">'
+      + '<div class="genre-card-art">'
       + imgOrArt(gd.art, g, 72)
+      + '<div class="genre-card-overlay" style="background:linear-gradient(160deg,' + gr[0] + 'cc 0%,' + gr[1] + '88 100%)"></div>'
+      + '<div class="genre-card-initial">' + escHtml(g.charAt(0).toUpperCase()) + '</div>'
+      + '</div>'
       + '<div class="genre-card-name">' + escHtml(g) + '</div>'
       + '<div class="genre-card-count">' + gd.count + ' song' + (gd.count !== 1 ? 's' : '') + '</div>'
       + '</div>';
@@ -3402,11 +3412,11 @@ function openEqPanel() {
   }).join('');
 
   var bandHtml = EQ_FREQS.map(function(freq, i) {
-    var label = freq >= 1000 ? (freq / 1000) + 'k' : freq;
-    return '<div class="eq-band">'
-      + '<input type="range" class="eq-slider" data-band="' + i + '" min="-12" max="12" step="1" value="' + eqGains[i] + '" orient="vertical">'
-      + '<div class="eq-band-val" id="eqVal' + i + '">' + (eqGains[i] > 0 ? '+' : '') + eqGains[i] + '</div>'
-      + '<div class="eq-band-freq">' + label + '</div>'
+    var label = freq >= 1000 ? (freq / 1000) + 'k' : freq + '';
+    return '<div class="eq-band-h">'
+      + '<span class="eq-band-freq">' + label + '</span>'
+      + '<input type="range" class="eq-slider" data-band="' + i + '" min="-12" max="12" step="1" value="' + eqGains[i] + '">'
+      + '<span class="eq-band-val" id="eqVal' + i + '">' + (eqGains[i] > 0 ? '+' : '') + eqGains[i] + '</span>'
       + '</div>';
   }).join('');
 
@@ -3414,10 +3424,10 @@ function openEqPanel() {
     + '<div class="eq-header"><span class="eq-title">Equalizer</span>'
     + '<button class="eq-close-btn" id="eqCloseBtn">&#10005;</button></div>'
     + '<div class="eq-presets">' + presetHtml + '</div>'
-    + '<div class="eq-bands">' + bandHtml + '</div>'
+    + '<div class="eq-bands-v">' + bandHtml + '</div>'
     + '<div class="eq-xfade-row">'
     + '<span class="eq-xfade-label">Crossfade</span>'
-    + '<input type="range" id="eqXfadeSlider" min="0" max="8" step="0.5" value="' + crossfadeDur + '" style="flex:1;">'
+    + '<input type="range" id="eqXfadeSlider" min="0" max="8" step="0.5" value="' + crossfadeDur + '" style="flex:1;accent-color:var(--primary);">'
     + '<span id="eqXfadeVal" style="min-width:36px;text-align:right;font-size:13px;">' + (crossfadeDur === 0 ? 'Off' : crossfadeDur + 's') + '</span>'
     + '</div>'
     + '</div>';
@@ -3529,6 +3539,7 @@ function syncPlaybackUI() {
 
 function togglePlay() {
   if (!currentSong || !currentSong.url) return;
+  try { if (navigator.vibrate) navigator.vibrate(10); } catch(e) {}
   if (isPlaying) {
     _ourPause = true;
     audio.pause();

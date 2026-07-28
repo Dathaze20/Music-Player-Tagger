@@ -973,7 +973,7 @@ body {
 /* Toast notifications */
 .toast-msg {
   position: fixed;
-  bottom: 120px; left: 50%;
+  bottom: 148px; left: 50%;
   transform: translateX(-50%);
   background: var(--bg-card);
   color: var(--text);
@@ -1078,6 +1078,12 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(26, 31, 46, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 .section-header h3 { font-size: 16px; font-weight: 600; }
 .section-count { font-size: 12px; color: var(--text-faint); }
@@ -2501,8 +2507,8 @@ body {
 .mini-player .song-title { font-size: 13.5px; font-weight: 600; letter-spacing: -0.1px; }
 .mini-player .song-meta  { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
 .mini-player-controls button { font-size: 22px; padding: 7px 6px; }
-.mini-progress { height: 2px; background: rgba(255,255,255,0.06); }
-.mini-progress-bar { background: var(--gradient-primary); }
+.mini-progress { height: 3px; background: rgba(255,255,255,0.06); }
+.mini-progress-bar { background: var(--gradient-primary); box-shadow: 0 0 6px rgba(0,168,158,0.55); }
 
 /* ─── Mini EQ bars: glow addition on top of .eq-bars base styles ─── */
 /* Uses higher specificity (.eq-bars.mini-eq-bars) to reliably win over .eq-bars.paused span */
@@ -2528,12 +2534,12 @@ body {
 }
 .np-song-title  { font-size: 21px; font-weight: 700; letter-spacing: -0.3px; }
 .np-song-artist { font-size: 14.5px; letter-spacing: 0; font-weight: 700; color: rgba(255,255,255,0.9); cursor: pointer; }
-.np-seek-track  { height: 4px; background: rgba(255,255,255,0.12); border-radius: 4px; }
-.np-seek-fill   { background: linear-gradient(90deg, var(--primary), #00e0d6); }
+.np-seek-track  { height: 5px; background: rgba(255,255,255,0.12); border-radius: 5px; }
+.np-seek-fill   { background: linear-gradient(90deg, var(--primary), #00e0d6); border-radius: 5px; }
 .np-progress input[type=range]::-webkit-slider-thumb {
-  width: 18px; height: 18px;
-  margin-top: -7.5px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.5), 0 0 0 2px rgba(255,255,255,0.18);
+  width: 22px; height: 22px;
+  margin-top: -8.5px;
+  box-shadow: 0 0 12px rgba(0,168,158,0.65), 0 2px 8px rgba(0,0,0,0.5), 0 0 0 2px rgba(255,255,255,0.2);
 }
 .np-main-controls button { font-size: 24px; padding: 10px; }
 
@@ -3272,6 +3278,13 @@ body {
   filter: blur(0.5px);
 }
 
+/* ─── Content fade-in on navigation ─── */
+@keyframes contentFadeIn {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.content-fade-in { animation: contentFadeIn 0.2s cubic-bezier(0.22,1,0.36,1); }
+
 /* ─── Genre Grid ─── */
 .genre-grid {
   display: grid;
@@ -3281,25 +3294,49 @@ body {
 }
 .genre-card {
   background: var(--bg-card);
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
-  transition: transform 0.12s;
+  transition: transform 0.14s cubic-bezier(0.22,1,0.36,1);
   display: flex;
   flex-direction: column;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.4);
 }
-.genre-card:active { transform: scale(0.97); }
-.genre-card img, .genre-card .art-placeholder {
+.genre-card:active { transform: scale(0.95); }
+.genre-card-art {
+  position: relative;
   width: 100%;
-  height: 100px;
-  object-fit: cover;
-  border-radius: 0;
+  height: 110px;
+  overflow: hidden;
   flex-shrink: 0;
 }
-.genre-card .art-placeholder { font-size: 28px; }
+.genre-card-art img, .genre-card-art .art-placeholder {
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 0;
+}
+.genre-card-art .art-placeholder { font-size: 32px; }
+.genre-card-overlay {
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: multiply;
+  opacity: 0.75;
+}
+.genre-card-initial {
+  position: absolute;
+  bottom: 6px;
+  left: 10px;
+  font-size: 28px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.35);
+  line-height: 1;
+  letter-spacing: -1px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
 .genre-card-name {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
   padding: 8px 10px 2px;
   white-space: nowrap;
@@ -3309,7 +3346,7 @@ body {
 .genre-card-count {
   font-size: 11px;
   color: var(--text-dim);
-  padding: 0 10px 8px;
+  padding: 0 10px 9px;
 }
 
 /* ─── EQ Panel ─── */
@@ -3369,37 +3406,50 @@ body {
   color: var(--primary-fg);
   border-color: var(--primary);
 }
-.eq-bands {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-.eq-band {
+.eq-bands-v {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.eq-band-h {
+  display: flex;
   align-items: center;
-  flex: 1;
-  gap: 4px;
-}
-.eq-slider {
-  -webkit-appearance: slider-vertical;
-  writing-mode: vertical-lr;
-  direction: rtl;
-  height: 100px;
-  width: 24px;
-  cursor: pointer;
-  accent-color: var(--primary);
-}
-.eq-band-val {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--primary);
-  min-height: 16px;
+  gap: 10px;
 }
 .eq-band-freq {
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-dim);
+  min-width: 32px;
+  text-align: right;
+}
+.eq-slider {
+  flex: 1;
+  height: 4px;
+  cursor: pointer;
+  accent-color: var(--primary);
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255,255,255,0.12);
+  border-radius: 4px;
+  outline: none;
+}
+.eq-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 10px rgba(0,168,158,0.6), 0 2px 6px rgba(0,0,0,0.4);
+  cursor: pointer;
+}
+.eq-band-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  min-width: 32px;
+  text-align: left;
 }
 .eq-xfade-row {
   display: flex;
