@@ -1325,7 +1325,19 @@ var albumGenreFilter = 'all';
 var queue = [];
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
-var _GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+var _GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
+// Ordered by preference — first working model is cached in localStorage so we stop retrying
+var _GEMINI_MODELS = [
+  'gemini-2.5-flash-latest',
+  'gemini-2.5-flash',
+  'gemini-3.5-flash',
+  'gemini-3.0-flash',
+  'gemini-3-flash',
+  'gemini-2.0-flash-latest',
+  'gemini-1.5-flash-latest'
+];
+var _geminiModel = localStorage.getItem('gemini_model') || '';
+var _GEMINI_URL = _GEMINI_BASE + (_geminiModel || _GEMINI_MODELS[0]) + ':generateContent';
 var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture. Research this release from your knowledge and return correct values for every field — do not leave fields blank if you know the answer.\n\n';
 var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre (e.g. "Trap", "Boom Bap", "Drill") not a broad category\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
 var sortMode = 'title';
@@ -3745,29 +3757,13 @@ function _resizeArtToBase64(dataUrl, maxPx, quality) {
   });
 }
 
-function callGeminiTag(song, _retried) {
-  if (!apiKey) return Promise.resolve({});
-  var ctx = '';
-  if (song.title  && !/^unknown/i.test(song.title))  ctx += 'Title: '  + song.title  + '\n';
-  if (song.artist && !/^unknown/i.test(song.artist)) ctx += 'Artist: ' + song.artist + '\n';
-  if (song.album  && !/^unknown/i.test(song.album))  ctx += 'Album: '  + song.album  + '\n';
-  // 1970 = Unix epoch / corrupt ID3 date — treat as missing
-  if (song.year && String(song.year).trim() !== '1970') ctx += 'Year: ' + song.year + '\n';
-  if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
-  if (song.track) ctx += 'Track: ' + song.track + '\n';
-
-  // Text-only — no image payload. Images were exhausting the free-tier input token quota
-  // in a single request (a 3000×3000px cover encodes to ~13 MB of base64 = tens of thousands
-  // of tokens). Gemini identifies well-known releases accurately from filename + text tags alone.
-  var prompt = _GEMINI_EXPERTISE
-    + (ctx ? 'Known file tags (may be incomplete or wrong):\n' + ctx + '\n' : '')
-    + 'Filename: ' + (song.fn || '') + '\n\n'
-    + _GEMINI_TAG_RULES
-    + '\nReturn ONLY a JSON object with exactly these keys — no markdown, no explanation:\n'
-    + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":"","year":"","genre":"","releaseType":"","featuredArtists":""}';
-
-  // API key as URL query param — more reliable in WebView environments than custom headers
-  var url = _GEMINI_URL + '?key=' + encodeURIComponent(apiKey);
+// Try each model in _GEMINI_MODELS order; cache the first one that responds successfully.
+function _geminiRequest(prompt, modelIdx, _retried) {
+  if (!apiKey) return Promise.resolve(null);
+  modelIdx = modelIdx || 0;
+  if (modelIdx >= _GEMINI_MODELS.length) return Promise.reject(new Error('No working Gemini model found'));
+  var model = _geminiModel || _GEMINI_MODELS[modelIdx];
+  var url = _GEMINI_BASE + model + ':generateContent?key=' + encodeURIComponent(apiKey);
   var ctrl = new AbortController();
   var tid = setTimeout(function() { ctrl.abort(); }, 60000);
   return fetch(url, {
@@ -3781,39 +3777,63 @@ function callGeminiTag(song, _retried) {
   }).then(function(res) {
     clearTimeout(tid);
     return res.text().then(function(raw) {
-      var data = null;
-      try { data = JSON.parse(raw); } catch(e) {}
+      var data = null; try { data = JSON.parse(raw); } catch(e) {}
+      // Deprecation or not-found — try next model
+      if (res.status === 404 || (res.status === 400 && raw.indexOf('deprecated') !== -1) ||
+          (raw.indexOf('no longer available') !== -1) || (raw.indexOf('Please update') !== -1)) {
+        if (!_geminiModel) return _geminiRequest(prompt, modelIdx + 1, _retried);
+      }
       if (res.status === 429) {
         if (_retried) {
-          var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Daily quota reached — try again tomorrow or get a fresh key at aistudio.google.com';
-          throw new Error('HTTP 429: ' + retryMsg);
+          var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Daily quota reached — get a fresh key at aistudio.google.com';
+          return Promise.reject(new Error('HTTP 429: ' + retryMsg));
         }
         return new Promise(function(resolve) { setTimeout(resolve, 22000); })
-          .then(function() { return callGeminiTag(song, true); });
+          .then(function() { return _geminiRequest(prompt, modelIdx, true); });
       }
       if (res.status >= 400) {
         var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 200);
-        throw new Error('HTTP ' + res.status + ': ' + errMsg);
+        return Promise.reject(new Error('HTTP ' + res.status + ': ' + errMsg));
       }
-      if (!data) throw new Error('Non-JSON response: ' + raw.substring(0, 100));
-      if (!data.candidates || !data.candidates[0]) {
-        var blocked = data.promptFeedback && data.promptFeedback.blockReason;
-        throw new Error(blocked ? ('Blocked: ' + blocked) : 'No response candidates');
+      if (!data || !data.candidates || !data.candidates[0]) {
+        var blocked = data && data.promptFeedback && data.promptFeedback.blockReason;
+        return Promise.reject(new Error(blocked ? ('Blocked: ' + blocked) : 'No response candidates'));
       }
       var cand = data.candidates[0];
       var part = cand.content && cand.content.parts && cand.content.parts[0];
-      if (!part || !part.text) {
-        throw new Error('Empty Gemini response (finish: ' + (cand.finishReason || '?') + ')');
-      }
+      if (!part || !part.text) return Promise.reject(new Error('Empty response (finish: ' + (cand.finishReason || '?') + ')'));
+      // This model works — cache it so we skip the discovery next time
+      if (!_geminiModel) { _geminiModel = model; localStorage.setItem('gemini_model', model); }
       try { return JSON.parse(part.text); }
-      catch(e) { throw new Error('Bad JSON from Gemini: ' + part.text.substring(0, 80)); }
+      catch(e) { return Promise.reject(new Error('Bad JSON: ' + part.text.substring(0, 80))); }
     });
   }).catch(function(err) {
     clearTimeout(tid);
-    if (err && err.name === 'AbortError') throw new Error('Timed out after 60s — check your internet connection');
-    if (err && err.name === 'TypeError') throw new Error('Network error — can\'t reach Gemini. Is mobile data/WiFi on?');
-    throw err;
+    if (err && err.name === 'AbortError') return Promise.reject(new Error('Timed out after 60s — check internet connection'));
+    if (err && err.name === 'TypeError') return Promise.reject(new Error('Network error — can\'t reach Gemini. Is mobile data/WiFi on?'));
+    return Promise.reject(err);
   });
+}
+
+function callGeminiTag(song, _retried) {
+  if (!apiKey) return Promise.resolve({});
+  var ctx = '';
+  if (song.title  && !/^unknown/i.test(song.title))  ctx += 'Title: '  + song.title  + '\n';
+  if (song.artist && !/^unknown/i.test(song.artist)) ctx += 'Artist: ' + song.artist + '\n';
+  if (song.album  && !/^unknown/i.test(song.album))  ctx += 'Album: '  + song.album  + '\n';
+  // 1970 = Unix epoch / corrupt ID3 date — treat as missing
+  if (song.year && String(song.year).trim() !== '1970') ctx += 'Year: ' + song.year + '\n';
+  if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
+  if (song.track) ctx += 'Track: ' + song.track + '\n';
+
+  var prompt = _GEMINI_EXPERTISE
+    + (ctx ? 'Known file tags (may be incomplete or wrong):\n' + ctx + '\n' : '')
+    + 'Filename: ' + (song.fn || '') + '\n\n'
+    + _GEMINI_TAG_RULES
+    + '\nReturn ONLY a JSON object with exactly these keys — no markdown, no explanation:\n'
+    + '{"title":"","artist":"","album":"","albumArtist":"","trackNumber":"","year":"","genre":"","releaseType":"","featuredArtists":""}';
+
+  return _geminiRequest(prompt);
 }
 
 // ─── Edit Modals ───
