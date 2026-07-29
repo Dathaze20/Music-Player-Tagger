@@ -2270,14 +2270,11 @@ function renderAlbums(el) {
     if (a) { cleanupCf(); selectedAlbum = { name: a.name, artist: a.artist }; render(); }
   };
 
-  // Init inline cover flow — defer one frame so the browser finishes laying
-  // out cfStage before startInlineCf reads offsetWidth/clientHeight.
-  // Without this, chip-filter re-renders can read 0 dimensions and
-  // misposition all albums off-screen (black stage).
+  // Defer one frame so the browser finishes laying out cfStage before
+  // startInlineCf reads offsetWidth/clientHeight. Without this, chip-filter
+  // re-renders can read 0 dimensions and show a black stage.
   var _cfBootAlbums = filtered;
-  requestAnimationFrame(function() {
-    if (document.getElementById('cfViewport')) startInlineCf(_cfBootAlbums);
-  });
+  requestAnimationFrame(function() { startInlineCf(_cfBootAlbums); });
 }
 
 function renderPlaylists(el) {
@@ -5133,6 +5130,15 @@ document.addEventListener('muzioMediaAction', function(e) {
 var _cfAlbums = [];
 var _cfCenterIdx = 0;
 var _cfR = null; // runtime state; null when CF not active
+
+// Apply or clear landscape pixel overrides on the CF stage element.
+// Explicit px values bypass any WebView overflow:hidden containment quirk.
+function _cfApplyStageSize(stage, isLs) {
+  if (!stage) return;
+  stage.style.width  = isLs ? window.innerWidth  + 'px' : '';
+  stage.style.height = isLs ? window.innerHeight + 'px' : '';
+}
+
 var _cfGyroX = 0, _cfGyroY = 0, _cfGyroHandler = null, _cfGyroRaf = 0;
 var _cfOrientListener = null;
 // rotateY degrees per slot distance; 65° for slot 1 gives the classic CF fan
@@ -5184,20 +5190,10 @@ function startInlineCf(albums) {
   // Landscape: cover flow owns the whole screen (class must be applied before reading dimensions)
   if (isLandscape) {
     document.body.classList.add('cf-ls');
-    if (stage) stage.classList.add('cf-ls');
-    // Force explicit pixel size so the WebView's overflow:hidden on .app can't contain the stage.
-    // CSS position:fixed alone is unreliable when an ancestor has overflow:hidden on Android WebView.
-    if (stage) {
-      stage.style.width  = window.innerWidth  + 'px';
-      stage.style.height = window.innerHeight + 'px';
-    }
+    if (stage) { stage.classList.add('cf-ls'); _cfApplyStageSize(stage, true); }
   } else {
     document.body.classList.remove('cf-ls');
-    if (stage) {
-      stage.classList.remove('cf-ls');
-      stage.style.width  = '';
-      stage.style.height = '';
-    }
+    if (stage) { stage.classList.remove('cf-ls'); _cfApplyStageSize(stage, false); }
   }
 
   // Perspective: deeper for the larger landscape covers
@@ -5305,24 +5301,18 @@ function _cfHandleResize() {
   if (isLs) {
     document.body.classList.add('cf-ls');
     stage.classList.add('cf-ls');
-    stage.style.width  = window.innerWidth  + 'px';
-    stage.style.height = window.innerHeight + 'px';
   } else {
     document.body.classList.remove('cf-ls');
     stage.classList.remove('cf-ls');
-    stage.style.width  = '';
-    stage.style.height = '';
+    _cfApplyStageSize(stage, false);
   }
 
-  // Wait for the browser to finish the rotation layout
+  // Wait for the browser to finish the rotation layout before reading final dimensions
   setTimeout(function() {
     if (!_cfR) return;
 
-    // Re-apply explicit size after rotation settles (innerWidth/innerHeight are now final)
-    if (isLs) {
-      stage.style.width  = window.innerWidth  + 'px';
-      stage.style.height = window.innerHeight + 'px';
-    }
+    // Apply pixel size after rotation settles — innerWidth/innerHeight are now final
+    _cfApplyStageSize(stage, isLs);
 
     var lsPersp = isLs ? '1200px' : '700px';
     vp.style.webkitPerspective = lsPersp;
@@ -5640,11 +5630,7 @@ function cleanupCf() {
   // Exit landscape fullscreen mode
   document.body.classList.remove('cf-ls');
   var cfst = document.getElementById('cfStage');
-  if (cfst) {
-    cfst.classList.remove('cf-ls');
-    cfst.style.width  = '';
-    cfst.style.height = '';
-  }
+  if (cfst) { cfst.classList.remove('cf-ls'); _cfApplyStageSize(cfst, false); }
   _cfAlbums = [];
   var main = document.getElementById('mainContent');
   if (main) main.classList.remove('albums-cf-mode');

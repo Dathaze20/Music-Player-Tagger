@@ -3480,11 +3480,14 @@ body.cf-ls #header,
 body.cf-ls #tabBar,
 body.cf-ls #miniPlayer { display: none !important; }
 
+/* .app has overflow:hidden which on Android WebView creates a containing block
+   for position:fixed children, trapping them inside .app instead of the viewport.
+   Setting overflow:visible lifts that constraint so position:fixed + inset:0 works. */
+body.cf-ls .app { overflow: visible !important; }
+
 /* Stage becomes a fixed full-screen layer.
-   NO explicit width/height — position:fixed + inset:0 already sizes the
-   element to the exact viewport. Adding 100vw/100vh can cause them to
-   override the inset constraints on Android WebView (100vh sometimes
-   reports portrait height even in landscape), pushing bottom:0 off-screen. */
+   position:fixed + inset:0 handles sizing once the .app overflow is cleared above.
+   JS also sets explicit px dimensions as a secondary guarantee for old WebViews. */
 #cfStage.cf-ls {
   position: fixed !important;
   inset: 0 !important;
