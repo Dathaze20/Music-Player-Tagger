@@ -586,7 +586,7 @@ body {
   padding: 10px; cursor: pointer; font-size: 22px;
   transition: transform 0.1s, color 0.1s;
 }
-.np-main-controls button:active { transform: scale(0.85); color: #fff; }
+.np-main-controls button:active { transform: scale(0.80); color: #fff; }
 .np-main-controls button.active { color: var(--primary); }
 .np-play-btn {
   width: 72px !important; height: 72px;
@@ -598,11 +598,11 @@ body {
   justify-content: center;
   font-size: 28px !important;
   box-shadow: 0 4px 28px rgba(0,0,0,0.45);
-  transition: transform 0.1s, box-shadow 0.15s !important;
+  transition: transform 0.07s, box-shadow 0.1s !important;
 }
 .np-play-btn:active {
-  transform: scale(0.93) !important;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
+  transform: scale(0.88) !important;
+  box-shadow: 0 1px 8px rgba(0,0,0,0.3) !important;
 }
 .np-play-btn.is-playing { animation: none; }
 .np-bottom {
@@ -3480,14 +3480,15 @@ body.cf-ls #header,
 body.cf-ls #tabBar,
 body.cf-ls #miniPlayer { display: none !important; }
 
-/* Stage becomes a fixed full-screen layer */
+/* Stage becomes a fixed full-screen layer.
+   NO explicit width/height — position:fixed + inset:0 already sizes the
+   element to the exact viewport. Adding 100vw/100vh can cause them to
+   override the inset constraints on Android WebView (100vh sometimes
+   reports portrait height even in landscape), pushing bottom:0 off-screen. */
 #cfStage.cf-ls {
   position: fixed !important;
-  left: 0 !important; right: 0 !important;
-  top: 0 !important; bottom: 0 !important;
+  inset: 0 !important;
   z-index: 9000;
-  width: 100vw !important;
-  height: 100vh !important;
 }
 
 /* Filter chips take too much vertical room in landscape — hide them */
@@ -3526,6 +3527,11 @@ body.cf-ls #miniPlayer { display: none !important; }
   font-size: 13px;
   border-radius: 8px;
   box-sizing: border-box;
+  transition: transform 0.08s, opacity 0.08s;
+}
+#cfStage.cf-ls .cf-btn-play:active {
+  transform: scale(0.90);
+  opacity: 0.75;
 }
 #cfStage.cf-ls .cf-btn-shuffle,
 #cfStage.cf-ls .cf-btn-open {
@@ -3536,6 +3542,12 @@ body.cf-ls #miniPlayer { display: none !important; }
   font-size: 14px;
   border-radius: 8px;
   box-sizing: border-box;
+  transition: transform 0.08s, opacity 0.08s;
+}
+#cfStage.cf-ls .cf-btn-shuffle:active,
+#cfStage.cf-ls .cf-btn-open:active {
+  transform: scale(0.88);
+  opacity: 0.7;
 }
 
 /* Bigger ambient glow in landscape */

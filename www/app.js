@@ -2233,8 +2233,12 @@ function renderAlbums(el) {
   });
 
   // Wire actions
-  el.querySelector('#cfBtnPlay').onclick = function() { playCfAlbum(_cfR ? Math.round(_cfR.pos) : _cfCenterIdx); };
+  el.querySelector('#cfBtnPlay').onclick = function() {
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch(e) {}
+    playCfAlbum(_cfR ? Math.round(_cfR.pos) : _cfCenterIdx);
+  };
   el.querySelector('#cfBtnShuffle').onclick = function() {
+    try { if (navigator.vibrate) navigator.vibrate([10, 20, 10]); } catch(e) {}
     var idx = _cfR ? Math.round(_cfR.pos) : _cfCenterIdx;
     var a = _cfAlbums[idx];
     if (!a) return;
@@ -2247,6 +2251,7 @@ function renderAlbums(el) {
     document.getElementById('nowPlaying').classList.remove('hidden');
   };
   el.querySelector('#cfBtnOpen').onclick = function() {
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch(e) {}
     var a = _cfAlbums[_cfR ? Math.round(_cfR.pos) : _cfCenterIdx];
     if (a) { cleanupCf(); selectedAlbum = { name: a.name, artist: a.artist }; render(); }
   };
@@ -3574,6 +3579,7 @@ function togglePlay() {
 
 function handleNext() {
   if (!currentSong || queue.length === 0) return;
+  try { if (navigator.vibrate) navigator.vibrate([14, 25, 14]); } catch(e) {}
   if (repeatMode === 'one') { audio.currentTime = 0; audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); }); return; }
   var idx = queue.findIndex(function(s) { return s.id === currentSong.id; });
   var nextIdx;
@@ -3613,6 +3619,7 @@ function handleNext() {
 
 function handlePrev() {
   if (!currentSong || queue.length === 0) return;
+  try { if (navigator.vibrate) navigator.vibrate([14, 25, 14]); } catch(e) {}
   if (currentTime > 3) { audio.currentTime = 0; return; }
   preloadedUrl = '';
   preloadedSong = null;
@@ -5433,6 +5440,8 @@ function _cfDoRender() {
     _cfCenterIdx = ni;
     updateCfInfo(ni);
     updateCfGlow(ni);
+    // Subtle tick as each album passes center during a fling
+    try { if (navigator.vibrate) navigator.vibrate(6); } catch(e) {}
   }
 }
 
@@ -5572,7 +5581,8 @@ function _cfSnapTo(target, sv) {
   if (Math.abs(diff) < 0.003 && Math.abs(sv) < 0.003) {
     r.pos = target;
     _cfDoRender();
-    try { if (navigator.vibrate) navigator.vibrate(8); } catch(e) {}
+    // Landing thud — heavier than the per-album tick
+    try { if (navigator.vibrate) navigator.vibrate([10, 18, 16]); } catch(e) {}
     return;
   }
   // Spring-damper: accumulate toward target with damping
