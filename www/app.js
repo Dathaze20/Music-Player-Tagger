@@ -6,6 +6,20 @@
 
 // ─── Utilities ───
 
+// Haptic feedback — uses Capacitor Haptics plugin when available, falls back to Web Vibration API.
+// Requires android.permission.VIBRATE in the manifest for navigator.vibrate() to work.
+function _haptic(pattern) {
+  try {
+    var cap = window.Capacitor;
+    if (cap && cap.Plugins && cap.Plugins.Haptics) {
+      var dur = Array.isArray(pattern) ? pattern[0] : (pattern || 10);
+      cap.Plugins.Haptics.vibrate({ duration: dur });
+    } else if (navigator.vibrate) {
+      navigator.vibrate(pattern);
+    }
+  } catch(e) {}
+}
+
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -2234,11 +2248,11 @@ function renderAlbums(el) {
 
   // Wire actions
   el.querySelector('#cfBtnPlay').onclick = function() {
-    try { if (navigator.vibrate) navigator.vibrate(12); } catch(e) {}
+    _haptic(12);
     playCfAlbum(_cfR ? Math.round(_cfR.pos) : _cfCenterIdx);
   };
   el.querySelector('#cfBtnShuffle').onclick = function() {
-    try { if (navigator.vibrate) navigator.vibrate([10, 20, 10]); } catch(e) {}
+    _haptic([10, 20, 10]);
     var idx = _cfR ? Math.round(_cfR.pos) : _cfCenterIdx;
     var a = _cfAlbums[idx];
     if (!a) return;
@@ -2251,7 +2265,7 @@ function renderAlbums(el) {
     document.getElementById('nowPlaying').classList.remove('hidden');
   };
   el.querySelector('#cfBtnOpen').onclick = function() {
-    try { if (navigator.vibrate) navigator.vibrate(8); } catch(e) {}
+    _haptic(8);
     var a = _cfAlbums[_cfR ? Math.round(_cfR.pos) : _cfCenterIdx];
     if (a) { cleanupCf(); selectedAlbum = { name: a.name, artist: a.artist }; render(); }
   };
@@ -3562,7 +3576,7 @@ function syncPlaybackUI() {
 
 function togglePlay() {
   if (!currentSong || !currentSong.url) return;
-  try { if (navigator.vibrate) navigator.vibrate(10); } catch(e) {}
+  _haptic(10);
   if (isPlaying) {
     _ourPause = true;
     audio.pause();
@@ -3579,7 +3593,7 @@ function togglePlay() {
 
 function handleNext() {
   if (!currentSong || queue.length === 0) return;
-  try { if (navigator.vibrate) navigator.vibrate([14, 25, 14]); } catch(e) {}
+  _haptic([14, 25, 14]);
   if (repeatMode === 'one') { audio.currentTime = 0; audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); }); return; }
   var idx = queue.findIndex(function(s) { return s.id === currentSong.id; });
   var nextIdx;
@@ -3619,7 +3633,7 @@ function handleNext() {
 
 function handlePrev() {
   if (!currentSong || queue.length === 0) return;
-  try { if (navigator.vibrate) navigator.vibrate([14, 25, 14]); } catch(e) {}
+  _haptic([14, 25, 14]);
   if (currentTime > 3) { audio.currentTime = 0; return; }
   preloadedUrl = '';
   preloadedSong = null;
@@ -5167,24 +5181,33 @@ function startInlineCf(albums) {
   var stageW = Math.max(200, vp.offsetWidth || window.innerWidth);
   var isLandscape = window.innerWidth > window.innerHeight;
 
-  // Landscape: cover flow owns the whole screen (class must be applied before reading clientHeight)
+  // Landscape: cover flow owns the whole screen (class must be applied before reading dimensions)
   if (isLandscape) {
     document.body.classList.add('cf-ls');
     if (stage) stage.classList.add('cf-ls');
+    // Force explicit pixel size so the WebView's overflow:hidden on .app can't contain the stage.
+    // CSS position:fixed alone is unreliable when an ancestor has overflow:hidden on Android WebView.
+    if (stage) {
+      stage.style.width  = window.innerWidth  + 'px';
+      stage.style.height = window.innerHeight + 'px';
+    }
   } else {
     document.body.classList.remove('cf-ls');
-    if (stage) stage.classList.remove('cf-ls');
+    if (stage) {
+      stage.classList.remove('cf-ls');
+      stage.style.width  = '';
+      stage.style.height = '';
+    }
   }
 
   // Perspective: deeper for the larger landscape covers
   var lsPersp = isLandscape ? '1200px' : '700px';
   vp.style.cssText = 'position:absolute;inset:0;overflow:hidden;-webkit-perspective:' + lsPersp + ';perspective:' + lsPersp + ';';
 
-  // Read ACTUAL rendered dimensions.
-  // In landscape the stage is fixed full-screen, but 100dvh on Capacitor WebView can
-  // inflate clientHeight past window.innerHeight — cap it to avoid off-screen positioning.
+  // Landscape: use window.innerHeight directly (it's reliable; clientHeight can be stale/wrong).
+  // Portrait: read clientHeight so the stage respects its flex-allocated space.
   var rawStageH = isLandscape
-    ? Math.min(window.innerHeight, Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : window.innerHeight))
+    ? window.innerHeight
     : Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : Math.max(200, window.innerHeight - 160));
   var mpEl = document.getElementById('miniPlayer');
   var mpH = (!isLandscape && mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;
@@ -5282,23 +5305,32 @@ function _cfHandleResize() {
   if (isLs) {
     document.body.classList.add('cf-ls');
     stage.classList.add('cf-ls');
+    stage.style.width  = window.innerWidth  + 'px';
+    stage.style.height = window.innerHeight + 'px';
   } else {
     document.body.classList.remove('cf-ls');
     stage.classList.remove('cf-ls');
+    stage.style.width  = '';
+    stage.style.height = '';
   }
 
   // Wait for the browser to finish the rotation layout
   setTimeout(function() {
     if (!_cfR) return;
 
+    // Re-apply explicit size after rotation settles (innerWidth/innerHeight are now final)
+    if (isLs) {
+      stage.style.width  = window.innerWidth  + 'px';
+      stage.style.height = window.innerHeight + 'px';
+    }
+
     var lsPersp = isLs ? '1200px' : '700px';
     vp.style.webkitPerspective = lsPersp;
     vp.style.perspective = lsPersp;
 
     var stageW = Math.max(200, vp.offsetWidth  || window.innerWidth);
-    // Cap landscape height to window.innerHeight — 100dvh on Capacitor WebView inflates clientHeight.
     var stageH = isLs
-      ? Math.min(window.innerHeight, Math.max(200, stage.clientHeight || window.innerHeight))
+      ? window.innerHeight
       : Math.max(200, stage.clientHeight || window.innerHeight);
 
     var sz, floorY;
@@ -5440,8 +5472,6 @@ function _cfDoRender() {
     _cfCenterIdx = ni;
     updateCfInfo(ni);
     updateCfGlow(ni);
-    // Subtle tick as each album passes center during a fling
-    try { if (navigator.vibrate) navigator.vibrate(6); } catch(e) {}
   }
 }
 
@@ -5581,8 +5611,7 @@ function _cfSnapTo(target, sv) {
   if (Math.abs(diff) < 0.003 && Math.abs(sv) < 0.003) {
     r.pos = target;
     _cfDoRender();
-    // Landing thud — heavier than the per-album tick
-    try { if (navigator.vibrate) navigator.vibrate([10, 18, 16]); } catch(e) {}
+    _haptic([10, 18, 16]);
     return;
   }
   // Spring-damper: accumulate toward target with damping
@@ -5611,7 +5640,11 @@ function cleanupCf() {
   // Exit landscape fullscreen mode
   document.body.classList.remove('cf-ls');
   var cfst = document.getElementById('cfStage');
-  if (cfst) cfst.classList.remove('cf-ls');
+  if (cfst) {
+    cfst.classList.remove('cf-ls');
+    cfst.style.width  = '';
+    cfst.style.height = '';
+  }
   _cfAlbums = [];
   var main = document.getElementById('mainContent');
   if (main) main.classList.remove('albums-cf-mode');
