@@ -3808,12 +3808,23 @@ function lookupMusicBrainz(song) {
     return res.json();
   }).then(function(data) {
     if (!data || !data.releases || !data.releases.length) return null;
-    var rel = data.releases[0];
+
+    // Pick the highest-confidence result; skip results with score < 75 to avoid
+    // applying wrong metadata from an unrelated release.
+    var rel = null;
+    for (var ri = 0; ri < data.releases.length; ri++) {
+      if ((data.releases[ri].score || 100) >= 75) { rel = data.releases[ri]; break; }
+    }
+    if (!rel) return null;
+
     var result = {};
 
-    // Year
-    if (rel.date) {
-      var y = (rel.date + '').replace(/^(\d{4}).*/, '$1');
+    // Year: prefer release-group's first-release-date (original worldwide issue) over
+    // rel.date (which may be a remaster/reissue year, not the original release year).
+    var rg0 = rel['release-group'];
+    var yearStr = (rg0 && rg0['first-release-date']) ? rg0['first-release-date'] : (rel.date || '');
+    if (yearStr) {
+      var y = (yearStr + '').replace(/^(\d{4}).*/, '$1');
       if (/^\d{4}$/.test(y) && y !== '1970') result.year = y;
     }
 
@@ -3828,7 +3839,7 @@ function lookupMusicBrainz(song) {
     }
 
     // Release type + genre from release-group
-    var rg = rel['release-group'];
+    var rg = rg0;
     if (rg) {
       var pt = (rg['primary-type'] || '').toLowerCase();
       if      (pt === 'album')  result.releaseType = 'Album';
