@@ -1334,6 +1334,7 @@ var _historyJump = false; // set true by handlePrev so playSong skips the push
 var showNowPlaying = false;
 var selectedArtist = null;
 var selectedAlbum = null;
+var currentSmartPlaylist = null;
 var albumFilter = 'all';
 var albumGenreFilter = 'all';
 var queue = [];
@@ -1420,9 +1421,10 @@ function getAlbums(filter) {
   if (_albumsCache && filter === 'all') return _albumsCache;
   var map = {};
   songs.forEach(function(s) {
-    var key = s.album + '|||' + s.artist;
+    var artistKey = (s.albumArtist || s.artist).replace(/\s*(feat?\.?|ft\.?|featuring)\s+.+$/i, '').trim();
+    var key = s.album + '|||' + artistKey;
     var art = safeArtUrl(s.art);
-    if (!map[key]) map[key] = { artist: s.artist, year: s.year, art: art, count: 0, type: s.type || 'Album', albumArtUri: '', genre: s.genre || '' };
+    if (!map[key]) map[key] = { artist: artistKey, year: s.year, art: art, count: 0, type: s.type || 'Album', albumArtUri: '', genre: s.genre || '' };
     map[key].count++;
     if (art && !map[key].art) map[key].art = art;
     if (s.genre && !map[key].genre) map[key].genre = s.genre;
@@ -1458,7 +1460,8 @@ function _buildSongCaches() {
   songs.forEach(function(s) {
     if (!ac[s.artist]) ac[s.artist] = [];
     ac[s.artist].push(s);
-    var k = s.album + '|||' + s.artist;
+    var albumArtistKey = (s.albumArtist || s.artist).replace(/\s*(feat?\.?|ft\.?|featuring)\s+.+$/i, '').trim();
+    var k = s.album + '|||' + albumArtistKey;
     if (!bc[k]) bc[k] = [];
     bc[k].push(s);
   });
@@ -1607,6 +1610,12 @@ function render() {
       renderPlaylists(main);
     } else if (currentTab === 'playlist') {
       renderPlaylistSongs(main);
+    } else if (currentTab === 'smartpl') {
+      tabBar.classList.add('hidden');
+      header.textContent = currentSmartPlaylist ? currentSmartPlaylist.title : 'Smart Playlist';
+      menuBtn.innerHTML = '&#8249;';
+      menuBtn.onclick = function() { currentSmartPlaylist = null; currentTab = 'playlists'; render(); };
+      renderSmartPlaylistDetail(main);
     } else if (currentTab === 'favorites') {
       renderFavorites(main);
     } else if (currentTab === 'genres') {
@@ -2346,16 +2355,29 @@ function renderPlaylists(el) {
   el.innerHTML = html;
   initLazyArt(el);
 
-  // Wire smart playlist cells
-  function wireCell(cellId, list) {
+  // Wire smart playlist cells — play button plays immediately, cell body opens list
+  function wireCell(cellId, list, title) {
     var cell = document.getElementById(cellId);
     if (!cell) return;
-    cell.onclick = function() { if (list.length) playSong(list[0], list); };
+    var playBtn = cell.querySelector('.smart-pl-play');
+    if (playBtn) {
+      playBtn.onclick = function(e) {
+        e.stopPropagation();
+        if (list.length) playSong(list[0], list);
+      };
+    }
+    cell.onclick = function(e) {
+      if (e.target.closest('.smart-pl-play')) return;
+      if (!list.length) return;
+      currentSmartPlaylist = { title: title, songs: list };
+      currentTab = 'smartpl';
+      render();
+    };
   }
-  wireCell('spTopTracks', spTopTracks);
-  wireCell('spLastAdded', spLastAdded);
-  wireCell('spRecent',    spRecent);
-  wireCell('spFavs',      spFavs);
+  wireCell('spTopTracks', spTopTracks, 'Top Tracks');
+  wireCell('spLastAdded', spLastAdded, 'Last Added');
+  wireCell('spRecent',    spRecent,    'Recently Played');
+  wireCell('spFavs',      spFavs,      'Favorites');
 
   // User playlist rows
   el.querySelectorAll('.playlist-item[data-plid]').forEach(function(row) {
@@ -2486,6 +2508,57 @@ function renderFavorites(el) {
   initSwipeGestures(el);
   bindSongRows(el, favs);
   initScrollIndicator();
+}
+
+// ─── Smart Playlist Detail ───
+
+function renderSmartPlaylistDetail(el) {
+  if (!currentSmartPlaylist) { currentTab = 'playlists'; render(); return; }
+  var sp = currentSmartPlaylist;
+  var list = sp.songs;
+
+  // Build mosaic art from first 4 songs with art
+  var artSongs = list.filter(function(s) { return s.art || s.albumArtUri; }).slice(0, 4);
+  var mosaicHtml = '';
+  if (artSongs.length >= 4) {
+    mosaicHtml = '<div style="width:80px;height:80px;display:grid;grid-template-columns:1fr 1fr;gap:2px;border-radius:8px;overflow:hidden;flex-shrink:0;">'
+      + artSongs.map(function(s) { return imgOrArt(s.art, s.album || s.title, 40); }).join('')
+      + '</div>';
+  } else if (artSongs.length > 0) {
+    mosaicHtml = imgOrArt(artSongs[0].art, artSongs[0].album || artSongs[0].title, 80);
+  } else {
+    mosaicHtml = artHTML(sp.title, 80);
+  }
+
+  var html = '<div class="section-header" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
+    + mosaicHtml
+    + '<div><h3 style="margin:0 0 4px;">' + escHtml(sp.title) + '</h3>'
+    + '<span class="section-count">' + list.length + ' songs</span></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;padding:0 16px 12px;">'
+    + '<button id="spDetPlayAll" style="flex:1;padding:10px;background:var(--accent);border:none;border-radius:12px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">&#9654; Play All</button>'
+    + '<button id="spDetShuffle" style="flex:1;padding:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:14px;cursor:pointer;">&#128256; Shuffle</button>'
+    + '</div>';
+
+  list.forEach(function(s) {
+    html += songRowHTML(s, currentSong && currentSong.id === s.id, true);
+  });
+
+  el.innerHTML = html;
+  initLazyArt(el);
+  initSwipeGestures(el);
+  bindSongRows(el, list);
+  initScrollIndicator();
+
+  var playAllBtn = document.getElementById('spDetPlayAll');
+  if (playAllBtn) playAllBtn.onclick = function() { if (list.length) playSong(list[0], list); };
+
+  var shuffleBtn = document.getElementById('spDetShuffle');
+  if (shuffleBtn) shuffleBtn.onclick = function() {
+    if (!list.length) return;
+    var shuffled = list.slice().sort(function() { return Math.random() - 0.5; });
+    playSong(shuffled[0], shuffled);
+  };
 }
 
 // ─── Genres ───
@@ -3074,7 +3147,7 @@ function renderNowPlaying() {
   var npAlbumBtnEl = document.getElementById('npAlbumBtn');
   if (npAlbumBtnEl && currentSong) {
     var _tapAlbum  = (currentSong.album && currentSong.album !== 'Unknown Album') ? currentSong.album : null;
-    var _tapArtist = currentSong.artist || '';
+    var _tapArtist = (currentSong.albumArtist || currentSong.artist || '').replace(/\s*(feat?\.?|ft\.?|featuring)\s+.+$/i, '').trim() || currentSong.artist || '';
     if (_tapAlbum) {
       npAlbumBtnEl.onclick = function() {
         showNowPlaying = false;
