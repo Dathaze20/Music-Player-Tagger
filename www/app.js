@@ -4648,6 +4648,7 @@ function openEditModal(albumName, artistName) {
       if (newYear)        s.year        = newYear;
       if (newGenre)       s.genre       = newGenre;
       s.type = selectedType;
+      if (_pendingArtBase64) s.art = _pendingArtBase64;
     });
     saveEditsBatch(albumSongs);
 
@@ -4756,6 +4757,7 @@ function openBulkEditModal(songArr) {
       if (newAlbum)       s.album       = newAlbum;
       if (newYear)        s.year        = newYear;
       if (newGenre)       s.genre       = newGenre;
+      if (_pendingArtBase64) s.art = _pendingArtBase64;
     });
     saveEditsBatch(songArr);
     var _artSnap = _pendingArtBase64; // snapshot before closeModal() clears it
