@@ -374,11 +374,19 @@ function renderVsWindow(start) {
 }
 
 function artistRowHTML(a) {
+  var chkHtml = '';
+  if (_msArtistMode && _msArtistNames) {
+    var sel = !!_msArtistNames[a.name];
+    chkHtml = '<div style="width:22px;height:22px;border-radius:50%;border:2px solid '
+      + (sel ? 'var(--accent);background:var(--accent);color:#fff;' : 'var(--border);background:transparent;color:transparent;')
+      + 'flex-shrink:0;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:13px;font-weight:700;margin-right:4px;">'
+      + (sel ? '&#10003;' : '') + '</div>';
+  }
   var artEl = a.albumArtUris && a.albumArtUris.length > 0
     ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(a.name, 56, true) + '</div>'
     : artHTML(a.name, 56, true);
   return '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
-    + artEl
+    + chkHtml + artEl
     + '<div class="song-info">'
     + '<div class="artist-name">' + escHtml(a.name) + '</div>'
     + '<div class="artist-meta">' + a.albumCount + ' ' + (a.albumCount === 1 ? 'Album' : 'Albums') + ' &bull; ' + a.songCount + ' ' + (a.songCount === 1 ? 'Song' : 'Songs') + '</div>'
@@ -1338,6 +1346,8 @@ var currentSmartPlaylist = null;
 var _msMode = false;
 var _msSongIds = null;
 var _msEl = null;
+var _msArtistMode = false;
+var _msArtistNames = null;
 var albumFilter = 'all';
 var albumGenreFilter = 'all';
 var queue = [];
@@ -1538,6 +1548,7 @@ var _lastTabCounts = { artists: -1, songs: -1, albums: -1, genres: -1 };
 
 function render() {
   _msExit();
+  _msArtistMode = false; _msArtistNames = null; _msHideBar();
   cleanupVirtualScroll();
   cleanupArtistVS();
   cleanupCf();
@@ -2042,11 +2053,31 @@ function renderArtists(el) {
 
   var vsArtistRows = document.getElementById('vsArtistRows');
   vsArtistRows.onclick = function(e) {
+    if (_msArtistMode) {
+      var row = e.target.closest('.artist-row[data-artist]');
+      if (row) { _msArtistToggle(row.dataset.artist); return; }
+      return;
+    }
     var menuBtn = e.target.closest('[data-artist-menu]');
     if (menuBtn) { e.stopPropagation(); showArtistMenu(menuBtn.dataset.artistMenu); return; }
     var row = e.target.closest('.artist-row[data-artist]');
     if (row) { selectedArtist = row.dataset.artist; render(); }
   };
+  // Long-press to enter artist multi-select
+  var _arLpTimer = null;
+  vsArtistRows.addEventListener('touchstart', function(e) {
+    if (_msArtistMode) return;
+    var row = e.target.closest('.artist-row[data-artist]');
+    if (!row) return;
+    var name = row.dataset.artist;
+    _arLpTimer = setTimeout(function() { _arLpTimer = null; _msArtistEnter(name); }, 480);
+  }, { passive: true });
+  vsArtistRows.addEventListener('touchend', function() {
+    if (_arLpTimer) { clearTimeout(_arLpTimer); _arLpTimer = null; }
+  }, { passive: true });
+  vsArtistRows.addEventListener('touchmove', function() {
+    if (_arLpTimer) { clearTimeout(_arLpTimer); _arLpTimer = null; }
+  }, { passive: true });
 
   initArtistVS(el, artists);
   renderAlphaStrip(el, alphaLetters, function(letter) {
@@ -2843,7 +2874,70 @@ function renderAlbumDetail(el) {
   bindSongRows(el, albumSongs);
 }
 
-// ─── Multi-select (long-press to enter, tap to toggle, bulk tag edit) ───
+// ─── Artist Multi-select (long-press artist row → select multiple → bulk edit) ───
+
+function _msArtistEnter(name) {
+  _msArtistMode = true;
+  _msArtistNames = Object.create(null);
+  _msArtistNames[name] = true;
+  _haptic([20]);
+  _msArtistShowBar();
+  _msArtistRefreshRows();
+}
+
+function _msArtistExit() {
+  _msArtistMode = false;
+  _msArtistNames = null;
+  _msHideBar();
+  _msArtistRefreshRows();
+}
+
+function _msArtistToggle(name) {
+  if (!_msArtistNames) return;
+  if (_msArtistNames[name]) delete _msArtistNames[name];
+  else _msArtistNames[name] = true;
+  _msArtistRefreshRows();
+  var lbl = document.getElementById('msBarLabel');
+  if (lbl) {
+    var cnt = Object.keys(_msArtistNames).length;
+    lbl.textContent = cnt + ' artist' + (cnt !== 1 ? 's' : '') + ' selected';
+  }
+  var btn = document.getElementById('msEditBtn');
+  if (btn) btn.disabled = Object.keys(_msArtistNames).length === 0;
+}
+
+function _msArtistRefreshRows() {
+  if (_vsArtistData && document.getElementById('vsArtistRows')) {
+    renderArtistVsWindow(Math.max(0, _vsArtistStart));
+  }
+}
+
+function _msArtistShowBar() {
+  _msHideBar();
+  var bar = document.createElement('div');
+  bar.id = 'msBar';
+  bar.style.cssText = 'position:fixed;bottom:72px;left:0;right:0;height:52px;background:var(--bg-secondary);border-top:1px solid var(--border);display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;padding:0 12px;gap:8px;z-index:5000;box-shadow:0 -2px 12px rgba(0,0,0,0.4);';
+  bar.innerHTML = '<button id="msCancelBtn" style="padding:7px 14px;border:1px solid var(--border);background:transparent;color:var(--text-dim);border-radius:10px;font-size:13px;cursor:pointer;">&times; Cancel</button>'
+    + '<span id="msBarLabel" style="flex:1;text-align:center;font-size:13px;color:var(--text);">1 artist selected</span>'
+    + '<button id="msEditBtn" style="padding:7px 14px;background:var(--accent);border:none;color:#fff;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">&#9998; Edit Tags</button>';
+  document.getElementById('app').appendChild(bar);
+  document.getElementById('msCancelBtn').onclick = function() { _msArtistExit(); };
+  document.getElementById('msEditBtn').onclick = function() {
+    var names = Object.keys(_msArtistNames || {});
+    if (!names.length) return;
+    var seen = Object.create(null);
+    var allSongs = [];
+    names.forEach(function(n) {
+      getArtistSongs(n).forEach(function(s) {
+        if (!seen[s.id]) { seen[s.id] = true; allSongs.push(s); }
+      });
+    });
+    _msArtistExit();
+    openBulkEditModal(allSongs);
+  };
+}
+
+// ─── Song Multi-select (long-press song row → select multiple → bulk edit) ───
 
 function _msEnter(songId, el) {
   _msMode = true;
