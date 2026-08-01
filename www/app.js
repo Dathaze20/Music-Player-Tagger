@@ -1335,6 +1335,9 @@ var showNowPlaying = false;
 var selectedArtist = null;
 var selectedAlbum = null;
 var currentSmartPlaylist = null;
+var _msMode = false;
+var _msSongIds = null;
+var _msEl = null;
 var albumFilter = 'all';
 var albumGenreFilter = 'all';
 var queue = [];
@@ -1494,6 +1497,11 @@ function getArtistAlbums(name) {
   });
   return Object.keys(map).map(function(a) {
     return { name: a, artist: name, year: map[a].year, art: map[a].art, albumArtUri: map[a].albumArtUri || '', songCount: map[a].count, type: map[a].type };
+  }).sort(function(a, b) {
+    var ya = parseInt(a.year) || 9999;
+    var yb = parseInt(b.year) || 9999;
+    if (ya !== yb) return ya - yb;
+    return a.name.localeCompare(b.name);
   });
 }
 
@@ -1529,6 +1537,7 @@ var _TI = {
 var _lastTabCounts = { artists: -1, songs: -1, albums: -1, genres: -1 };
 
 function render() {
+  _msExit();
   cleanupVirtualScroll();
   cleanupArtistVS();
   cleanupCf();
@@ -2834,10 +2843,116 @@ function renderAlbumDetail(el) {
   bindSongRows(el, albumSongs);
 }
 
+// ─── Multi-select (long-press to enter, tap to toggle, bulk tag edit) ───
+
+function _msEnter(songId, el) {
+  _msMode = true;
+  _msSongIds = Object.create(null);
+  _msSongIds[songId] = true;
+  _msEl = el;
+  _msShowBar();
+  _msRefreshUI();
+  _haptic([20]);
+}
+
+function _msExit() {
+  _msMode = false;
+  _msSongIds = null;
+  _msEl = null;
+  _msHideBar();
+}
+
+function _msToggle(id) {
+  if (!_msSongIds) return;
+  if (_msSongIds[id]) delete _msSongIds[id];
+  else _msSongIds[id] = true;
+  _msRefreshUI();
+}
+
+function _msRefreshUI() {
+  if (!_msEl || !_msSongIds) return;
+  _msEl.querySelectorAll('.song-row[data-id]').forEach(function(row) {
+    var id = row.dataset.id;
+    var sel = !!_msSongIds[id];
+    var chk = row.querySelector('.ms-check');
+    if (!chk) {
+      chk = document.createElement('div');
+      chk.className = 'ms-check';
+      chk.style.cssText = 'width:22px;height:22px;border-radius:50%;border:2px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;transition:all 0.15s;';
+      row.insertBefore(chk, row.firstChild);
+    }
+    if (sel) {
+      chk.style.background = 'var(--accent)';
+      chk.style.borderColor = 'var(--accent)';
+      chk.style.color = '#fff';
+      chk.innerHTML = '&#10003;';
+    } else {
+      chk.style.background = 'transparent';
+      chk.style.borderColor = 'var(--border)';
+      chk.style.color = 'transparent';
+      chk.innerHTML = '';
+    }
+  });
+  var lbl = document.getElementById('msBarLabel');
+  if (lbl) {
+    var cnt = Object.keys(_msSongIds).length;
+    lbl.textContent = cnt + ' song' + (cnt !== 1 ? 's' : '') + ' selected';
+  }
+  var btn = document.getElementById('msEditBtn');
+  if (btn) btn.disabled = Object.keys(_msSongIds).length === 0;
+}
+
+function _msShowBar() {
+  _msHideBar();
+  var bar = document.createElement('div');
+  bar.id = 'msBar';
+  bar.style.cssText = 'position:fixed;bottom:72px;left:0;right:0;height:52px;background:var(--bg-secondary);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:8px;z-index:5000;box-shadow:0 -2px 12px rgba(0,0,0,0.4);';
+  bar.innerHTML = '<button id="msCancelBtn" style="padding:7px 14px;border:1px solid var(--border);background:transparent;color:var(--text-dim);border-radius:10px;font-size:13px;cursor:pointer;">&times; Cancel</button>'
+    + '<span id="msBarLabel" style="flex:1;text-align:center;font-size:13px;color:var(--text);">0 songs selected</span>'
+    + '<button id="msEditBtn" style="padding:7px 14px;background:var(--accent);border:none;color:#fff;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;" disabled>&#9998; Edit Tags</button>';
+  document.getElementById('app').appendChild(bar);
+  document.getElementById('msCancelBtn').onclick = function() { _msExit(); };
+  document.getElementById('msEditBtn').onclick = function() {
+    var ids = Object.keys(_msSongIds || {});
+    if (!ids.length) return;
+    var sel = ids.map(function(id) { return songMap[id]; }).filter(Boolean);
+    _msExit();
+    openBulkEditModal(sel);
+  };
+}
+
+function _msHideBar() {
+  var bar = document.getElementById('msBar');
+  if (bar) bar.remove();
+}
+
 // ─── Song Row Bindings ───
 
 function bindSongRows(el, songList) {
+  var _lpTimer = null;
+
+  el.addEventListener('touchstart', function(e) {
+    if (_msMode) return;
+    var row = e.target.closest('.song-row[data-id]');
+    if (!row) return;
+    var rowId = row.dataset.id;
+    _lpTimer = setTimeout(function() { _lpTimer = null; _msEnter(rowId, el); }, 480);
+  }, { passive: true });
+
+  el.addEventListener('touchend', function() {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+  }, { passive: true });
+
+  el.addEventListener('touchmove', function() {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+  }, { passive: true });
+
   el.onclick = function(e) {
+    if (_msMode) {
+      var row = e.target.closest('.song-row[data-id]');
+      if (row) { _msToggle(row.dataset.id); return; }
+      return;
+    }
     var fav = e.target.closest('[data-fav]');
     if (fav) {
       var s = songMap[fav.dataset.fav];
@@ -4340,7 +4455,12 @@ function openEditModal(albumName, artistName) {
           var el = document.getElementById(id);
           if (!el) return;
           var cur = el.value.trim();
-          if (cur && !(id === 'editYear' && cur === '1970')) return;
+          if (cur) {
+            // Still overwrite known placeholders
+            if (id === 'editYear'  && cur === '1970') { /* fall through */ }
+            else if (id === 'editGenre' && GENERIC_GENRE.test(cur)) { /* fall through */ }
+            else return;
+          }
           el.value = val; filled++;
         }
         fill('editArtist',      String(r.artist      || '').trim());
@@ -4348,6 +4468,12 @@ function openEditModal(albumName, artistName) {
         fill('editAlbum',       String(r.album       || '').trim());
         fill('editYear',        String(r.year        || '').trim());
         fill('editGenre',       String(r.genre       || '').trim());
+        // Auto-populate albumArtist from artist when still blank
+        var _aaEl = document.getElementById('editAlbumArtist');
+        var _arEl = document.getElementById('editArtist');
+        if (_aaEl && !_aaEl.value.trim() && _arEl && _arEl.value.trim()) {
+          _aaEl.value = _arEl.value.trim(); filled++;
+        }
         var rtype = String(r.releaseType || '').trim();
         if (rtype && ['Album','Mixtape','EP','Single'].indexOf(rtype) !== -1) {
           if (activeTypeBtn) activeTypeBtn.className = 'type-btn';
@@ -4432,6 +4558,73 @@ function openEditModal(albumName, artistName) {
       });
     }
     writeNext(0);
+  };
+}
+
+function openBulkEditModal(songArr) {
+  var modal = document.getElementById('editModal');
+  var overlay = document.getElementById('editOverlay');
+
+  modal.innerHTML = '<div class="edit-modal-header"><div><h3>&#9998; Edit ' + songArr.length + ' Songs</h3>'
+    + '<p>Leave blank to keep each song\'s existing value</p></div>'
+    + '<button id="bEditClose">&times;</button></div>'
+    + '<div class="edit-modal-body">'
+    + '<div class="edit-field"><label>Artist</label><input id="bEditArtist" placeholder="e.g. 2Pac"></div>'
+    + '<div class="edit-field"><label>Album Artist</label><input id="bEditAlbumArtist" placeholder="e.g. 2Pac"></div>'
+    + '<div class="edit-field"><label>Album</label><input id="bEditAlbum" placeholder="Album name"></div>'
+    + '<div class="edit-row">'
+    + '<div class="edit-field"><label>Year</label><input id="bEditYear" placeholder="2024" type="number"></div>'
+    + '<div class="edit-field"><label>Genre</label><input id="bEditGenre" placeholder="Hip-Hop"></div>'
+    + '</div></div>'
+    + '<div class="edit-modal-footer">'
+    + '<button class="btn-cancel" id="bEditCancel">Cancel</button>'
+    + '<button class="btn-save" id="bEditSave">&#10003; Save ' + songArr.length + ' Songs</button>'
+    + '</div>';
+
+  modal.classList.remove('hidden');
+  overlay.classList.remove('hidden');
+
+  function closeModal() { modal.classList.add('hidden'); overlay.classList.add('hidden'); modal.innerHTML = ''; }
+  document.getElementById('bEditClose').onclick = closeModal;
+  document.getElementById('bEditCancel').onclick = closeModal;
+  overlay.onclick = closeModal;
+
+  document.getElementById('bEditSave').onclick = function() {
+    var newArtist      = document.getElementById('bEditArtist').value.trim();
+    var newAlbumArtist = document.getElementById('bEditAlbumArtist').value.trim();
+    var newAlbum       = document.getElementById('bEditAlbum').value.trim();
+    var newYear        = document.getElementById('bEditYear').value.trim();
+    var newGenre       = document.getElementById('bEditGenre').value.trim();
+    if (!newArtist && !newAlbumArtist && !newAlbum && !newYear && !newGenre) {
+      showToast('Fill in at least one field to update'); return;
+    }
+    songArr.forEach(function(s) {
+      if (newArtist)      s.artist      = newArtist;
+      if (newAlbumArtist) s.albumArtist = newAlbumArtist;
+      if (newAlbum)       s.album       = newAlbum;
+      if (newYear)        s.year        = newYear;
+      if (newGenre)       s.genre       = newGenre;
+    });
+    saveEditsBatch(songArr);
+    // Write file tags on native sequentially
+    var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
+    if (isNat) {
+      var toWrite = songArr.filter(function(s) { return s.contentUri; });
+      (function writeNext(i) {
+        if (i >= toWrite.length) return;
+        var s = toWrite[i];
+        NativeBridge.writeFileTags({
+          contentUri: s.contentUri, title: s.title,
+          artist: s.artist, album: s.album, year: s.year || '',
+          genre: s.genre || '', albumArtist: s.albumArtist || '',
+          track: s.track || 0, lyrics: s.syncedLyrics || s.lyrics || '', artBase64: '',
+        }).then(function() { writeNext(i + 1); }).catch(function() { writeNext(i + 1); });
+      })(0);
+    }
+    closeModal();
+    saveLibrary();
+    render();
+    showToast('Updated ' + songArr.length + ' song' + (songArr.length !== 1 ? 's' : ''));
   };
 }
 
