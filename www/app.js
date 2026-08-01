@@ -1327,7 +1327,7 @@ function scheduleStartupRender() {
 // _lazyArtObs removed — initLazyArt now uses per-container observers
 
 // Now Playing DOM element refs — cached after renderNowPlaying, cleared on close
-var _npSeekEl = null, _npFillEl = null, _npTime0El = null;
+var _npSeekEl = null, _npFillEl = null, _npTime0El = null, _npSeeking = false;
 
 // Mini player DOM cache — populated on first updateMiniPlayer() call
 var _miniLastSongId = '';
@@ -3367,10 +3367,18 @@ function renderNowPlaying() {
     if (btn) { btn.innerHTML = heartSvg(s.fav); btn.classList.toggle('fav-active', s.fav); }
   };
   document.getElementById('npQueueBtn').onclick = function() { openQueuePanel(); };
-  document.getElementById('npSeek').oninput = function(e) {
+  var _seekEl = document.getElementById('npSeek');
+  _seekEl.addEventListener('touchstart', function() { _npSeeking = true; }, { passive: true });
+  _seekEl.addEventListener('touchend', function(e) {
     audio.currentTime = parseFloat(e.target.value);
+    _npSeeking = false;
     _lastNotifKey = '';
     updateMediaSession();
+  });
+  _seekEl.oninput = function(e) {
+    var val = parseFloat(e.target.value);
+    if (_npFillEl && duration > 0) _npFillEl.style.width = (val / duration * 100).toFixed(1) + '%';
+    if (_npTime0El) _npTime0El.textContent = fmtTime(val);
   };
 
   // Tap album name at top → go to that album
@@ -3454,7 +3462,7 @@ function renderNowPlaying() {
   // Swipe gestures: down to close, left/right to skip (but not in lyrics scroll)
   var _swipeX = 0, _swipeY = 0, _swipeBlocked = false;
   np.ontouchstart = function(e) {
-    _swipeBlocked = !!(e.target.closest('.synced-lyrics-scroll') || e.target.closest('.plain-lyrics-scroll'));
+    _swipeBlocked = !!(e.target.closest('.synced-lyrics-scroll') || e.target.closest('.plain-lyrics-scroll') || e.target.closest('input[type=range]'));
     _swipeX = e.touches[0].clientX;
     _swipeY = e.touches[0].clientY;
   };
@@ -3953,8 +3961,8 @@ audio.addEventListener('timeupdate', function() {
   // Trigger gapless preload 8 seconds before track ends
   if (duration > 0 && currentTime > 0 && (duration - currentTime) < 8) maybePreloadNext();
   if (showNowPlaying) {
-    if (_npSeekEl) { _npSeekEl.value = currentTime; }
-    if (_npFillEl && duration > 0) _npFillEl.style.width = (currentTime / duration * 100).toFixed(1) + '%';
+    if (_npSeekEl && !_npSeeking) { _npSeekEl.value = currentTime; }
+    if (_npFillEl && duration > 0 && !_npSeeking) _npFillEl.style.width = (currentTime / duration * 100).toFixed(1) + '%';
     if (_npTime0El) _npTime0El.textContent = fmtTime(currentTime);
     updateSyncedLyrics(currentTime);
   }
