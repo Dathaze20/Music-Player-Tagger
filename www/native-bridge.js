@@ -275,6 +275,17 @@ var NativeBridge = (function() {
     return plugin.requestNotificationPermission().catch(function() {});
   }
 
+  // Trigger a haptic vibration directly via Android's Vibrator API.
+  // More reliable than navigator.vibrate inside a Capacitor WebView.
+  function vibrate(duration) {
+    var plugin = getPlugin('MediaStore');
+    if (plugin && plugin.vibrate) {
+      plugin.vibrate({ duration: duration || 50 }).catch(function() {});
+    } else if (navigator.vibrate) {
+      navigator.vibrate(duration || 50);
+    }
+  }
+
   // Launch the system image picker and return the chosen image as a base64 JPEG data URL.
   // Resolves { data: "data:image/jpeg;base64,..." } or rejects if user cancels.
   function pickAlbumArt() {
@@ -303,6 +314,7 @@ var NativeBridge = (function() {
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
            readAlbumArt: readAlbumArt, writeFileTags: writeFileTags, pickAlbumArt: pickAlbumArt,
+           vibrate: vibrate,
            requestWriteAccess: requestWriteAccess,
            requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri,
            updateMediaNotification: updateMediaNotification,

@@ -262,6 +262,36 @@ public class MediaStorePlugin extends Plugin {
         }
     }
 
+    // ─── Haptic vibration ─────────────────────────────────────────────────────
+
+    @PluginMethod
+    public void vibrate(PluginCall call) {
+        int duration = call.getInt("duration", 50);
+        try {
+            if (Build.VERSION.SDK_INT >= 31) {
+                android.os.VibratorManager vm = (android.os.VibratorManager)
+                    getContext().getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+                if (vm != null) {
+                    android.os.Vibrator v = vm.getDefaultVibrator();
+                    v.vibrate(android.os.VibrationEffect.createOneShot(
+                        duration, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+                }
+            } else if (Build.VERSION.SDK_INT >= 26) {
+                android.os.Vibrator v = (android.os.Vibrator)
+                    getContext().getSystemService(Context.VIBRATOR_SERVICE);
+                if (v != null) v.vibrate(android.os.VibrationEffect.createOneShot(
+                    duration, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+            } else {
+                android.os.Vibrator v = (android.os.Vibrator)
+                    getContext().getSystemService(Context.VIBRATOR_SERVICE);
+                if (v != null) v.vibrate(duration);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.resolve(); // vibration is best-effort
+        }
+    }
+
     // ─── Album art picker ─────────────────────────────────────────────────────
 
     @PluginMethod

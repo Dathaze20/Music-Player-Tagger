@@ -10,9 +10,14 @@
 // Requires android.permission.VIBRATE in the manifest for navigator.vibrate() to work.
 function _haptic(pattern) {
   try {
+    var dur = Array.isArray(pattern) ? pattern[0] : (pattern || 40);
+    // Use NativeBridge (direct Android Vibrator) first — most reliable in Capacitor WebView
+    if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative && NativeBridge.isNative()) {
+      NativeBridge.vibrate(dur);
+      return;
+    }
     var cap = window.Capacitor;
     if (cap && cap.Plugins && cap.Plugins.Haptics) {
-      var dur = Array.isArray(pattern) ? pattern[0] : (pattern || 10);
       cap.Plugins.Haptics.vibrate({ duration: dur });
     } else if (navigator.vibrate) {
       navigator.vibrate(pattern);
@@ -3278,9 +3283,9 @@ function renderNowPlaying() {
     + '<button id="npRepeat" class="np-ctrl' + (repeatMode !== 'off' ? ' active' : '') + '" style="font-size:20px;">'
     + (repeatMode === 'off' ? '&#8594;' : repeatMode === 'all' ? '&#8635;' : '&#8635;<span style="font-size:11px;font-weight:700;vertical-align:super;margin-left:1px;">1</span>')
     + '</button>'
-    + '<button id="npPrev" class="np-ctrl">&#9198;</button>'
+    + '<button id="npPrev" class="np-ctrl np-skip">&#9198;</button>'
     + '<button class="np-play-btn' + (isPlaying ? ' is-playing' : '') + '" id="npPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
-    + '<button id="npNext" class="np-ctrl">&#9197;</button>'
+    + '<button id="npNext" class="np-ctrl np-skip">&#9197;</button>'
     + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '" style="font-size:20px;">&#8644;</button>'
     + '</div>'
     + '<div class="np-bottom">'
@@ -3335,6 +3340,10 @@ function renderNowPlaying() {
   document.getElementById('npPlay').onclick = togglePlay;
   document.getElementById('npPrev').onclick = handlePrev;
   document.getElementById('npNext').onclick = handleNext;
+  // Haptic feedback on touch — fires before click for instant response
+  document.getElementById('npPlay').addEventListener('touchstart', function() { _haptic(55); }, { passive: true });
+  document.getElementById('npPrev').addEventListener('touchstart', function() { _haptic(35); }, { passive: true });
+  document.getElementById('npNext').addEventListener('touchstart', function() { _haptic(35); }, { passive: true });
   document.getElementById('npEditBtn').onclick = function() { openSongEditModal(currentSong.id); };
   document.getElementById('npRepeat').onclick = function() {
     repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
