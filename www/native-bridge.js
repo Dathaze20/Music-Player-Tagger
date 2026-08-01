@@ -275,6 +275,17 @@ var NativeBridge = (function() {
     return plugin.requestNotificationPermission().catch(function() {});
   }
 
+  // Launch the system image picker and return the chosen image as a base64 JPEG data URL.
+  // Resolves { data: "data:image/jpeg;base64,..." } or rejects if user cancels.
+  function pickAlbumArt() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.pickAlbumArt) return Promise.reject(new Error('pickAlbumArt not available'));
+    return plugin.pickAlbumArt().then(function(r) {
+      if (!r || !r.data) return Promise.reject(new Error('No image returned'));
+      return r.data;
+    });
+  }
+
   // Returns { exempt: boolean } — whether the app is already whitelisted from battery optimization.
   function isBatteryOptimizationExempt() {
     var plugin = getPlugin('MediaStore');
@@ -291,7 +302,7 @@ var NativeBridge = (function() {
 
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
-           readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
+           readAlbumArt: readAlbumArt, writeFileTags: writeFileTags, pickAlbumArt: pickAlbumArt,
            requestWriteAccess: requestWriteAccess,
            requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri,
            updateMediaNotification: updateMediaNotification,

@@ -62,9 +62,10 @@ import java.util.logging.Logger;
 public class MediaStorePlugin extends Plugin {
 
     private static final String TAG                    = "MediaStorePlugin";
-    private static final int    WRITE_REQUEST_CODE     = 9001;
-    private static final int    SAF_REQUEST_CODE       = 9002;
+    private static final int    WRITE_REQUEST_CODE        = 9001;
+    private static final int    SAF_REQUEST_CODE          = 9002;
     private static final int    WRITE_ACCESS_REQUEST_CODE = 9003;
+    private static final int    PICK_IMAGE_REQUEST_CODE   = 9004;
     private static final String PREFS_NAME             = "muzio_prefs";
     private static final String PREF_SAF_URI           = "saf_tree_uri";
 
@@ -80,6 +81,7 @@ public class MediaStorePlugin extends Plugin {
     private Uri        pendingWriteUri;
     private PluginCall savedSafCall;
     private PluginCall savedWriteAccessCall;
+    private PluginCall savedPickCall;
 
     // ─── Notification button receiver ─────────────────────────────────────────
     // Receives ACTION_PREV/PLAY_PAUSE/NEXT/CLOSE from MuzioPlaybackService
@@ -260,6 +262,25 @@ public class MediaStorePlugin extends Plugin {
         }
     }
 
+    // ─── Album art picker ─────────────────────────────────────────────────────
+
+    @PluginMethod
+    public void pickAlbumArt(PluginCall call) {
+        savedPickCall = call;
+        call.setKeepAlive(true);
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        try {
+            getActivity().startActivityForResult(
+                Intent.createChooser(intent, "Select Album Art"), PICK_IMAGE_REQUEST_CODE);
+        } catch (Exception e) {
+            savedPickCall = null;
+            call.setKeepAlive(false);
+            call.reject("Could not open gallery: " + e.getMessage());
+        }
+    }
+
     // ─── Tag writing ──────────────────────────────────────────────────────────
 
     @PluginMethod
@@ -326,6 +347,47 @@ public class MediaStorePlugin extends Plugin {
     @Override
     protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
         super.handleOnActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == PICK_IMAGE_REQUEST_CODE) {
+            PluginCall call = savedPickCall;
+            savedPickCall = null;
+            if (call == null) return;
+            call.setKeepAlive(false);
+            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+                Uri imageUri = data.getData();
+                try {
+                    ContentResolver resolver = getContext().getContentResolver();
+                    InputStream is = resolver.openInputStream(imageUri);
+                    if (is == null) { call.reject("Cannot open image"); return; }
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    pipe(is, baos);
+                    is.close();
+                    byte[] rawBytes = baos.toByteArray();
+                    // Decode with downsampling to max 600px
+                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                    opts.inJustDecodeBounds = true;
+                    android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length, opts);
+                    int sample = 1;
+                    while ((opts.outWidth / (sample * 2)) >= 600 || (opts.outHeight / (sample * 2)) >= 600) sample *= 2;
+                    opts.inSampleSize = sample;
+                    opts.inJustDecodeBounds = false;
+                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length, opts);
+                    if (bmp == null) { call.reject("Cannot decode image"); return; }
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
+                    bmp.recycle();
+                    String b64 = "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                    JSObject result = new JSObject();
+                    result.put("data", b64);
+                    call.resolve(result);
+                } catch (Exception e) {
+                    call.reject("Image read error: " + e.getMessage());
+                }
+            } else {
+                call.reject("Cancelled");
+            }
+            return;
+        }
 
         if (requestCode == WRITE_ACCESS_REQUEST_CODE) {
             PluginCall call = savedWriteAccessCall;

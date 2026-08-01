@@ -1351,6 +1351,7 @@ var _msArtistMode = false;
 var _msArtistNames = null;
 var albumFilter = 'all';
 var albumGenreFilter = 'all';
+var _pendingArtBase64 = ''; // album art picked in edit modal, cleared on close
 var queue = [];
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
@@ -4499,7 +4500,20 @@ function openSongEditModal(songId) {
 
 }
 
+function _pickArt(previewEl) {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) {
+    showToast('Gallery picker requires the native app');
+    return;
+  }
+  NativeBridge.pickAlbumArt().then(function(b64) {
+    _pendingArtBase64 = b64;
+    var el = previewEl || document.getElementById('editArtPreview') || document.getElementById('bEditArtPreview');
+    if (el) el.innerHTML = '<img src="' + b64 + '" style="width:100%;height:100%;object-fit:cover;">';
+  }).catch(function() {}); // user cancelled — no action
+}
+
 function openEditModal(albumName, artistName) {
+  _pendingArtBase64 = '';
   var albumSongs = getAlbumSongs(albumName, artistName);
   var first = albumSongs[0] || {};
   var modal = document.getElementById('editModal');
@@ -4509,6 +4523,11 @@ function openEditModal(albumName, artistName) {
     + '<p>Changes apply to all ' + albumSongs.length + ' songs</p></div>'
     + '<button id="editClose">&times;</button></div>'
     + '<div class="edit-modal-body">'
+    + '<div style="display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-pack:center;justify-content:center;margin-bottom:16px;">'
+    + '<div style="position:relative;width:120px;height:120px;">'
+    + '<div id="editArtPreview" style="width:120px;height:120px;border-radius:14px;overflow:hidden;background:var(--bg-secondary);display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:40px;">&#127925;</div>'
+    + '<button id="editArtPenBtn" style="position:absolute;bottom:-6px;right:-6px;width:34px;height:34px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);color:#fff;font-size:15px;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);">&#9998;</button>'
+    + '</div></div>'
     + '<div class="edit-field"><label>Artist</label><input id="editArtist" value="' + escHtml(artistName) + '"></div>'
     + '<div class="edit-field"><label>Album Artist</label><input id="editAlbumArtist" value="' + escHtml(first.albumArtist || '') + '" placeholder="e.g. Various Artists"></div>'
     + '<div class="edit-field"><label>Album / Mixtape Name</label><input id="editAlbum" value="' + escHtml(albumName) + '"></div>'
@@ -4547,6 +4566,21 @@ function openEditModal(albumName, artistName) {
   document.getElementById('editClose').onclick = closeEditModal;
   document.getElementById('editCancelBtn').onclick = closeEditModal;
   overlay.onclick = closeEditModal;
+
+  // Load existing album art into preview
+  var artPreview = document.getElementById('editArtPreview');
+  if (artPreview && first.albumArtUri && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+    NativeBridge.readAlbumArt(first.albumArtUri, 300).then(function(b64) {
+      var el = document.getElementById('editArtPreview');
+      if (el && b64) el.innerHTML = '<img src="' + b64 + '" style="width:100%;height:100%;object-fit:cover;">';
+    }).catch(function() {});
+  } else if (artPreview && first.art && first.art.startsWith('data:')) {
+    artPreview.innerHTML = '<img src="' + first.art + '" style="width:100%;height:100%;object-fit:cover;">';
+  }
+
+  document.getElementById('editArtPenBtn').onclick = function() {
+    _pickArt(document.getElementById('editArtPreview'));
+  };
 
   var editAiBtn = document.getElementById('editAiBtn');
   if (editAiBtn) {
@@ -4620,6 +4654,7 @@ function openEditModal(albumName, artistName) {
     if (selectedAlbum) {
       selectedAlbum = { name: newAlbum || albumName, artist: newArtist || artistName };
     }
+    var _artSnap = _pendingArtBase64; // snapshot before closeEditModal() clears it
     closeEditModal();
     saveLibrary();
     render();
@@ -4637,9 +4672,11 @@ function openEditModal(albumName, artistName) {
     function writeNext(i) {
       if (i >= toWrite.length) return;  // file write is best-effort; in-app save already confirmed
       var s = toWrite[i];
-      var artPromise = s.albumArtUri
-        ? NativeBridge.readAlbumArt(s.albumArtUri, 500).catch(function() { return ''; })
-        : Promise.resolve(s.art && s.art.startsWith('data:') ? s.art : '');
+      var artPromise = _artSnap
+        ? Promise.resolve(_artSnap)
+        : (s.albumArtUri
+          ? NativeBridge.readAlbumArt(s.albumArtUri, 500).catch(function() { return ''; })
+          : Promise.resolve(s.art && s.art.startsWith('data:') ? s.art : ''));
 
       artPromise.then(function(artBase64) {
         return NativeBridge.writeFileTags({
@@ -4667,6 +4704,7 @@ function openEditModal(albumName, artistName) {
 }
 
 function openBulkEditModal(songArr) {
+  _pendingArtBase64 = '';
   var modal = document.getElementById('editModal');
   var overlay = document.getElementById('editOverlay');
 
@@ -4674,6 +4712,11 @@ function openBulkEditModal(songArr) {
     + '<p>Leave blank to keep each song\'s existing value</p></div>'
     + '<button id="bEditClose">&times;</button></div>'
     + '<div class="edit-modal-body">'
+    + '<div style="display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-pack:center;justify-content:center;margin-bottom:16px;">'
+    + '<div style="position:relative;width:120px;height:120px;">'
+    + '<div id="bEditArtPreview" style="width:120px;height:120px;border-radius:14px;overflow:hidden;background:var(--bg-secondary);display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:40px;">&#127925;</div>'
+    + '<button id="bEditArtPenBtn" style="position:absolute;bottom:-6px;right:-6px;width:34px;height:34px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);color:#fff;font-size:15px;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);">&#9998;</button>'
+    + '</div></div>'
     + '<div class="edit-field"><label>Artist</label><input id="bEditArtist" placeholder="e.g. 2Pac"></div>'
     + '<div class="edit-field"><label>Album Artist</label><input id="bEditAlbumArtist" placeholder="e.g. 2Pac"></div>'
     + '<div class="edit-field"><label>Album</label><input id="bEditAlbum" placeholder="Album name"></div>'
@@ -4689,10 +4732,14 @@ function openBulkEditModal(songArr) {
   modal.classList.remove('hidden');
   overlay.classList.remove('hidden');
 
-  function closeModal() { modal.classList.add('hidden'); overlay.classList.add('hidden'); modal.innerHTML = ''; }
+  function closeModal() { _pendingArtBase64 = ''; modal.classList.add('hidden'); overlay.classList.add('hidden'); modal.innerHTML = ''; }
   document.getElementById('bEditClose').onclick = closeModal;
   document.getElementById('bEditCancel').onclick = closeModal;
   overlay.onclick = closeModal;
+
+  document.getElementById('bEditArtPenBtn').onclick = function() {
+    _pickArt(document.getElementById('bEditArtPreview'));
+  };
 
   document.getElementById('bEditSave').onclick = function() {
     var newArtist      = document.getElementById('bEditArtist').value.trim();
@@ -4700,8 +4747,8 @@ function openBulkEditModal(songArr) {
     var newAlbum       = document.getElementById('bEditAlbum').value.trim();
     var newYear        = document.getElementById('bEditYear').value.trim();
     var newGenre       = document.getElementById('bEditGenre').value.trim();
-    if (!newArtist && !newAlbumArtist && !newAlbum && !newYear && !newGenre) {
-      showToast('Fill in at least one field to update'); return;
+    if (!newArtist && !newAlbumArtist && !newAlbum && !newYear && !newGenre && !_pendingArtBase64) {
+      showToast('Fill in at least one field or pick album art'); return;
     }
     songArr.forEach(function(s) {
       if (newArtist)      s.artist      = newArtist;
@@ -4711,7 +4758,9 @@ function openBulkEditModal(songArr) {
       if (newGenre)       s.genre       = newGenre;
     });
     saveEditsBatch(songArr);
-    // Write file tags on native sequentially
+    var _artSnap = _pendingArtBase64; // snapshot before closeModal() clears it
+    closeModal();
+    // Write file tags on native sequentially (fire-and-forget after modal close)
     var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
     if (isNat) {
       var toWrite = songArr.filter(function(s) { return s.contentUri; });
@@ -4722,11 +4771,11 @@ function openBulkEditModal(songArr) {
           contentUri: s.contentUri, title: s.title,
           artist: s.artist, album: s.album, year: s.year || '',
           genre: s.genre || '', albumArtist: s.albumArtist || '',
-          track: s.track || 0, lyrics: s.syncedLyrics || s.lyrics || '', artBase64: '',
+          track: s.track || 0, lyrics: s.syncedLyrics || s.lyrics || '',
+          artBase64: _artSnap || '',
         }).then(function() { writeNext(i + 1); }).catch(function() { writeNext(i + 1); });
       })(0);
     }
-    closeModal();
     saveLibrary();
     render();
     showToast('Updated ' + songArr.length + ' song' + (songArr.length !== 1 ? 's' : ''));
@@ -4734,6 +4783,7 @@ function openBulkEditModal(songArr) {
 }
 
 function closeEditModal() {
+  _pendingArtBase64 = '';
   var m = document.getElementById('editModal');
   m.classList.add('hidden');
   m.classList.remove('tag-editor');
