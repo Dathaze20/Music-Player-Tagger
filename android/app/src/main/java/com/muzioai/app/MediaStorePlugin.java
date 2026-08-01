@@ -273,14 +273,12 @@ public class MediaStorePlugin extends Plugin {
                     getContext().getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
                 if (vm != null) {
                     android.os.Vibrator v = vm.getDefaultVibrator();
-                    v.vibrate(android.os.VibrationEffect.createOneShot(
-                        duration, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+                    v.vibrate(android.os.VibrationEffect.createOneShot(duration, 255));
                 }
             } else if (Build.VERSION.SDK_INT >= 26) {
                 android.os.Vibrator v = (android.os.Vibrator)
                     getContext().getSystemService(Context.VIBRATOR_SERVICE);
-                if (v != null) v.vibrate(android.os.VibrationEffect.createOneShot(
-                    duration, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+                if (v != null) v.vibrate(android.os.VibrationEffect.createOneShot(duration, 255));
             } else {
                 android.os.Vibrator v = (android.os.Vibrator)
                     getContext().getSystemService(Context.VIBRATOR_SERVICE);
