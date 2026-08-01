@@ -319,6 +319,7 @@ var _vsArtistData    = null;
 var _vsArtistStart   = -9999;
 var _vsArtistScrollFn = null;
 var _vsArtistLetterIdx = null; // letter → first row index for alphabet jump
+var _savedArtistScroll = 0;   // restored when returning from artist detail
 
 function cleanupVirtualScroll() {
   if (_vsScrollFn) {
@@ -1602,22 +1603,30 @@ function render() {
     menuBtn.innerHTML = '&#8249;';
     menuBtn.onclick = function() { selectedAlbum = null; render(); };
     renderAlbumDetail(main);
+    main.scrollTop = 0;
   } else if (selectedArtist) {
     tabBar.classList.add('hidden');
     header.textContent = selectedArtist;
     menuBtn.innerHTML = '&#8249;';
     menuBtn.onclick = function() { selectedArtist = null; render(); };
     renderArtistDetail(main);
+    main.scrollTop = 0;
   } else if (selectedGenre) {
     tabBar.classList.add('hidden');
     header.textContent = selectedGenre;
     menuBtn.innerHTML = '&#8249;';
     menuBtn.onclick = function() { selectedGenre = null; render(); };
     renderGenreDetail(main);
+    main.scrollTop = 0;
   } else {
     header.textContent = 'Muzio AI';
     if (currentTab === 'artists') {
       renderArtists(main);
+      if (_savedArtistScroll > 0) {
+        main.scrollTop = _savedArtistScroll;
+        if (_vsArtistScrollFn) _vsArtistScrollFn();
+        _savedArtistScroll = 0;
+      }
     } else if (currentTab === 'songs') {
       fab.innerHTML = '&#128256;';
       fab.style.fontSize = '22px';
@@ -1630,12 +1639,14 @@ function render() {
       renderPlaylists(main);
     } else if (currentTab === 'playlist') {
       renderPlaylistSongs(main);
+      main.scrollTop = 0;
     } else if (currentTab === 'smartpl') {
       tabBar.classList.add('hidden');
       header.textContent = currentSmartPlaylist ? currentSmartPlaylist.title : 'Smart Playlist';
       menuBtn.innerHTML = '&#8249;';
       menuBtn.onclick = function() { currentSmartPlaylist = null; currentTab = 'playlists'; render(); };
       renderSmartPlaylistDetail(main);
+      main.scrollTop = 0;
     } else if (currentTab === 'favorites') {
       renderFavorites(main);
     } else if (currentTab === 'genres') {
@@ -2061,7 +2072,7 @@ function renderArtists(el) {
     var menuBtn = e.target.closest('[data-artist-menu]');
     if (menuBtn) { e.stopPropagation(); showArtistMenu(menuBtn.dataset.artistMenu); return; }
     var row = e.target.closest('.artist-row[data-artist]');
-    if (row) { selectedArtist = row.dataset.artist; render(); }
+    if (row) { _savedArtistScroll = el.scrollTop; selectedArtist = row.dataset.artist; render(); }
   };
   // Long-press to enter artist multi-select
   var _arLpTimer = null;
