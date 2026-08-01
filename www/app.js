@@ -562,7 +562,7 @@ function applyHdArtToNP(uri, data) {
       var overlay = document.getElementById('npArtLyrics');
       var newImg = document.createElement('img');
       newImg.id = 'npArtImgEl'; newImg.src = data;
-      newImg.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+      newImg.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;display:block;';
       Array.from(artEl.childNodes).forEach(function(c) { if (c !== overlay) artEl.removeChild(c); });
       artEl.insertBefore(newImg, overlay || null);
     }
@@ -3234,7 +3234,7 @@ function renderNowPlaying() {
               : (artUri && artCache[artUri]) ? artCache[artUri]
               : '';
   var artContent = artData
-    ? '<img id="npArtImgEl" src="' + artData + '" style="width:100%;height:100%;object-fit:cover;display:block;">'
+    ? '<img id="npArtImgEl" src="' + artData + '" style="width:100%;height:100%;object-fit:contain;background:#000;display:block;">'
     : artHTML(currentSong.album || currentSong.title, 300, false, 'xxl');
 
   var hasLyrics = lyricsLines.length > 0 || !!(currentSong.lyrics && currentSong.lyrics.trim());
