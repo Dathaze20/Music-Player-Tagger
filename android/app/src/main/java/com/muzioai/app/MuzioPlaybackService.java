@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
@@ -288,6 +289,7 @@ public class MuzioPlaybackService extends Service {
                 .setMediaSession(mediaSession.getSessionToken())
                 .setShowActionsInCompactView(0, 1, 2));
         }
+        nb.setColor(Color.parseColor("#00a89e"));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nb.setColorized(true);
         }
