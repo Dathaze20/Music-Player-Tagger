@@ -3821,3 +3821,129 @@ body.cf-ls .app { overflow: visible !important; }
   }
   .now-playing .np-times { margin-top: 2px; font-size: 10px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   UI POLISH v2 — library, tabs, mini-player, cards, buttons
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Tab bar: glowing pill indicator under active tab ── */
+.tabs button.active {
+  box-shadow: 0 0 18px rgba(0,168,158,0.22), inset 0 0 10px rgba(0,168,158,0.07);
+}
+.tabs button.active::before {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+  box-shadow: 0 0 8px rgba(0,168,158,0.9), 0 0 18px rgba(0,168,158,0.5);
+}
+
+/* ── Mini player: teal top-glow line, upgraded art, teal play icon ── */
+.mini-player::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 18%;
+  right: 18%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,168,158,0.72), transparent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.mini-player .song-art,
+.mini-player .art-placeholder {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6), 0 0 0 1.5px rgba(255,255,255,0.08);
+}
+#miniPlayBtn { color: var(--primary) !important; }
+
+/* ── Artist list rows: subtler divider ── */
+.artist-row {
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+/* ── Artist grid cards: depth ── */
+.artist-grid-card {
+  background: rgba(34,40,57,0.55);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+}
+
+/* ── Artist/album circle art: faint teal rim ── */
+.art-placeholder.round {
+  box-shadow: 0 0 0 2px rgba(0,168,158,0.18), 0 4px 14px rgba(0,0,0,0.45);
+}
+
+/* ── Album cards: art shadow depth + bolder text ── */
+.album-art-wrap {
+  box-shadow: 0 14px 40px rgba(0,0,0,0.75), 0 4px 12px rgba(0,0,0,0.45);
+}
+.album-name { font-weight: 700; }
+.album-meta { color: var(--primary); opacity: 0.75; }
+
+/* ── Genre cards: deeper shadow + subtle border ── */
+.genre-card {
+  box-shadow: 0 8px 30px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* ── Primary/secondary buttons: glow + weight ── */
+.btn-primary {
+  box-shadow: 0 4px 20px rgba(0,168,158,0.42);
+  font-weight: 700;
+}
+.btn-secondary {
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* ── Section header title: heavier weight ── */
+.section-header h3 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+/* ── Queue: playing row title in teal ── */
+.queue-row.queue-now .queue-row-title {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* ── Playlist items: subtle card glass ── */
+.playlist-item {
+  background: rgba(34,40,57,0.35);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* ── Song row: tighter playing glow on art ── */
+.song-row.playing .song-art,
+.song-row.playing .art-placeholder {
+  box-shadow: 0 0 0 2px rgba(0,168,158,0.35), 0 4px 16px rgba(0,168,158,0.25);
+}
+
+/* ── Search bar: teal focus ring ── */
+#searchBar input:focus {
+  box-shadow: 0 0 0 2px rgba(0,168,158,0.4);
+  outline: none;
+}
+
+/* ── Bottom sheet handle: teal tint ── */
+.bs-handle {
+  background: rgba(0,168,158,0.25);
+}
+
+/* ── Detail action buttons on artist/album pages ── */
+.detail-actions .btn-primary {
+  box-shadow: 0 6px 24px rgba(0,168,158,0.5);
+}
+.detail-actions .btn-secondary {
+  background: rgba(42,48,64,0.85);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+}
