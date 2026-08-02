@@ -556,23 +556,15 @@ function applyHdArtToNP(uri, data) {
   var imgEl = document.getElementById('npArtImgEl');
   if (imgEl) {
     imgEl.src = data;
-    var bgEl = imgEl.parentElement ? imgEl.parentElement.querySelector('.np-art-bg') : null;
-    if (bgEl) bgEl.src = data;
   } else {
     var artEl = document.getElementById('npArtImg');
     if (artEl) {
       var overlay = document.getElementById('npArtLyrics');
-      var bgImg = document.createElement('img');
-      bgImg.className = 'np-art-bg';
-      bgImg.setAttribute('aria-hidden', 'true');
-      bgImg.src = data;
       var newImg = document.createElement('img');
       newImg.id = 'npArtImgEl';
-      newImg.className = 'np-art-fg';
       newImg.src = data;
-      newImg.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
+      newImg.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
       Array.from(artEl.childNodes).forEach(function(c) { if (c !== overlay) artEl.removeChild(c); });
-      artEl.insertBefore(bgImg, overlay || null);
       artEl.insertBefore(newImg, overlay || null);
     }
   }
@@ -3243,8 +3235,7 @@ function renderNowPlaying() {
               : (artUri && artCache[artUri]) ? artCache[artUri]
               : '';
   var artContent = artData
-    ? '<img class="np-art-bg" src="' + artData + '" aria-hidden="true">'
-      + '<img id="npArtImgEl" class="np-art-fg" src="' + artData + '" style="width:100%;height:100%;object-fit:contain;display:block;">'
+    ? '<img id="npArtImgEl" src="' + artData + '" style="width:100%;height:100%;object-fit:cover;display:block;">'
     : artHTML(currentSong.album || currentSong.title, 300, false, 'xxl');
 
   var hasLyrics = lyricsLines.length > 0 || !!(currentSong.lyrics && currentSong.lyrics.trim());
