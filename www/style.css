@@ -1464,6 +1464,45 @@ body {
 
 /* Animations */
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes npBreath1 {
+  0%, 100% { opacity: 0;   transform: scale(0.82); }
+  50%       { opacity: 1;   transform: scale(1);    }
+}
+@keyframes npBreath2 {
+  0%, 100% { opacity: 0;   transform: scale(1);    }
+  50%       { opacity: 1;   transform: scale(0.88); }
+}
+#npAmbient {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+#npAmbient::before {
+  content: '';
+  position: absolute;
+  width: 140%;
+  height: 68%;
+  top: -5%;
+  left: -20%;
+  background: radial-gradient(ellipse at 50% 55%,
+    var(--art-c1-glow, rgba(0,168,158,0.52)) 0%,
+    var(--art-c2-glow, rgba(0,168,158,0.18)) 42%,
+    transparent 68%);
+  animation: npBreath1 4.2s ease-in-out infinite;
+}
+#npAmbient::after {
+  content: '';
+  position: absolute;
+  width: 110%;
+  height: 52%;
+  bottom: -5%;
+  left: -5%;
+  background: radial-gradient(ellipse at 50% 45%,
+    var(--art-c2-glow, rgba(0,168,158,0.32)) 0%,
+    transparent 62%);
+  animation: npBreath2 5.4s ease-in-out infinite 1.4s;
+}
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes slideRight { from { transform: translateX(-100%); } to { transform: translateX(0); } }

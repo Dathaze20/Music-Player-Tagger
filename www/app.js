@@ -549,6 +549,55 @@ function fetchHdArt(uri) {
   return p;
 }
 
+function extractArtColors(imgEl) {
+  try {
+    var canvas = document.createElement('canvas');
+    var sz = 64;
+    canvas.width = sz; canvas.height = sz;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(imgEl, 0, 0, sz, sz);
+    var px = ctx.getImageData(0, 0, sz, sz).data;
+    var buckets = {};
+    for (var i = 0; i < px.length; i += 4) {
+      var r = Math.round(px[i] / 32) * 32;
+      var g = Math.round(px[i + 1] / 32) * 32;
+      var b = Math.round(px[i + 2] / 32) * 32;
+      var lo = Math.min(r, g, b), hi = Math.max(r, g, b);
+      if (hi < 40 || lo > 215 || hi - lo < 35) continue;
+      var k = r + ',' + g + ',' + b;
+      buckets[k] = (buckets[k] || 0) + 1;
+    }
+    var keys = Object.keys(buckets).sort(function(a, b) { return buckets[b] - buckets[a]; });
+    var out = [];
+    for (var j = 0; j < keys.length && out.length < 2; j++) {
+      var c = keys[j].split(',').map(Number);
+      if (out.length === 0) { out.push(c); continue; }
+      var d = out[0];
+      var dist = Math.sqrt(Math.pow(c[0]-d[0],2)+Math.pow(c[1]-d[1],2)+Math.pow(c[2]-d[2],2));
+      if (dist > 70) out.push(c);
+    }
+    if (out.length === 0) out = [[0,168,158],[0,200,190]];
+    if (out.length === 1) out.push([Math.min(out[0][0]+40,255), out[0][1], Math.max(out[0][2]-20,0)]);
+    return out;
+  } catch(e) {
+    return [[0,168,158],[0,200,190]];
+  }
+}
+
+function applyArtColors(colors) {
+  var np = document.getElementById('nowPlaying');
+  if (!np) return;
+  var c1 = colors[0], c2 = colors[1];
+  np.style.setProperty('--art-c1-glow', 'rgba('+c1[0]+','+c1[1]+','+c1[2]+',0.55)');
+  np.style.setProperty('--art-c2-glow', 'rgba('+c2[0]+','+c2[1]+','+c2[2]+',0.28)');
+}
+
+function sampleAndApplyArtColors(dataSrc) {
+  var img = new Image();
+  img.onload = function() { applyArtColors(extractArtColors(img)); img = null; };
+  img.src = dataSrc;
+}
+
 // Apply HD art to the Now Playing panel, preserving the lyrics overlay child.
 // Called from both loadCurrentSongArt and renderNowPlaying so the logic stays in one place.
 function applyHdArtToNP(uri, data) {
@@ -570,6 +619,7 @@ function applyHdArtToNP(uri, data) {
   }
   var bg = document.getElementById('npBgBlur');
   if (bg) bg.style.backgroundImage = 'url(' + data + ')';
+  sampleAndApplyArtColors(data);
 }
 
 function loadCurrentSongArt(song) {
@@ -3249,6 +3299,7 @@ function renderNowPlaying() {
   }
 
   var html = '<div class="np-bg-blur" id="npBgBlur"' + (artData ? ' style="background-image:url(' + artData + ')"' : '') + '></div>'
+    + '<div id="npAmbient"></div>'
     + '<div class="np-content">'
     + '<div class="np-header">'
     + '<button id="npClose">&#8744;</button>'
@@ -3316,6 +3367,9 @@ function renderNowPlaying() {
       marqueeEl.classList.add('is-scrolling');
     }
   });
+
+  // Extract album art colors for ambient glow (use cached art if available, else wait for HD)
+  if (artData) sampleAndApplyArtColors(artData);
 
   // Load HD art in-place (fetchHdArt deduplicates concurrent calls)
   if (artUri) {
