@@ -1,6 +1,6 @@
 {
-  "name": "Muzio AI",
-  "short_name": "Muzio AI",
+  "name": "My Music",
+  "short_name": "My Music",
   "description": "AI-powered music player with auto-tagging",
   "id": "/",
   "start_url": "./",

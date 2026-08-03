@@ -2,16 +2,20 @@ package com.muzioai.app;
 
 import android.app.Activity;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.graphics.Bitmap;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.os.PowerManager;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.Settings;
@@ -49,25 +53,41 @@ import java.util.logging.Logger;
 @CapacitorPlugin(
     name = "MediaStore",
     permissions = {
-        @Permission(alias = "audioApi33", strings = { "android.permission.READ_MEDIA_AUDIO" }),
-        @Permission(alias = "audioLegacy", strings = { "android.permission.READ_EXTERNAL_STORAGE" }),
-        @Permission(alias = "writeStorage", strings = { "android.permission.WRITE_EXTERNAL_STORAGE" })
+        @Permission(alias = "audioApi33",       strings = { "android.permission.READ_MEDIA_AUDIO" }),
+        @Permission(alias = "audioLegacy",      strings = { "android.permission.READ_EXTERNAL_STORAGE" }),
+        @Permission(alias = "writeStorage",     strings = { "android.permission.WRITE_EXTERNAL_STORAGE" }),
+        @Permission(alias = "postNotifications",strings = { "android.permission.POST_NOTIFICATIONS" })
     }
 )
 public class MediaStorePlugin extends Plugin {
 
-    private static final String TAG           = "MediaStorePlugin";
+    private static final String TAG                    = "MediaStorePlugin";
     private static final int    WRITE_REQUEST_CODE        = 9001;
     private static final int    SAF_REQUEST_CODE          = 9002;
     private static final int    WRITE_ACCESS_REQUEST_CODE = 9003;
-    private static final String PREFS_NAME    = "muzio_prefs";
-    private static final String PREF_SAF_URI  = "saf_tree_uri";
+    private static final int    PICK_IMAGE_REQUEST_CODE   = 9004;
+    private static final String PREFS_NAME             = "muzio_prefs";
+    private static final String PREF_SAF_URI           = "saf_tree_uri";
+
+    // Broadcast actions — must match MuzioPlaybackService constants
+    private static final String ACTION_PREV       = "com.muzioai.app.ACTION_PREV";
+    private static final String ACTION_PLAY_PAUSE = "com.muzioai.app.ACTION_PLAY_PAUSE";
+    private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
+    private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
+    private static final String ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
 
     // Saved state for async activity callbacks
     private PluginCall savedWriteCall;
     private Uri        pendingWriteUri;
     private PluginCall savedSafCall;
     private PluginCall savedWriteAccessCall;
+    private PluginCall savedPickCall;
+
+    // ─── Notification button receiver ─────────────────────────────────────────
+    // Receives ACTION_PREV/PLAY_PAUSE/NEXT/CLOSE from MuzioPlaybackService
+    // and dispatches the corresponding JS event to the WebView.
+    private BroadcastReceiver notifReceiver;
+    private boolean           receiverRegistered = false;
 
     // Silence jaudiotagger's overly verbose logging
     static {
@@ -102,7 +122,7 @@ public class MediaStorePlugin extends Plugin {
         if (hasAudioPermission()) {
             doQuery(call);
         } else {
-            call.reject("Permission denied — go to Settings → Apps → Muzio AI → Permissions → Files and media");
+            call.reject("Permission denied — go to Settings → Apps → My Music → Permissions → Files and media");
         }
     }
 
@@ -242,6 +262,53 @@ public class MediaStorePlugin extends Plugin {
         }
     }
 
+    // ─── Haptic vibration ─────────────────────────────────────────────────────
+
+    @PluginMethod
+    public void vibrate(PluginCall call) {
+        int duration = call.getInt("duration", 50);
+        try {
+            if (Build.VERSION.SDK_INT >= 31) {
+                android.os.VibratorManager vm = (android.os.VibratorManager)
+                    getContext().getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+                if (vm != null) {
+                    android.os.Vibrator v = vm.getDefaultVibrator();
+                    v.vibrate(android.os.VibrationEffect.createOneShot(duration, 255));
+                }
+            } else if (Build.VERSION.SDK_INT >= 26) {
+                android.os.Vibrator v = (android.os.Vibrator)
+                    getContext().getSystemService(Context.VIBRATOR_SERVICE);
+                if (v != null) v.vibrate(android.os.VibrationEffect.createOneShot(duration, 255));
+            } else {
+                android.os.Vibrator v = (android.os.Vibrator)
+                    getContext().getSystemService(Context.VIBRATOR_SERVICE);
+                if (v != null) v.vibrate(duration);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.resolve(); // vibration is best-effort
+        }
+    }
+
+    // ─── Album art picker ─────────────────────────────────────────────────────
+
+    @PluginMethod
+    public void pickAlbumArt(PluginCall call) {
+        savedPickCall = call;
+        call.setKeepAlive(true);
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        try {
+            getActivity().startActivityForResult(
+                Intent.createChooser(intent, "Select Album Art"), PICK_IMAGE_REQUEST_CODE);
+        } catch (Exception e) {
+            savedPickCall = null;
+            call.setKeepAlive(false);
+            call.reject("Could not open gallery: " + e.getMessage());
+        }
+    }
+
     // ─── Tag writing ──────────────────────────────────────────────────────────
 
     @PluginMethod
@@ -308,6 +375,47 @@ public class MediaStorePlugin extends Plugin {
     @Override
     protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
         super.handleOnActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == PICK_IMAGE_REQUEST_CODE) {
+            PluginCall call = savedPickCall;
+            savedPickCall = null;
+            if (call == null) return;
+            call.setKeepAlive(false);
+            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+                Uri imageUri = data.getData();
+                try {
+                    ContentResolver resolver = getContext().getContentResolver();
+                    InputStream is = resolver.openInputStream(imageUri);
+                    if (is == null) { call.reject("Cannot open image"); return; }
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    pipe(is, baos);
+                    is.close();
+                    byte[] rawBytes = baos.toByteArray();
+                    // Decode with downsampling to max 600px
+                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                    opts.inJustDecodeBounds = true;
+                    android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length, opts);
+                    int sample = 1;
+                    while ((opts.outWidth / (sample * 2)) >= 600 || (opts.outHeight / (sample * 2)) >= 600) sample *= 2;
+                    opts.inSampleSize = sample;
+                    opts.inJustDecodeBounds = false;
+                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length, opts);
+                    if (bmp == null) { call.reject("Cannot decode image"); return; }
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
+                    bmp.recycle();
+                    String b64 = "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                    JSObject result = new JSObject();
+                    result.put("data", b64);
+                    call.resolve(result);
+                } catch (Exception e) {
+                    call.reject("Image read error: " + e.getMessage());
+                }
+            } else {
+                call.reject("Cancelled");
+            }
+            return;
+        }
 
         if (requestCode == WRITE_ACCESS_REQUEST_CODE) {
             PluginCall call = savedWriteAccessCall;
@@ -476,7 +584,7 @@ public class MediaStorePlugin extends Plugin {
             // --- Phase 4: Update MediaStore metadata cache ---
             updateMediaStore(resolver, mediaUri, title, artist, album, year, genre, albumArtist, track);
 
-            // --- Phase 5: Trigger media scanner so Muzio and other apps see changes ---
+            // --- Phase 5: Trigger media scanner so all apps see changes ---
             resolver.notifyChange(mediaUri, null);
             if (!filePath.isEmpty()) {
                 MediaScannerConnection.scanFile(ctx, new String[]{filePath}, null, null);
@@ -579,6 +687,192 @@ public class MediaStorePlugin extends Plugin {
 
     private String nvl(String s) { return s == null ? "" : s; }
 
+    // ─── Media notification — delegated to MuzioPlaybackService ──────────────
+
+    /**
+     * Ensures the local broadcast receiver is registered so that button presses
+     * from the notification (and hardware buttons routed via MediaSession.Callback)
+     * are forwarded to the WebView as 'muzioMediaAction' JS events.
+     * Registered on the Application context so it survives Activity rotation/pause.
+     */
+    private void ensureReceiver() {
+        if (receiverRegistered) return;
+        notifReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                String action = intent.getAction();
+                if (action == null) return;
+                final String ev;
+                final long seekMs;
+                if      (ACTION_PREV.equals(action))       { ev = "prev";      seekMs = -1; }
+                else if (ACTION_PLAY_PAUSE.equals(action)) { ev = "playPause"; seekMs = -1; }
+                else if (ACTION_NEXT.equals(action))       { ev = "next";      seekMs = -1; }
+                else if (ACTION_CLOSE.equals(action)) {
+                    stopService();
+                    ev = "close"; seekMs = -1;
+                } else if (ACTION_SEEK.equals(action)) {
+                    ev = "seekTo";
+                    seekMs = intent.getLongExtra(MuzioPlaybackService.EXTRA_SEEK_MS, 0L);
+                } else return;
+                if (getBridge() == null || getBridge().getWebView() == null) return;
+                getBridge().getActivity().runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        if (getBridge() == null || getBridge().getWebView() == null) return;
+                        String js = seekMs >= 0
+                            ? "document.dispatchEvent(new CustomEvent('muzioMediaAction'," +
+                              "{detail:{action:'seekTo',positionMs:" + seekMs + "}}));"
+                            : "document.dispatchEvent(new CustomEvent('muzioMediaAction'," +
+                              "{detail:{action:'" + ev + "'}}));";
+                        getBridge().getWebView().evaluateJavascript(js, null);
+                    }
+                });
+            }
+        };
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_PREV);
+        filter.addAction(ACTION_PLAY_PAUSE);
+        filter.addAction(ACTION_NEXT);
+        filter.addAction(ACTION_CLOSE);
+        filter.addAction(ACTION_SEEK);
+        // Use Application context — receiver must outlive Activity (service stays alive)
+        Context appCtx = getContext().getApplicationContext();
+        if (Build.VERSION.SDK_INT >= 33) {
+            appCtx.registerReceiver(notifReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            appCtx.registerReceiver(notifReceiver, filter);
+        }
+        receiverRegistered = true;
+    }
+
+    @PluginMethod
+    public void requestNotificationPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33
+                && getPermissionState("postNotifications") != PermissionState.GRANTED) {
+            requestPermissionForAlias("postNotifications", call, "proactiveNotifPermCallback");
+        } else {
+            call.resolve();
+        }
+    }
+
+    @PermissionCallback
+    private void proactiveNotifPermCallback(PluginCall call) {
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void updateMediaNotification(PluginCall call) {
+        // Android 13+: need POST_NOTIFICATIONS before the service can post
+        if (Build.VERSION.SDK_INT >= 33
+                && getPermissionState("postNotifications") != PermissionState.GRANTED) {
+            requestPermissionForAlias("postNotifications", call, "notifPermissionCallback");
+            return;
+        }
+        ensureReceiver();
+        sendToService(call);
+        call.resolve();
+    }
+
+    @PermissionCallback
+    private void notifPermissionCallback(PluginCall call) {
+        // Proceed regardless — if denied, the service's startForeground() silently no-ops
+        ensureReceiver();
+        sendToService(call);
+        call.resolve();
+    }
+
+    /** Packages the call params into an Intent and starts/updates MuzioPlaybackService. */
+    private void sendToService(PluginCall call) {
+        String  title   = nvl(call.getString("title",   ""));
+        String  artist  = nvl(call.getString("artist",  ""));
+        String  album   = nvl(call.getString("album",   ""));
+        String  art     = nvl(call.getString("art",     ""));
+        boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", false));
+        // JS sends position/duration as milliseconds (integer)
+        Double posD = call.getDouble("position", 0.0);
+        Double durD = call.getDouble("duration", 0.0);
+        long position = posD != null ? posD.longValue() : 0L;
+        long duration = durD != null ? durD.longValue() : 0L;
+
+        Intent intent = new Intent(getContext(), MuzioPlaybackService.class);
+        intent.setAction(MuzioPlaybackService.ACTION_UPDATE);
+        intent.putExtra("title",    title);
+        intent.putExtra("artist",   artist);
+        intent.putExtra("album",    album);
+        intent.putExtra("art",      art);
+        intent.putExtra("playing",  playing);
+        intent.putExtra("position", position);
+        intent.putExtra("duration", duration);
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    && !MuzioPlaybackService.isRunning) {
+                getContext().startForegroundService(intent);
+            } else {
+                getContext().startService(intent);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "sendToService: " + e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
+    public void hideMediaNotification(PluginCall call) {
+        stopService();
+        call.resolve();
+    }
+
+    /** Returns whether the app is already exempt from battery optimizations. */
+    @PluginMethod
+    public void isBatteryOptimizationExempt(PluginCall call) {
+        JSObject ret = new JSObject();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            ret.put("exempt", pm != null && pm.isIgnoringBatteryOptimizations(getContext().getPackageName()));
+        } else {
+            ret.put("exempt", true); // pre-M doesn't have Doze
+        }
+        call.resolve(ret);
+    }
+
+    /** Launches the system dialog asking the user to whitelist this app from battery optimization. */
+    @PluginMethod
+    public void requestBatteryOptimizationExemption(PluginCall call) {
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+            getActivity().startActivity(intent);
+        } catch (Exception e) {
+            // Fallback: open the app's battery settings page
+            try {
+                Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                fallback.setData(Uri.parse("package:" + getContext().getPackageName()));
+                getActivity().startActivity(fallback);
+            } catch (Exception ignored) {}
+        }
+        call.resolve();
+    }
+
+    private void stopService() {
+        try {
+            Intent intent = new Intent(getContext(), MuzioPlaybackService.class);
+            intent.setAction(MuzioPlaybackService.ACTION_HIDE);
+            getContext().startService(intent);
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        // Unregister the broadcast receiver when the plugin is torn down.
+        // The service (if running) handles its own lifecycle independently.
+        if (receiverRegistered && notifReceiver != null) {
+            try {
+                getContext().getApplicationContext().unregisterReceiver(notifReceiver);
+            } catch (Exception ignored) {}
+            notifReceiver = null;
+            receiverRegistered = false;
+        }
+    }
+
     // ─── MediaStore query ─────────────────────────────────────────────────────
 
     private void doQuery(PluginCall call) {
@@ -664,7 +958,7 @@ public class MediaStorePlugin extends Plugin {
                     file.put("album",       album);
                     file.put("disc",        discNum);
                     file.put("track",       trackNum);
-                    file.put("year",        year > 0 ? String.valueOf(year) : "");
+                    file.put("year",        (year > 0 && year != 1970) ? String.valueOf(year) : "");
                     file.put("genre",       genre);
                     files.put(file);
                 }

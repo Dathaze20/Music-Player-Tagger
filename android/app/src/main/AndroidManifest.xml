@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Foreground service (required on all API levels) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Foreground service type media_playback (required on API 34+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -9,6 +14,12 @@
         android:supportsRtl="true"
         android:requestLegacyExternalStorage="true"
         android:theme="@style/AppTheme">
+
+        <!-- Media playback foreground service — owns the MediaSession and notification -->
+        <service
+            android:name=".MuzioPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
@@ -52,5 +63,14 @@
     <!-- Write tags to music files (Android 9 and below only; API 30+ uses MediaStore.createWriteRequest) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+
+    <!-- Media notification in notification shade and lock screen (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Allow requesting battery optimization exemption so background service stays alive -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Required for navigator.vibrate() to work in the WebView -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
 </manifest>

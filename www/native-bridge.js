@@ -1,5 +1,5 @@
 // Native bridge — Capacitor APK only
-// Uses Android MediaStore (same database Muzio/Spotify use) for instant all-library scanning
+// Uses Android MediaStore (same database as Spotify) for instant all-library scanning
 
 var NativeBridge = (function() {
 
@@ -244,9 +244,82 @@ var NativeBridge = (function() {
     return plugin.getSdCardTreeUri();
   }
 
+  // Show / update the native Android media notification in the notification shade and lock screen.
+  // Passes current song metadata and playback state to the Java-side NotificationCompat builder.
+  function updateMediaNotification(params) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.updateMediaNotification) return Promise.resolve();
+    return plugin.updateMediaNotification({
+      title:    String(params.title   || ''),
+      artist:   String(params.artist  || ''),
+      album:    String(params.album   || ''),
+      art:      String(params.art     || ''),
+      playing:  !!params.playing,
+      position: Number(params.position || 0),
+      duration: Number(params.duration || 0),
+    }).catch(function(e) { console.warn('updateMediaNotification:', e); });
+  }
+
+  // Remove the media notification (e.g. when the user taps close or playback stops).
+  function hideMediaNotification() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.hideMediaNotification) return;
+    plugin.hideMediaNotification().catch(function() {});
+  }
+
+  // Ask Android for POST_NOTIFICATIONS permission (API 33+) before the first song plays.
+  // Safe to call on older Android — the Java side no-ops if permission is not needed.
+  function requestNotificationPermission() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.requestNotificationPermission) return Promise.resolve();
+    return plugin.requestNotificationPermission().catch(function() {});
+  }
+
+  // Trigger a haptic vibration directly via Android's Vibrator API.
+  // More reliable than navigator.vibrate inside a Capacitor WebView.
+  function vibrate(duration) {
+    var plugin = getPlugin('MediaStore');
+    if (plugin && plugin.vibrate) {
+      plugin.vibrate({ duration: duration || 50 }).catch(function() {});
+    } else if (navigator.vibrate) {
+      navigator.vibrate(duration || 50);
+    }
+  }
+
+  // Launch the system image picker and return the chosen image as a base64 JPEG data URL.
+  // Resolves { data: "data:image/jpeg;base64,..." } or rejects if user cancels.
+  function pickAlbumArt() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.pickAlbumArt) return Promise.reject(new Error('pickAlbumArt not available'));
+    return plugin.pickAlbumArt().then(function(r) {
+      if (!r || !r.data) return Promise.reject(new Error('No image returned'));
+      return r.data;
+    });
+  }
+
+  // Returns { exempt: boolean } — whether the app is already whitelisted from battery optimization.
+  function isBatteryOptimizationExempt() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.isBatteryOptimizationExempt) return Promise.resolve({ exempt: true });
+    return plugin.isBatteryOptimizationExempt().catch(function() { return { exempt: true }; });
+  }
+
+  // Opens the system dialog to whitelist the app from battery optimization.
+  function requestBatteryOptimizationExemption() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.requestBatteryOptimizationExemption) return Promise.resolve();
+    return plugin.requestBatteryOptimizationExemption().catch(function() {});
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
-           readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
+           readAlbumArt: readAlbumArt, writeFileTags: writeFileTags, pickAlbumArt: pickAlbumArt,
+           vibrate: vibrate,
            requestWriteAccess: requestWriteAccess,
-           requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri };
+           requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri,
+           updateMediaNotification: updateMediaNotification,
+           hideMediaNotification: hideMediaNotification,
+           requestNotificationPermission: requestNotificationPermission,
+           isBatteryOptimizationExempt: isBatteryOptimizationExempt,
+           requestBatteryOptimizationExemption: requestBatteryOptimizationExemption };
 })();

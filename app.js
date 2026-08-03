@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-// Muzio AI - Smart Music Player
+// My Music - Smart Music Player
 // Pure HTML/CSS/JS - No build tools needed
 // Open index.html in any browser or Web Code on Android
 // ═══════════════════════════════════════════════════════
@@ -347,7 +347,7 @@ function render() {
     menuBtn.onclick = function() { selectedArtist = null; render(); };
     renderArtistDetail(main);
   } else {
-    header.textContent = 'Muzio AI';
+    header.textContent = 'My Music';
     if (currentTab === 'artists') renderArtists(main);
     else if (currentTab === 'songs') renderSongs(main);
     else if (currentTab === 'albums') renderAlbums(main);
@@ -366,10 +366,10 @@ function renderWelcome(el) {
   var isNativeApp = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
   var html = '<div class="welcome-screen">'
     + '<div class="welcome-perm-icon">&#127925;</div>'
-    + '<h2 class="welcome-title">Muzio AI</h2>';
+    + '<h2 class="welcome-title">My Music</h2>';
 
   if (isNativeApp) {
-    html += '<p class="welcome-text">Allow Muzio AI to access your music. All songs on your phone and SD card will appear automatically.</p>'
+    html += '<p class="welcome-text">Allow My Music to access your music. All songs on your phone and SD card will appear automatically.</p>'
       + '<button class="welcome-btn" id="welcomeGrantBtn">&#10003; Allow Access</button>'
       + '<p class="welcome-hint">One-time permission — your library loads automatically every time</p>';
   } else {
