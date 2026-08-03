@@ -313,13 +313,14 @@ function initLazyArt(container) {
 // ─── Virtual Scroll (Songs Tab) ───
 // Only renders the visible window (~60 rows) to keep 15k song lists instant.
 
-var VS_ROW_H = 73;   // px per song row — padding(12+12) + art(48) + border-bottom(1)
+var VS_ROW_H = 73;        // px per song row — padding(12+12) + art(48) + border-bottom(1)
+var VS_ARTIST_ROW_H = 80; // px per artist row (56px art + 12+12 padding)
 var VS_BUFFER = 25;  // extra rows rendered above and below the viewport
 var _vsData = null;
 var _vsRenderedStart = 0;
 var _vsScrollFn = null;
 
-// Artist list virtual scroll state (same row height as songs)
+// Artist list virtual scroll state
 var _vsArtistData    = null;
 var _vsArtistStart   = -9999;
 var _vsArtistScrollFn = null;
@@ -383,21 +384,22 @@ function artistRowHTML(a) {
   var chkHtml = '';
   if (_msArtistMode && _msArtistNames) {
     var sel = !!_msArtistNames[a.name];
-    chkHtml = '<div style="width:22px;height:22px;border-radius:50%;border:2px solid '
+    chkHtml = '<div style="width:18px;height:18px;border-radius:50%;border:2px solid '
       + (sel ? 'var(--accent);background:var(--accent);color:#fff;' : 'var(--border);background:transparent;color:transparent;')
-      + 'flex-shrink:0;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:13px;font-weight:700;margin-right:4px;">'
+      + 'flex-shrink:0;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:11px;font-weight:700;margin-right:6px;">'
       + (sel ? '&#10003;' : '') + '</div>';
   }
   var artEl = a.albumArtUris && a.albumArtUris.length > 0
     ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(a.name, 56, true) + '</div>'
     : artHTML(a.name, 56, true);
+  var menuBtn = _msArtistMode ? '' : '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>';
   return '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
     + chkHtml + artEl
     + '<div class="song-info">'
     + '<div class="artist-name">' + escHtml(a.name) + '</div>'
     + '<div class="artist-meta">' + a.albumCount + ' ' + (a.albumCount === 1 ? 'Album' : 'Albums') + ' &bull; ' + a.songCount + ' ' + (a.songCount === 1 ? 'Song' : 'Songs') + '</div>'
     + '</div>'
-    + '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>'
+    + menuBtn
     + '</div>';
 }
 
@@ -409,7 +411,7 @@ function initArtistVS(container, artists) {
     var outer = document.getElementById('vsArtistOuter');
     if (!outer) { cleanupArtistVS(); return; }
     var relScroll = main.scrollTop - outer.offsetTop;
-    var newStart = Math.max(0, Math.floor(relScroll / VS_ROW_H) - VS_BUFFER);
+    var newStart = Math.max(0, Math.floor(relScroll / VS_ARTIST_ROW_H) - VS_BUFFER);
     if (newStart > 0 && Math.abs(newStart - _vsArtistStart) < Math.floor(VS_BUFFER / 2)) return;
     _vsArtistStart = newStart;
     renderArtistVsWindow(newStart);
@@ -426,7 +428,7 @@ function renderArtistVsWindow(start) {
   var parts = [];
   for (var i = start; i < end; i++) parts.push(artistRowHTML(_vsArtistData[i]));
   rows.innerHTML = parts.join('');
-  rows.style.top = (start * VS_ROW_H) + 'px';
+  rows.style.top = (start * VS_ARTIST_ROW_H) + 'px';
   initLazyArt(rows);
   // One IDB transaction covers visible window + read-ahead range
   var naEnd = Math.min(_vsArtistData.length, end + VS_BUFFER * 2 + 20);
@@ -1405,6 +1407,7 @@ var _msSongIds = null;
 var _msEl = null;
 var _msArtistMode = false;
 var _msArtistNames = null;
+var _prevTab = null; // tab to restore when backing out of album detail navigated from NowPlaying/search
 var albumFilter = 'all';
 var albumGenreFilter = 'all';
 var _pendingArtBase64 = ''; // album art picked in edit modal, cleared on close
@@ -1518,6 +1521,31 @@ function getAlbums(filter) {
 function getAlbumSongs(albumName, artistName) {
   if (!_albumSongsCache) _buildSongCaches();
   return _albumSongsCache[albumName + '|||' + artistName] || [];
+}
+
+// Find the album-artist cache key (artist string) for the album with the most songs.
+// Prevents featured-artist songs from pointing to a single-song sub-cache instead of the full album.
+function getBestAlbumArtistKey(albumName) {
+  if (!_albumSongsCache) _buildSongCaches();
+  var prefix = albumName + '|||';
+  var bestKey = null;
+  var bestCount = 0;
+  Object.keys(_albumSongsCache).forEach(function(k) {
+    if (k.indexOf(prefix) === 0) {
+      var cnt = _albumSongsCache[k].length;
+      if (cnt > bestCount) { bestCount = cnt; bestKey = k.substring(prefix.length); }
+    }
+  });
+  return bestKey || '';
+}
+
+// Clean up album names that came from filenames (underscores, stray dashes).
+function cleanFilenameAlbum(s) {
+  if (!s) return s;
+  return s
+    .replace(/_/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 function getArtistSongs(name) {
@@ -1658,7 +1686,7 @@ function render() {
     tabBar.classList.add('hidden');
     header.textContent = selectedAlbum.name;
     menuBtn.innerHTML = '&#8249;';
-    menuBtn.onclick = function() { selectedAlbum = null; render(); };
+    menuBtn.onclick = function() { selectedAlbum = null; if (_prevTab) { currentTab = _prevTab; _prevTab = null; } render(); };
     renderAlbumDetail(main);
     main.scrollTop = 0;
   } else if (selectedArtist) {
@@ -2114,7 +2142,7 @@ function renderArtists(el) {
     }
   });
 
-  var totalH = artists.length * VS_ROW_H;
+  var totalH = artists.length * VS_ARTIST_ROW_H;
   el.innerHTML = '<div id="vsArtistOuter" style="position:relative;height:' + totalH + 'px;">'
     + '<div id="vsArtistRows" style="position:absolute;left:0;right:0;top:0;"></div>'
     + '</div>';
@@ -2151,7 +2179,7 @@ function renderArtists(el) {
   renderAlphaStrip(el, alphaLetters, function(letter) {
     if (!_vsArtistLetterIdx || _vsArtistLetterIdx[letter] === undefined) return null;
     var outer = document.getElementById('vsArtistOuter');
-    return (outer ? outer.offsetTop : 0) + _vsArtistLetterIdx[letter] * VS_ROW_H;
+    return (outer ? outer.offsetTop : 0) + _vsArtistLetterIdx[letter] * VS_ARTIST_ROW_H;
   });
 }
 
@@ -3440,15 +3468,16 @@ function renderNowPlaying() {
   var npAlbumBtnEl = document.getElementById('npAlbumBtn');
   if (npAlbumBtnEl && currentSong) {
     var _tapAlbum  = (currentSong.album && currentSong.album !== 'Unknown Album') ? currentSong.album : null;
-    var _tapArtist = (currentSong.albumArtist || currentSong.artist || '').replace(/\s*(feat?\.?|ft\.?|featuring)\s+.+$/i, '').trim() || currentSong.artist || '';
     if (_tapAlbum) {
       npAlbumBtnEl.onclick = function() {
         showNowPlaying = false;
         var npEl = document.getElementById('nowPlaying');
         if (npEl) npEl.classList.add('hidden');
         _npSeekEl = null; _npFillEl = null; _npTime0El = null;
+        var _tapArtist = getBestAlbumArtistKey(_tapAlbum);
         selectedAlbum  = { name: _tapAlbum, artist: _tapArtist };
         selectedArtist = null;
+        _prevTab = currentTab; // remember which tab to return to on back
         currentTab = 'albums';
         updateMiniPlayer();
         render();
@@ -4536,7 +4565,7 @@ function openSongEditModal(songId) {
           [
             { id: 'teTitle',       val: String(result.title           || '').trim() },
             { id: 'teArtist',      val: String(result.artist          || '').trim() },
-            { id: 'teAlbum',       val: String(result.album           || '').trim() },
+            { id: 'teAlbum',       val: cleanFilenameAlbum(String(result.album || '').trim()) },
             { id: 'teAlbumArtist', val: String(result.albumArtist     || '').trim() },
             { id: 'teYear',        val: String(result.year            || '').trim() },
             { id: 'teGenre',       val: String(result.genre           || '').trim() },
@@ -4676,7 +4705,7 @@ function openEditModal(albumName, artistName) {
         }
         fill('editArtist',      String(r.artist      || '').trim());
         fill('editAlbumArtist', String(r.albumArtist || '').trim());
-        fill('editAlbum',       String(r.album       || '').trim());
+        fill('editAlbum',       cleanFilenameAlbum(String(r.album || '').trim()));
         fill('editYear',        String(r.year        || '').trim());
         fill('editGenre',       String(r.genre       || '').trim());
         // Auto-populate albumArtist from artist when still blank
@@ -5111,6 +5140,7 @@ function doSearch(q) {
     row.onclick = function() {
       selectedAlbum = { name: row.dataset.searchAlbum, artist: row.dataset.searchAlbumArtist };
       selectedArtist = null;
+      if (currentTab !== 'albums') { _prevTab = currentTab; }
       currentTab = 'albums';
       document.querySelectorAll('.tabs button').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === 'albums'); });
       document.getElementById('searchBar').classList.add('hidden');
@@ -6303,7 +6333,7 @@ function handleHardwareBack() {
   }
 
   // 7. Go up one navigation level
-  if (selectedAlbum) { selectedAlbum = null; render(); return; }
+  if (selectedAlbum) { selectedAlbum = null; if (_prevTab) { currentTab = _prevTab; _prevTab = null; } render(); return; }
   if (selectedArtist) { selectedArtist = null; render(); return; }
   if (selectedGenre) { selectedGenre = null; render(); return; }
 

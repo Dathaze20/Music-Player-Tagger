@@ -958,7 +958,7 @@ public class MediaStorePlugin extends Plugin {
                     file.put("album",       album);
                     file.put("disc",        discNum);
                     file.put("track",       trackNum);
-                    file.put("year",        year > 0 ? String.valueOf(year) : "");
+                    file.put("year",        (year > 0 && year != 1970) ? String.valueOf(year) : "");
                     file.put("genre",       genre);
                     files.put(file);
                 }
