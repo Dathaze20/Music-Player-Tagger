@@ -185,7 +185,7 @@ function backgroundLoadAllArt() {
   if (uris.length > _ART_CACHE_MAX) _ART_CACHE_MAX = uris.length + 100;
   var idx = 0;
   var active = 0;
-  var MAX = 8; // 8 concurrent IDB reads (~5 ms each) fills the cache ~2× faster
+  var MAX = 4; // 4 concurrent reads avoids memory spike on low-end devices
 
   function finish() { active--; pump(); }
   function pump() {
