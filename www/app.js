@@ -4214,6 +4214,9 @@ function lookupMusicBrainz(song) {
 
     var result = {};
 
+    // Album name: use the real title from MusicBrainz database (no underscores, proper casing)
+    if (rel.title) result.album = rel.title;
+
     // Year: prefer release-group's first-release-date (original worldwide issue) over
     // rel.date (which may be a remaster/reissue year, not the original release year).
     var rg0 = rel['release-group'];
@@ -4357,7 +4360,7 @@ function callGeminiTag(song, _retried) {
   if (song.album  && !/^unknown/i.test(song.album))  ctx += 'Album: '  + song.album  + '\n';
   // 1970 = Unix epoch / corrupt ID3 date — treat as missing
   if (song.year && String(song.year).trim() !== '1970') ctx += 'Year: ' + song.year + '\n';
-  if (song.genre && !GENERIC_GENRE.test(song.genre.trim())) ctx += 'Genre: ' + song.genre + '\n';
+  // Genre intentionally omitted from context — let Gemini determine it fresh from title/artist/album
   if (song.track) ctx += 'Track: ' + song.track + '\n';
 
   var prompt = _GEMINI_EXPERTISE
@@ -4696,9 +4699,9 @@ function openEditModal(albumName, artistName) {
           if (!el) return;
           var cur = el.value.trim();
           if (cur) {
-            // Still overwrite known placeholders
-            if (id === 'editYear'  && cur === '1970') { /* fall through */ }
-            else if (id === 'editGenre' && GENERIC_GENRE.test(cur)) { /* fall through */ }
+            // Genre and album always overwrite — AI Fill is explicitly requested
+            if (id === 'editGenre' || id === 'editAlbum') { /* fall through */ }
+            else if (id === 'editYear' && cur === '1970') { /* overwrite 1970 placeholder */ }
             else return;
           }
           el.value = val; filled++;
