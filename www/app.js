@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-// Muzio AI - Smart Music Player
+// My Music - Smart Music Player
 // Pure HTML/CSS/JS - No build tools needed
 // Open index.html in any browser or Web Code on Android
 // ═══════════════════════════════════════════════════════
@@ -898,7 +898,7 @@ function maybeShowBatteryBanner() {
     b.className = 'battery-banner';
     b.innerHTML = '<div class="battery-banner-text">'
       + '<div class="battery-banner-title">&#9889; Keep music playing in background</div>'
-      + '<div class="battery-banner-sub">Disable battery optimization so Muzio AI isn\'t paused by the system.</div>'
+      + '<div class="battery-banner-sub">Disable battery optimization so My Music isn\'t paused by the system.</div>'
       + '</div>'
       + '<button class="battery-banner-fix">Fix it</button>'
       + '<button class="battery-banner-dismiss">&#10005;</button>';
@@ -1704,7 +1704,7 @@ function render() {
     renderGenreDetail(main);
     main.scrollTop = 0;
   } else {
-    header.textContent = 'Muzio AI';
+    header.textContent = 'My Music';
     if (currentTab === 'artists') {
       renderArtists(main);
       if (_savedArtistScroll > 0) {
@@ -1791,7 +1791,7 @@ function renderWelcome(el) {
   // Web browser: show file picker button
   var html = '<div class="welcome-screen">'
     + '<div class="welcome-perm-icon">&#127925;</div>'
-    + '<h2 class="welcome-title">Muzio AI</h2>'
+    + '<h2 class="welcome-title">My Music</h2>'
     + '<p class="welcome-text">Select your music files to start playing. Songs play directly from your storage — nothing is copied.</p>'
     + '<button class="welcome-btn" id="welcomeGrantBtn">&#127911; Select Music Files</button>'
     + '<p class="welcome-hint">Navigate to your Music folder → long press → Select All</p>';
@@ -4196,7 +4196,7 @@ function lookupMusicBrainz(song) {
 
   return fetch(url, {
     signal:  ctrl.signal,
-    headers: { 'User-Agent': 'MuzioAI/1.0 (music-player-tagger)' }
+    headers: { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' }
   }).then(function(res) {
     clearTimeout(tid);
     if (!res.ok) return null;
@@ -4258,7 +4258,7 @@ function lookupMusicBrainz(song) {
     // Genre fallback: artist-level tags (almost always populated even when release-group isn't)
     if (!result.genre && artistMbid) {
       return fetch('https://musicbrainz.org/ws/2/artist/' + artistMbid + '?inc=tags&fmt=json', {
-        headers: { 'User-Agent': 'MuzioAI/1.0 (music-player-tagger)' }
+        headers: { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' }
       }).then(function(r2) {
         if (!r2.ok) return Object.keys(result).length ? result : null;
         return r2.json().then(function(ad) {

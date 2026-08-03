@@ -117,7 +117,7 @@ public class MuzioPlaybackService extends Service {
         if (notifMgr.getNotificationChannel(NOTIF_CHANNEL_ID) != null) return;
         NotificationChannel ch = new NotificationChannel(
             NOTIF_CHANNEL_ID, "Now Playing", NotificationManager.IMPORTANCE_LOW);
-        ch.setDescription("Muzio AI playback controls");
+        ch.setDescription("My Music playback controls");
         ch.setShowBadge(false);
         ch.setSound(null, null);
         notifMgr.createNotificationChannel(ch);
@@ -126,7 +126,7 @@ public class MuzioPlaybackService extends Service {
     private void ensureMediaSession() {
         if (mediaSession != null) return;
         try {
-            mediaSession = new MediaSession(this, "MuzioAI");
+            mediaSession = new MediaSession(this, "MyMusic");
             // FLAG_HANDLES_MEDIA_BUTTONS throws IllegalArgumentException on API 34+
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 //noinspection deprecation
@@ -273,7 +273,7 @@ public class MuzioPlaybackService extends Service {
             nb.setChannelId(NOTIF_CHANNEL_ID);
         }
         nb.setSmallIcon(notifIcon)
-          .setContentTitle(title.isEmpty() ? "Muzio AI" : title)
+          .setContentTitle(title.isEmpty() ? "My Music" : title)
           .setContentText(sub)
           .setLargeIcon(artBmp)
           .setContentIntent(piOpen)

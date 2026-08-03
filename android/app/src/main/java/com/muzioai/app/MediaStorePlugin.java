@@ -122,7 +122,7 @@ public class MediaStorePlugin extends Plugin {
         if (hasAudioPermission()) {
             doQuery(call);
         } else {
-            call.reject("Permission denied — go to Settings → Apps → Muzio AI → Permissions → Files and media");
+            call.reject("Permission denied — go to Settings → Apps → My Music → Permissions → Files and media");
         }
     }
 

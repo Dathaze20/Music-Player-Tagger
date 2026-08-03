@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Muzio AI - Smart Music Player</title>
+  <title>My Music - Smart Music Player</title>
   <meta name="description" content="Smart music player with tag editor">
   <meta name="theme-color" content="#00a89e">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Muzio AI">
+  <meta name="apple-mobile-web-app-title" content="My Music">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="apple-touch-icon" href="icon-192.png">
@@ -22,7 +22,7 @@
   <!-- Header -->
   <header class="header" id="header">
     <button id="menuBtn">&#9776;</button>
-    <h1 id="headerTitle">Muzio AI</h1>
+    <h1 id="headerTitle">My Music</h1>
     <div style="display:flex;gap:4px;">
       <button id="searchBtn">&#128269;</button>
       <button id="overflowBtn">&#8942;</button>
@@ -77,7 +77,7 @@
   <div id="drawerOverlay" class="drawer-overlay hidden"></div>
   <div id="drawer" class="drawer hidden">
     <div class="drawer-header">
-      <h2>Muzio AI</h2>
+      <h2>My Music</h2>
       <p>Smart Music Player</p>
     </div>
     <nav class="drawer-nav">
@@ -95,6 +95,9 @@
         <span class="icon" style="color:#f44;">&#10084;</span> Favorites
       </button>
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
+      <div style="padding:6px 24px 2px;font-size:11px;color:var(--text-faint);line-height:1.5;">
+        Free AI auto-tagging — <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--primary);text-decoration:none;">get your free Gemini API key</a> and paste it below.
+      </div>
       <button class="drawer-item" id="setApiKeyBtn">
         <span class="icon">&#128273;</span> <span id="apiKeyLabel">Set Gemini API Key</span>
       </button>
@@ -103,7 +106,7 @@
         <span class="icon" style="color:var(--text-faint);">&#128465;</span> Clear Library
       </button>
     </nav>
-    <div class="drawer-footer">Muzio AI v2.0</div>
+    <div class="drawer-footer">My Music v2.0</div>
   </div>
 
   <!-- Edit modal -->

@@ -2191,7 +2191,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ─── Muzio-style Tag Editor (full-screen) ─── */
+/* ─── Full-Screen Tag Editor ─── */
 .edit-modal.tag-editor {
   position: fixed;
   inset: 0;

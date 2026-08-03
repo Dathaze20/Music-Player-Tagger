@@ -1,4 +1,4 @@
-const CACHE = 'muzio-ai-v1';
+const CACHE = 'mymusic-v2';
 const SHELL = ['./', './index.html', './app.js', './style.css', './icon.svg', './manifest.json'];
 
 self.addEventListener('install', function(e) {
