@@ -58,8 +58,8 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > /tmp/muzio-release.jks
-          echo "KEYSTORE_PATH=/tmp/muzio-release.jks" >> $GITHUB_ENV
+          echo "$KEYSTORE_BASE64" | base64 -d > /tmp/mymusic-release.jks
+          echo "KEYSTORE_PATH=/tmp/mymusic-release.jks" >> $GITHUB_ENV
           echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
           echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
           echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
@@ -91,7 +91,7 @@ jobs:
       - name: Upload Release APK (install on phone)
         uses: actions/upload-artifact@v4
         with:
-          name: MuzioAI-release-apk
+          name: MyMusic-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 90
           if-no-files-found: warn
@@ -99,7 +99,7 @@ jobs:
       - name: Upload Release AAB (Play Store upload)
         uses: actions/upload-artifact@v4
         with:
-          name: MuzioAI-release-aab
+          name: MyMusic-release-aab
           path: android/app/build/outputs/bundle/release/app-release.aab
           retention-days: 90
           if-no-files-found: warn
@@ -107,6 +107,6 @@ jobs:
       - name: Upload Debug APK (sideload / testing)
         uses: actions/upload-artifact@v4
         with:
-          name: MuzioAI-debug-apk
+          name: MyMusic-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30

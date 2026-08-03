@@ -15,7 +15,7 @@ android {
         }
     }
     signingConfigs {
-        muzio {
+        release {
             // Stable key committed to repo — same cert on every build so Android
             // never sees a "new" app and Play Protect warns only once.
             storeFile file('muzio.keystore')
@@ -26,12 +26,12 @@ android {
     }
     buildTypes {
         release {
-            signingConfig signingConfigs.muzio
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
         debug {
-            signingConfig signingConfigs.muzio
+            signingConfig signingConfigs.release
             // Same package ID — APK installs over existing app without uninstalling
         }
     }

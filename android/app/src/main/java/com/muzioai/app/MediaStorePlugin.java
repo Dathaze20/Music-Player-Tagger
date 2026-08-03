@@ -584,7 +584,7 @@ public class MediaStorePlugin extends Plugin {
             // --- Phase 4: Update MediaStore metadata cache ---
             updateMediaStore(resolver, mediaUri, title, artist, album, year, genre, albumArtist, track);
 
-            // --- Phase 5: Trigger media scanner so Muzio and other apps see changes ---
+            // --- Phase 5: Trigger media scanner so all apps see changes ---
             resolver.notifyChange(mediaUri, null);
             if (!filePath.isEmpty()) {
                 MediaScannerConnection.scanFile(ctx, new String[]{filePath}, null, null);

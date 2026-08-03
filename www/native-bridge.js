@@ -1,5 +1,5 @@
 // Native bridge — Capacitor APK only
-// Uses Android MediaStore (same database Muzio/Spotify use) for instant all-library scanning
+// Uses Android MediaStore (same database as Spotify) for instant all-library scanning
 
 var NativeBridge = (function() {
 
