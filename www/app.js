@@ -819,7 +819,9 @@ var _lastNotifKey = '';
 function updateMediaSession() {
   if (!currentSong) return;
   var artUri = currentSong.albumArtUri;
-  var artData = (artUri && artCacheHD[artUri]) ? artCacheHD[artUri]
+  // Custom data: art (user changed it) takes priority over the MediaStore cache
+  var artData = (currentSong.art && currentSong.art.startsWith('data:')) ? currentSong.art
+              : (artUri && artCacheHD[artUri]) ? artCacheHD[artUri]
               : (artUri && artCache[artUri]) ? artCache[artUri] : '';
   var sessionAlbum = (currentSong.album && currentSong.album !== 'Unknown Album') ? currentSong.album : '';
   // Push to native Android notification — fires regardless of Web MediaSession API availability
@@ -2773,9 +2775,12 @@ function eqBarsHTML(paused) {
 }
 
 function songRowHTML(s, playing, showEdit) {
-  var artEl = s.albumArtUri
-    ? '<div class="art-lazy" data-lazy-uri="' + escHtml(s.albumArtUri) + '" data-size="48" style="width:48px;height:48px;border-radius:8px;overflow:hidden;flex-shrink:0;">' + artHTML(s.album || s.title, 48) + '</div>'
-    : imgOrArt(s.art, s.album || s.title, 48);
+  // Custom data: art always wins over the lazy MediaStore loader (user changed the art)
+  var artEl = (s.art && s.art.startsWith('data:'))
+    ? imgOrArt(s.art, s.album || s.title, 48)
+    : s.albumArtUri
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(s.albumArtUri) + '" data-size="48" style="width:48px;height:48px;border-radius:8px;overflow:hidden;flex-shrink:0;">' + artHTML(s.album || s.title, 48) + '</div>'
+      : imgOrArt(s.art, s.album || s.title, 48);
   return '<div class="song-row' + (playing ? ' playing' : '') + (s.tagging ? ' tagging' : '') + '" data-id="' + s.id + '">'
     + artEl
     + '<div class="song-info">'
@@ -3309,7 +3314,9 @@ function renderNowPlaying() {
   lyricsVisible = lyricsLines.length > 0;
 
   var artUri = currentSong.albumArtUri || '';
-  var artData = (artUri && artCacheHD[artUri]) ? artCacheHD[artUri]
+  // Custom data: art (user changed it) takes priority over the MediaStore cache
+  var artData = (currentSong.art && currentSong.art.startsWith('data:')) ? currentSong.art
+              : (artUri && artCacheHD[artUri]) ? artCacheHD[artUri]
               : (artUri && artCache[artUri]) ? artCache[artUri]
               : '';
   var artContent = artData
@@ -4538,9 +4545,12 @@ function openSongEditModal(songId) {
     // On native, persist tags to the actual file immediately
     var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
     if (!isNat || !song.contentUri) return;
-    var artPromise = song.albumArtUri
-      ? NativeBridge.readAlbumArt(song.albumArtUri, 500).catch(function() { return ''; })
-      : Promise.resolve(song.art && song.art.startsWith('data:') ? song.art : '');
+    // If user picked new art, write it; otherwise read the existing art from MediaStore
+    var artPromise = (song.art && song.art.startsWith('data:'))
+      ? Promise.resolve(song.art)
+      : song.albumArtUri
+        ? NativeBridge.readAlbumArt(song.albumArtUri, 500).catch(function() { return ''; })
+        : Promise.resolve('');
     artPromise.then(function(artBase64) {
       return NativeBridge.writeFileTags({
         contentUri:   song.contentUri,
