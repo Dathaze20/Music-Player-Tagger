@@ -604,6 +604,8 @@ function sampleAndApplyArtColors(dataSrc) {
 // Called from both loadCurrentSongArt and renderNowPlaying so the logic stays in one place.
 function applyHdArtToNP(uri, data) {
   if (!data || !showNowPlaying || !currentSong || currentSong.albumArtUri !== uri) return;
+  // Don't overwrite custom user art with cached MediaStore art
+  if (currentSong.art && currentSong.art.startsWith('data:')) return;
   var imgEl = document.getElementById('npArtImgEl');
   if (imgEl) {
     imgEl.src = data;
@@ -3406,8 +3408,8 @@ function renderNowPlaying() {
   // Extract album art colors for ambient glow (use cached art if available, else wait for HD)
   if (artData) sampleAndApplyArtColors(artData);
 
-  // Load HD art in-place (fetchHdArt deduplicates concurrent calls)
-  if (artUri) {
+  // Load HD art in-place — skip if user already set custom art (don't overwrite data: URL)
+  if (artUri && !(currentSong.art && currentSong.art.startsWith('data:'))) {
     fetchHdArt(artUri).then(function(data) {
       applyHdArtToNP(artUri, data);
       if (data && currentSong && currentSong.albumArtUri === artUri) updateMediaSession();
