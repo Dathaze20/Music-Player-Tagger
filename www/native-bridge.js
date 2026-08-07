@@ -297,6 +297,15 @@ var NativeBridge = (function() {
     });
   }
 
+  // Permanently delete audio files from the device by their MediaStore content URIs.
+  // Android 10+: shows a system confirmation dialog. Android < 10: deletes directly.
+  // Resolves { deleted: N } or rejects if cancelled.
+  function deleteFiles(uris) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.deleteFiles) return Promise.reject(new Error('deleteFiles not available'));
+    return plugin.deleteFiles({ uris: uris });
+  }
+
   // Returns { exempt: boolean } — whether the app is already whitelisted from battery optimization.
   function isBatteryOptimizationExempt() {
     var plugin = getPlugin('MediaStore');
@@ -321,5 +330,6 @@ var NativeBridge = (function() {
            hideMediaNotification: hideMediaNotification,
            requestNotificationPermission: requestNotificationPermission,
            isBatteryOptimizationExempt: isBatteryOptimizationExempt,
-           requestBatteryOptimizationExemption: requestBatteryOptimizationExemption };
+           requestBatteryOptimizationExemption: requestBatteryOptimizationExemption,
+           deleteFiles: deleteFiles };
 })();

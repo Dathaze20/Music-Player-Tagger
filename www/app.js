@@ -1059,6 +1059,39 @@ function applyEditsToSongs() {
   });
 }
 
+// Permanently delete a list of songs from the device filesystem (native) or just
+// remove them from the library (web). Shows a system confirm dialog on Android 10+.
+function deleteSongsFromDevice(songsToDelete) {
+  var ids = new Set(songsToDelete.map(function(s) { return s.id; }));
+  function removeFromMemory() {
+    songsToDelete.forEach(function(s) { if (s.url && s.url.startsWith('blob:')) URL.revokeObjectURL(s.url); });
+    songs = songs.filter(function(s) { return !ids.has(s.id); });
+    queue = queue.filter(function(s) { return !ids.has(s.id); });
+    songMap = Object.create(null); songs.forEach(function(s) { songMap[s.id] = s; });
+    _countsCache = null;
+    if (currentSong && ids.has(currentSong.id)) { currentSong = null; isPlaying = false; audio.pause(); }
+    saveLibrary();
+    render();
+  }
+  if (NativeBridge.isNative()) {
+    var uris = songsToDelete.map(function(s) { return s.contentUri; }).filter(Boolean);
+    if (!uris.length) { removeFromMemory(); showToast('Removed from library'); return; }
+    NativeBridge.deleteFiles(uris).then(function(r) {
+      removeFromMemory();
+      showToast('Deleted ' + (r.deleted || songsToDelete.length) + ' song' + (songsToDelete.length !== 1 ? 's' : ''));
+    }).catch(function(e) {
+      if (e && e.message && e.message.indexOf('cancelled') !== -1) {
+        showToast('Delete cancelled');
+      } else {
+        showToast('Delete failed: ' + (e && e.message ? e.message : e));
+      }
+    });
+  } else {
+    removeFromMemory();
+    showToast('Removed from library');
+  }
+}
+
 function saveLibrary() {
   _countsCache = null; _artistsCache = null; _albumsCache = null;
   _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
@@ -3653,6 +3686,7 @@ function showArtistMenu(artistName) {
     }},
     'divider',
     { icon: '&#9998;',  label: 'Tag editor',          action: function() { selectedArtist = artistName; render(); showToast('Tap ⋮ on any song to edit its tags'); } },
+    { icon: '&#128465;', label: 'Delete all songs',   action: function() { deleteSongsFromDevice(artistSongs); } },
   ]);
 }
 
@@ -3681,8 +3715,9 @@ function showAlbumMenu(album) {
         playSong(sh[0], sh);
     }},
     'divider',
-    { icon: '&#9998;', label: 'Tag editor',   action: function() { openEditModal(album.name, album.artist); } },
-    { icon: '&#9835;', label: 'Go to artist', action: function() { selectedAlbum = null; selectedArtist = album.artist; render(); } },
+    { icon: '&#9998;',   label: 'Tag editor',       action: function() { openEditModal(album.name, album.artist); } },
+    { icon: '&#9835;',   label: 'Go to artist',     action: function() { selectedAlbum = null; selectedArtist = album.artist; render(); } },
+    { icon: '&#128465;', label: 'Delete all songs',  action: function() { deleteSongsFromDevice(albumSongs); } },
   ]);
 }
 
@@ -3783,17 +3818,7 @@ function showSongMenu(songId, songList) {
     { icon: '&#9835;', label: 'Go to album',       action: function() { selectedAlbum = { name: song.album, artist: song.artist }; render(); } },
     { icon: '&#9834;', label: 'Go to artist',      action: function() { selectedAlbum = null; selectedArtist = song.artist; render(); } },
     'divider',
-    { icon: '&#128465;', label: 'Remove from library', action: function() {
-        if (song.url && song.url.startsWith('blob:')) URL.revokeObjectURL(song.url);
-        songs = songs.filter(function(s) { return s.id !== song.id; });
-        queue = queue.filter(function(s) { return s.id !== song.id; });
-        songMap = Object.create(null); songs.forEach(function(s) { songMap[s.id] = s; });
-        _countsCache = null;
-        if (currentSong && currentSong.id === song.id) { currentSong = null; isPlaying = false; audio.pause(); }
-        saveLibrary();
-        render();
-        showToast('Removed from library');
-      }
+    { icon: '&#128465;', label: 'Delete from device', action: function() { deleteSongsFromDevice([song]); }
     },
   ]);
 }
