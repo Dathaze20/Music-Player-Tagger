@@ -66,6 +66,7 @@ public class MediaStorePlugin extends Plugin {
     private static final int    SAF_REQUEST_CODE          = 9002;
     private static final int    WRITE_ACCESS_REQUEST_CODE = 9003;
     private static final int    PICK_IMAGE_REQUEST_CODE   = 9004;
+    private static final int    DELETE_REQUEST_CODE       = 9005;
     private static final String PREFS_NAME             = "muzio_prefs";
     private static final String PREF_SAF_URI           = "saf_tree_uri";
 
@@ -82,6 +83,8 @@ public class MediaStorePlugin extends Plugin {
     private PluginCall savedSafCall;
     private PluginCall savedWriteAccessCall;
     private PluginCall savedPickCall;
+    private PluginCall savedDeleteCall;
+    private List<Uri>  pendingDeleteUris;
 
     // ─── Notification button receiver ─────────────────────────────────────────
     // Receives ACTION_PREV/PLAY_PAUSE/NEXT/CLOSE from MuzioPlaybackService
@@ -372,6 +375,60 @@ public class MediaStorePlugin extends Plugin {
         }
     }
 
+    // ─── Permanent file deletion ───────────────────────────────────────────────
+
+    /**
+     * Permanently deletes audio files from the device by their MediaStore content URIs.
+     * Android 10+: shows a system confirmation dialog via MediaStore.createDeleteRequest.
+     * Android < 10: deletes directly (requires WRITE_EXTERNAL_STORAGE permission).
+     * Resolves { deleted: N } or rejects on cancellation / error.
+     */
+    @PluginMethod
+    public void deleteFiles(PluginCall call) {
+        JSArray arr = call.getArray("uris");
+        if (arr == null || arr.length() == 0) { call.reject("No uris"); return; }
+        List<Uri> uris = new ArrayList<>();
+        try {
+            for (int i = 0; i < arr.length(); i++) {
+                String u = arr.getString(i);
+                if (u != null && !u.isEmpty()) uris.add(Uri.parse(u));
+            }
+        } catch (Exception e) {
+            call.reject("Bad uris: " + e.getMessage());
+            return;
+        }
+        if (uris.isEmpty()) { call.reject("No uris"); return; }
+
+        ContentResolver cr = getContext().getContentResolver();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10+: show system confirmation dialog
+            try {
+                PendingIntent pi = MediaStore.createDeleteRequest(cr, uris);
+                if (savedDeleteCall != null) {
+                    savedDeleteCall.setKeepAlive(false);
+                    savedDeleteCall.reject("Superseded by newer delete");
+                }
+                savedDeleteCall = call;
+                pendingDeleteUris = uris;
+                call.setKeepAlive(true);
+                getActivity().startIntentSenderForResult(
+                    pi.getIntentSender(), DELETE_REQUEST_CODE, null, 0, 0, 0, null);
+            } catch (Exception e) {
+                call.reject("createDeleteRequest: " + e.getMessage());
+            }
+        } else {
+            // Android < 10: direct delete via ContentResolver
+            int deleted = 0;
+            for (Uri uri : uris) {
+                try { deleted += cr.delete(uri, null, null); } catch (Exception ignored) {}
+            }
+            JSObject r = new JSObject();
+            r.put("deleted", deleted);
+            call.resolve(r);
+        }
+    }
+
     @Override
     protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
         super.handleOnActivityResult(requestCode, resultCode, data);
@@ -425,6 +482,23 @@ public class MediaStorePlugin extends Plugin {
             JSObject r = new JSObject();
             r.put("granted", resultCode == Activity.RESULT_OK);
             call.resolve(r);
+            return;
+        }
+
+        if (requestCode == DELETE_REQUEST_CODE) {
+            PluginCall call = savedDeleteCall;
+            List<Uri> uris = pendingDeleteUris;
+            savedDeleteCall = null;
+            pendingDeleteUris = null;
+            if (call == null) return;
+            call.setKeepAlive(false);
+            if (resultCode == Activity.RESULT_OK) {
+                JSObject r = new JSObject();
+                r.put("deleted", uris != null ? uris.size() : 0);
+                call.resolve(r);
+            } else {
+                call.reject("Delete cancelled");
+            }
             return;
         }
 
