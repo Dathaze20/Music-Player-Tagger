@@ -633,6 +633,7 @@ function loadCurrentSongArt(song) {
   // 192px thumbnail → mini player + media session
   fetchThumbnail(uri).then(function(data) {
     if (!data || !currentSong || currentSong.albumArtUri !== uri) return;
+    if (currentSong.art && currentSong.art.startsWith('data:')) return;
     if (!showNowPlaying) {
       var el = document.getElementById('miniArt');
       if (el) {
@@ -2937,13 +2938,21 @@ function renderAlbumDetail(el) {
   var totalDur = albumSongs.reduce(function(sum, s) { return sum + (s.dur || 0); }, 0);
   var albumArtUri = first.albumArtUri || '';
 
+  // Use custom data: URL art if any song in the album has one
+  var customAlbumArt = '';
+  for (var _ai = 0; _ai < albumSongs.length; _ai++) {
+    if (albumSongs[_ai].art && albumSongs[_ai].art.startsWith('data:')) { customAlbumArt = albumSongs[_ai].art; break; }
+  }
+
   var heroGrad = (function(){ var g = getGrad(selectedAlbum.name); return 'linear-gradient(135deg,' + g[0] + ',' + g[1] + ')'; })();
   var heroInit = selectedAlbum.name.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase();
 
   var html = '<div class="detail-header">'
     + '<div style="position:relative;width:200px;height:200px;border-radius:16px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.5);flex-shrink:0;">'
     + '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:' + heroGrad + ';display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:70px;font-weight:700;color:#fff;">' + escHtml(heroInit) + '</div>'
-    + (albumArtUri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
+    + (customAlbumArt
+        ? '<img src="' + customAlbumArt + '" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;">'
+        : albumArtUri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
     + '</div>'
     + '<div class="detail-title">' + escHtml(selectedAlbum.name) + '</div>'
     + '<div class="detail-artist">' + escHtml(selectedAlbum.artist) + '</div>'
@@ -3234,11 +3243,13 @@ function updateMiniPlayer() {
     _miniLastSongId = currentSong.id;
     _mpTitleEl.textContent = currentSong.title;
     _mpArtistEl.textContent = currentSong.artist;
+    var customMiniArt = currentSong.art && currentSong.art.startsWith('data:') ? currentSong.art : '';
     var cached = uri && artCache[uri];
-    _mpArtEl.innerHTML = cached
-      ? '<img src="' + cached + '" style="width:44px;height:44px;object-fit:cover;border-radius:10px;flex-shrink:0;">'
+    var miniSrc = customMiniArt || cached || '';
+    _mpArtEl.innerHTML = miniSrc
+      ? '<img src="' + miniSrc + '" style="width:44px;height:44px;object-fit:cover;border-radius:10px;flex-shrink:0;">'
       : artHTML(currentSong.album || currentSong.title, 44);
-    if (uri && !cached) loadCurrentSongArt(currentSong);
+    if (!customMiniArt && uri && !cached) loadCurrentSongArt(currentSong);
   }
 
   _mpPlayBtn.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
