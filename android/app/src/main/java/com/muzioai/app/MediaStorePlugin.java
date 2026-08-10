@@ -517,6 +517,7 @@ public class MediaStorePlugin extends Plugin {
                             if (!fileServerActive) break;
                         }
                     }
+                } catch (Exception ignored) {
                 } finally { stopFileServerInternal(); }
             });
             t.setDaemon(true);
