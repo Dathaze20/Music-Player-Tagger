@@ -64,6 +64,8 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @CapacitorPlugin(
     name = "MediaStore",
@@ -593,28 +595,29 @@ public class MediaStorePlugin extends Plugin {
                     fis.close();
                 }
             } else {
-                // Serve HTML index for album
-                StringBuilder html = new StringBuilder();
-                html.append("<!DOCTYPE html><html><head><meta charset=UTF-8>"
-                    + "<meta name=viewport content='width=device-width'>"
-                    + "<title>My Music Share</title>"
-                    + "<style>body{font-family:sans-serif;padding:24px;background:#111;color:#eee}"
-                    + "a{display:block;padding:12px 16px;margin:8px 0;background:#1a2a3a;border-radius:8px;"
-                    + "color:#00c8be;text-decoration:none;font-size:16px}"
-                    + "h2{color:#fff}p{color:#888;font-size:13px}</style></head><body>"
-                    + "<h2>My Music — Album Download</h2>"
-                    + "<p>Tap a song to download it.</p>");
-                for (String n : names) {
-                    html.append("<a href=\"/").append(Uri.encode(n)).append("\" download>&#127911; ").append(n).append("</a>");
-                }
-                html.append("</body></html>");
-                byte[] body = html.toString().getBytes(StandardCharsets.UTF_8);
-                String headers = "HTTP/1.1 200 OK\r\n"
-                    + "Content-Type: text/html; charset=UTF-8\r\n"
-                    + "Content-Length: " + body.length + "\r\n"
+                // Serve all songs as a single ZIP download
+                String zipHeaders = "HTTP/1.1 200 OK\r\n"
+                    + "Content-Type: application/zip\r\n"
+                    + "Content-Disposition: attachment; filename=\"MyMusic-Album.zip\"\r\n"
                     + "Connection: close\r\n\r\n";
-                out.write(headers.getBytes(StandardCharsets.UTF_8));
-                out.write(body);
+                out.write(zipHeaders.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                ZipOutputStream zos = new ZipOutputStream(out);
+                byte[] buf = new byte[65536];
+                for (int i = 0; i < uris.size(); i++) {
+                    try {
+                        InputStream fis = cr.openInputStream(uris.get(i));
+                        if (fis == null) continue;
+                        zos.putNextEntry(new ZipEntry(names.get(i)));
+                        int read;
+                        while ((read = fis.read(buf)) != -1) zos.write(buf, 0, read);
+                        fis.close();
+                        zos.closeEntry();
+                    } catch (Exception e) {
+                        Log.w(TAG, "ZIP entry failed: " + e.getMessage());
+                    }
+                }
+                zos.finish();
             }
             out.flush();
         } catch (Exception e) {
