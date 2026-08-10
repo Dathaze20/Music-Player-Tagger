@@ -11,6 +11,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
@@ -31,6 +32,10 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
 
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
@@ -372,6 +377,76 @@ public class MediaStorePlugin extends Plugin {
             doWriteFileTags(call, Uri.parse(uriStr));
         } catch (Exception e) {
             call.reject("writeFileTags: " + e.getMessage());
+        }
+    }
+
+    // ─── Share audio files ─────────────────────────────────────────────────────
+
+    /**
+     * Opens the Android share sheet for one or more audio files by content URI.
+     * Quick Share, Bluetooth, and any installed app that handles audio/* appear in the sheet.
+     */
+    @PluginMethod
+    public void shareFiles(PluginCall call) {
+        JSArray urisArr = call.getArray("uris");
+        String chooserTitle = call.getString("title", "Share Music");
+        if (urisArr == null || urisArr.length() == 0) { call.reject("No uris"); return; }
+        ArrayList<Uri> uris = new ArrayList<>();
+        try {
+            for (int i = 0; i < urisArr.length(); i++) {
+                String u = urisArr.getString(i);
+                if (u != null && !u.isEmpty()) uris.add(Uri.parse(u));
+            }
+        } catch (Exception e) { call.reject("Bad uris: " + e.getMessage()); return; }
+        if (uris.isEmpty()) { call.reject("No uris"); return; }
+
+        Intent shareIntent;
+        if (uris.size() == 1) {
+            shareIntent = new Intent(Intent.ACTION_SEND);
+            shareIntent.setType("audio/*");
+            shareIntent.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+        } else {
+            shareIntent = new Intent(Intent.ACTION_SEND_MULTIPLE);
+            shareIntent.setType("audio/*");
+            shareIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+        }
+        shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            getActivity().startActivity(Intent.createChooser(shareIntent, chooserTitle));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Share failed: " + e.getMessage());
+        }
+    }
+
+    // ─── QR code generation ────────────────────────────────────────────────────
+
+    /**
+     * Generates a QR code for the given text and returns it as a base64 PNG data URL.
+     * Works fully offline — uses ZXing, no network required.
+     */
+    @PluginMethod
+    public void generateQrCode(PluginCall call) {
+        String text = call.getString("text", "");
+        int size = call.getInt("size", 300);
+        if (text == null || text.isEmpty()) { call.reject("No text"); return; }
+        try {
+            QRCodeWriter writer = new QRCodeWriter();
+            BitMatrix matrix = writer.encode(text, BarcodeFormat.QR_CODE, size, size);
+            Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            for (int x = 0; x < size; x++) {
+                for (int y = 0; y < size; y++) {
+                    bmp.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
+                }
+            }
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, baos);
+            bmp.recycle();
+            JSObject r = new JSObject();
+            r.put("data", "data:image/png;base64," + Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP));
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("QR generation failed: " + e.getMessage());
         }
     }
 

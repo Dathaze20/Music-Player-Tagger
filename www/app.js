@@ -3616,6 +3616,68 @@ function renderNowPlaying() {
   };
 }
 
+// ─── Share helpers ───────────────────────────────────────────────────────────
+
+function shareSongs(songList, label) {
+  var uris = songList.map(function(s) { return s.contentUri; }).filter(Boolean);
+  if (!uris.length) { showToast('No shareable file found'); return; }
+  NativeBridge.shareFiles(uris, label || 'Share Music').catch(function(e) {
+    showToast('Share failed: ' + (e && e.message ? e.message : e));
+  });
+}
+
+function showQrModal(qrText, headerHTML) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;';
+
+  var card = document.createElement('div');
+  card.style.cssText = 'background:var(--bg-secondary);border-radius:20px;padding:24px;width:100%;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:16px;';
+
+  // Header (song/album info)
+  if (headerHTML) {
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'width:100%;text-align:center;';
+    hdr.innerHTML = headerHTML;
+    card.appendChild(hdr);
+  }
+
+  // QR image placeholder
+  var qrImg = document.createElement('img');
+  qrImg.style.cssText = 'width:240px;height:240px;border-radius:12px;background:#fff;';
+  qrImg.alt = 'QR Code';
+  card.appendChild(qrImg);
+
+  var hint = document.createElement('div');
+  hint.style.cssText = 'font-size:12px;color:var(--text-faint);text-align:center;';
+  hint.textContent = 'Scan to find this song on YouTube Music';
+  card.appendChild(hint);
+
+  var closeBtn = document.createElement('button');
+  closeBtn.style.cssText = 'margin-top:4px;padding:10px 32px;border-radius:24px;border:none;background:var(--primary);color:#fff;font-size:15px;font-weight:600;';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = function() { document.body.removeChild(overlay); };
+  card.appendChild(closeBtn);
+
+  overlay.appendChild(card);
+  overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
+  document.body.appendChild(overlay);
+
+  // Generate QR natively (offline, via ZXing)
+  NativeBridge.generateQrCode(qrText, 600).then(function(dataUrl) {
+    qrImg.src = dataUrl;
+  }).catch(function() {
+    hint.textContent = 'QR generation failed';
+  });
+}
+
+function songQrText(song) {
+  return 'https://music.youtube.com/search?q=' + encodeURIComponent((song.title || '') + ' ' + (song.artist || '')).replace(/%20/g, '+');
+}
+
+function albumQrText(albumName, artistName) {
+  return 'https://music.youtube.com/search?q=' + encodeURIComponent(albumName + ' ' + artistName).replace(/%20/g, '+');
+}
+
 // ─── Context Bottom Sheet ───
 
 function closeBottomSheet() {
@@ -3697,6 +3759,7 @@ function showArtistMenu(artistName) {
     }},
     'divider',
     { icon: '&#9998;',  label: 'Tag editor',          action: function() { selectedArtist = artistName; render(); showToast('Tap ⋮ on any song to edit its tags'); } },
+    { icon: '&#128257;', label: 'Share all songs',    action: function() { shareSongs(artistSongs, artistName); } },
     { icon: '&#128465;', label: 'Delete all songs',   action: function() { deleteSongsFromDevice(artistSongs); } },
   ]);
 }
@@ -3728,6 +3791,12 @@ function showAlbumMenu(album) {
     'divider',
     { icon: '&#9998;',   label: 'Tag editor',       action: function() { openEditModal(album.name, album.artist); } },
     { icon: '&#9835;',   label: 'Go to artist',     action: function() { selectedAlbum = null; selectedArtist = album.artist; render(); } },
+    { icon: '&#128257;', label: 'Share album',       action: function() { shareSongs(albumSongs, album.name); } },
+    { icon: '&#9638;',   label: 'Share QR code',    action: function() {
+        var hdr = '<div style="font-weight:700;font-size:16px;">' + escHtml(album.name) + '</div>'
+                + '<div style="font-size:13px;color:var(--text-dim);">' + escHtml(album.artist) + ' &bull; ' + albumSongs.length + ' songs</div>';
+        showQrModal(albumQrText(album.name, album.artist), hdr);
+    }},
     { icon: '&#128465;', label: 'Delete all songs',  action: function() { deleteSongsFromDevice(albumSongs); } },
   ]);
 }
@@ -3829,8 +3898,13 @@ function showSongMenu(songId, songList) {
     { icon: '&#9835;', label: 'Go to album',       action: function() { selectedAlbum = { name: song.album, artist: song.artist }; render(); } },
     { icon: '&#9834;', label: 'Go to artist',      action: function() { selectedAlbum = null; selectedArtist = song.artist; render(); } },
     'divider',
-    { icon: '&#128465;', label: 'Delete from device', action: function() { deleteSongsFromDevice([song]); }
-    },
+    { icon: '&#128257;', label: 'Share audio',     action: function() { shareSongs([song], song.title); } },
+    { icon: '&#9638;',   label: 'Share QR code',   action: function() {
+        var hdr = '<div style="font-weight:700;font-size:16px;">' + escHtml(song.title) + '</div>'
+                + '<div style="font-size:13px;color:var(--text-dim);">' + escHtml(song.artist) + ' &bull; ' + escHtml(song.album) + '</div>';
+        showQrModal(songQrText(song), hdr);
+    }},
+    { icon: '&#128465;', label: 'Delete from device', action: function() { deleteSongsFromDevice([song]); } },
   ]);
 }
 

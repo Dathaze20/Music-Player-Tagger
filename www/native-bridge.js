@@ -297,6 +297,22 @@ var NativeBridge = (function() {
     });
   }
 
+  // Open the Android share sheet for one or more audio content URIs.
+  // The system chooser shows Quick Share, Bluetooth, and any installed app that handles audio.
+  function shareFiles(uris, title) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.shareFiles) return Promise.reject(new Error('shareFiles not available'));
+    return plugin.shareFiles({ uris: uris, title: title || 'Share Music' });
+  }
+
+  // Generate a QR code for the given text string, returned as a base64 PNG data URL.
+  // Fully offline — generated natively by ZXing on the device.
+  function generateQrCode(text, size) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.generateQrCode) return Promise.reject(new Error('generateQrCode not available'));
+    return plugin.generateQrCode({ text: text, size: size || 300 }).then(function(r) { return r.data; });
+  }
+
   // Permanently delete audio files from the device by their MediaStore content URIs.
   // Android 10+: shows a system confirmation dialog. Android < 10: deletes directly.
   // Resolves { deleted: N } or rejects if cancelled.
@@ -331,5 +347,6 @@ var NativeBridge = (function() {
            requestNotificationPermission: requestNotificationPermission,
            isBatteryOptimizationExempt: isBatteryOptimizationExempt,
            requestBatteryOptimizationExemption: requestBatteryOptimizationExemption,
-           deleteFiles: deleteFiles };
+           deleteFiles: deleteFiles,
+           shareFiles: shareFiles, generateQrCode: generateQrCode };
 })();
