@@ -44,13 +44,23 @@ import org.jaudiotagger.tag.Tag;
 import org.jaudiotagger.tag.images.Artwork;
 import org.jaudiotagger.tag.images.ArtworkFactory;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -90,6 +100,10 @@ public class MediaStorePlugin extends Plugin {
     private PluginCall savedPickCall;
     private PluginCall savedDeleteCall;
     private List<Uri>  pendingDeleteUris;
+
+    // WiFi file-share server state
+    private ServerSocket fileServer;
+    private volatile boolean fileServerActive = false;
 
     // ─── Notification button receiver ─────────────────────────────────────────
     // Receives ACTION_PREV/PLAY_PAUSE/NEXT/CLOSE from MuzioPlaybackService
@@ -448,6 +462,198 @@ public class MediaStorePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("QR generation failed: " + e.getMessage());
         }
+    }
+
+    // ─── Local WiFi file-share server ─────────────────────────────────────────
+
+    /**
+     * Starts a temporary HTTP server on the local WiFi so another device on the same
+     * network can download the song(s) by scanning a QR code.
+     *
+     * Accepts: { songs: [{contentUri, fileName}] }
+     * Returns: { url: "http://192.168.x.x:PORT/" } or rejects if not on WiFi.
+     *
+     * Single song  → GET /fileName    → downloads the audio file.
+     * Multiple songs → GET /          → HTML download index; each file served at /fileName.
+     */
+    @PluginMethod
+    public void startShareServer(PluginCall call) {
+        JSArray arr = call.getArray("songs");
+        if (arr == null || arr.length() == 0) { call.reject("No songs"); return; }
+
+        // Build list of {uri, name} pairs
+        final List<Uri>    uris  = new ArrayList<>();
+        final List<String> names = new ArrayList<>();
+        try {
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject obj = arr.getJSONObject(i);
+                uris.add(Uri.parse(obj.getString("contentUri")));
+                names.add(sanitizeName(obj.getString("fileName")));
+            }
+        } catch (Exception e) { call.reject("Bad songs array: " + e.getMessage()); return; }
+
+        String ip = getLocalIpAddress();
+        if (ip == null) { call.reject("Not connected to WiFi"); return; }
+
+        stopFileServerInternal();
+
+        try {
+            fileServer = new ServerSocket(0);
+            int port = fileServer.getLocalPort();
+            fileServerActive = true;
+
+            final boolean single = uris.size() == 1;
+
+            Thread t = new Thread(() -> {
+                try {
+                    fileServer.setSoTimeout(600000); // 10-min window
+                    while (fileServerActive) {
+                        try {
+                            Socket client = fileServer.accept();
+                            serveClient(client, uris, names, single);
+                        } catch (SocketTimeoutException ignored) {
+                            break;
+                        } catch (Exception e) {
+                            if (!fileServerActive) break;
+                        }
+                    }
+                } finally { stopFileServerInternal(); }
+            });
+            t.setDaemon(true);
+            t.start();
+
+            String rootUrl = "http://" + ip + ":" + port + "/" + (single ? Uri.encode(names.get(0)) : "");
+            JSObject r = new JSObject();
+            r.put("url", rootUrl);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("Server start failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopShareServer(PluginCall call) {
+        stopFileServerInternal();
+        if (call != null) call.resolve();
+    }
+
+    private void stopFileServerInternal() {
+        fileServerActive = false;
+        if (fileServer != null) {
+            try { fileServer.close(); } catch (Exception ignored) {}
+            fileServer = null;
+        }
+    }
+
+    private void serveClient(Socket client, List<Uri> uris, List<String> names, boolean single) {
+        try {
+            client.setSoTimeout(30000);
+            BufferedInputStream req = new BufferedInputStream(client.getInputStream());
+            // Read the request line (first line only)
+            StringBuilder requestLine = new StringBuilder();
+            int b;
+            while ((b = req.read()) != -1 && b != '\r' && b != '\n') requestLine.append((char) b);
+            // Drain remaining headers
+            int prev = -1;
+            while ((b = req.read()) != -1) {
+                if (prev == '\n' && b == '\r') { req.read(); break; } // \n\r\n → end of headers
+                prev = b;
+            }
+
+            String path = "";
+            String[] parts = requestLine.toString().split(" ");
+            if (parts.length >= 2) path = parts[1].replaceFirst("^/", "");
+            path = java.net.URLDecoder.decode(path, "UTF-8");
+
+            OutputStream out = new BufferedOutputStream(client.getOutputStream(), 65536);
+            ContentResolver cr = getContext().getContentResolver();
+
+            if (single || !path.isEmpty()) {
+                // Serve specific file
+                int idx = names.indexOf(path);
+                Uri uri = idx >= 0 ? uris.get(idx) : (single ? uris.get(0) : null);
+                String name = idx >= 0 ? names.get(idx) : (single ? names.get(0) : null);
+                if (uri == null) {
+                    out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".getBytes());
+                    out.flush(); return;
+                }
+                long size = getContentLength(cr, uri);
+                String headers = "HTTP/1.1 200 OK\r\n"
+                    + "Content-Type: audio/mpeg\r\n"
+                    + (size > 0 ? "Content-Length: " + size + "\r\n" : "")
+                    + "Content-Disposition: attachment; filename=\"" + name + "\"\r\n"
+                    + "Connection: close\r\n\r\n";
+                out.write(headers.getBytes(StandardCharsets.UTF_8));
+                InputStream fis = cr.openInputStream(uri);
+                if (fis != null) {
+                    byte[] buf = new byte[65536];
+                    int read;
+                    while ((read = fis.read(buf)) != -1) out.write(buf, 0, read);
+                    fis.close();
+                }
+            } else {
+                // Serve HTML index for album
+                StringBuilder html = new StringBuilder();
+                html.append("<!DOCTYPE html><html><head><meta charset=UTF-8>"
+                    + "<meta name=viewport content='width=device-width'>"
+                    + "<title>My Music Share</title>"
+                    + "<style>body{font-family:sans-serif;padding:24px;background:#111;color:#eee}"
+                    + "a{display:block;padding:12px 16px;margin:8px 0;background:#1a2a3a;border-radius:8px;"
+                    + "color:#00c8be;text-decoration:none;font-size:16px}"
+                    + "h2{color:#fff}p{color:#888;font-size:13px}</style></head><body>"
+                    + "<h2>My Music — Album Download</h2>"
+                    + "<p>Tap a song to download it.</p>");
+                for (String n : names) {
+                    html.append("<a href=\"/").append(Uri.encode(n)).append("\" download>&#127911; ").append(n).append("</a>");
+                }
+                html.append("</body></html>");
+                byte[] body = html.toString().getBytes(StandardCharsets.UTF_8);
+                String headers = "HTTP/1.1 200 OK\r\n"
+                    + "Content-Type: text/html; charset=UTF-8\r\n"
+                    + "Content-Length: " + body.length + "\r\n"
+                    + "Connection: close\r\n\r\n";
+                out.write(headers.getBytes(StandardCharsets.UTF_8));
+                out.write(body);
+            }
+            out.flush();
+        } catch (Exception e) {
+            Log.w(TAG, "serveClient: " + e.getMessage());
+        } finally {
+            try { client.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private long getContentLength(ContentResolver cr, Uri uri) {
+        try (android.database.Cursor c = cr.query(uri,
+                new String[]{MediaStore.Audio.Media.SIZE}, null, null, null)) {
+            if (c != null && c.moveToFirst()) return c.getLong(0);
+        } catch (Exception ignored) {}
+        return -1;
+    }
+
+    private String sanitizeName(String name) {
+        return name.replaceAll("[^a-zA-Z0-9._\\- ]", "_");
+    }
+
+    private String getLocalIpAddress() {
+        try {
+            Enumeration<NetworkInterface> ifaces = NetworkInterface.getNetworkInterfaces();
+            if (ifaces == null) return null;
+            while (ifaces.hasMoreElements()) {
+                NetworkInterface iface = ifaces.nextElement();
+                if (!iface.isUp() || iface.isLoopback()) continue;
+                Enumeration<InetAddress> addrs = iface.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
+                        String ip = addr.getHostAddress();
+                        if (ip != null && (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")))
+                            return ip;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
     }
 
     // ─── Permanent file deletion ───────────────────────────────────────────────

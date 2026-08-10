@@ -313,6 +313,21 @@ var NativeBridge = (function() {
     return plugin.generateQrCode({ text: text, size: size || 300 }).then(function(r) { return r.data; });
   }
 
+  // Start a temporary local WiFi HTTP server to share audio files via QR code.
+  // songs: [{contentUri, fileName}]
+  // Resolves { url } — the URL to encode in the QR code (requires both phones on same WiFi).
+  function startShareServer(songs) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.startShareServer) return Promise.reject(new Error('startShareServer not available'));
+    return plugin.startShareServer({ songs: songs });
+  }
+
+  // Stop the local WiFi share server.
+  function stopShareServer() {
+    var plugin = getPlugin('MediaStore');
+    if (plugin && plugin.stopShareServer) plugin.stopShareServer({}).catch(function() {});
+  }
+
   // Permanently delete audio files from the device by their MediaStore content URIs.
   // Android 10+: shows a system confirmation dialog. Android < 10: deletes directly.
   // Resolves { deleted: N } or rejects if cancelled.
@@ -348,5 +363,6 @@ var NativeBridge = (function() {
            isBatteryOptimizationExempt: isBatteryOptimizationExempt,
            requestBatteryOptimizationExemption: requestBatteryOptimizationExemption,
            deleteFiles: deleteFiles,
-           shareFiles: shareFiles, generateQrCode: generateQrCode };
+           shareFiles: shareFiles, generateQrCode: generateQrCode,
+           startShareServer: startShareServer, stopShareServer: stopShareServer };
 })();

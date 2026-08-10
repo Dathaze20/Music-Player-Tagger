@@ -3626,56 +3626,74 @@ function shareSongs(songList, label) {
   });
 }
 
-function showQrModal(qrText, headerHTML) {
+// Show a QR code that lets another phone on the same WiFi download the actual MP3(s).
+// songs: array of song objects from the library.
+function showShareQrModal(songs, label) {
   var overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;';
 
   var card = document.createElement('div');
-  card.style.cssText = 'background:var(--bg-secondary);border-radius:20px;padding:24px;width:100%;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:16px;';
+  card.style.cssText = 'background:var(--bg-secondary);border-radius:20px;padding:24px;width:100%;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:14px;';
 
-  // Header (song/album info)
-  if (headerHTML) {
-    var hdr = document.createElement('div');
-    hdr.style.cssText = 'width:100%;text-align:center;';
-    hdr.innerHTML = headerHTML;
-    card.appendChild(hdr);
-  }
+  var title = document.createElement('div');
+  title.style.cssText = 'font-weight:700;font-size:16px;text-align:center;';
+  title.textContent = label || songs[0].title;
+  card.appendChild(title);
 
-  // QR image placeholder
-  var qrImg = document.createElement('img');
-  qrImg.style.cssText = 'width:240px;height:240px;border-radius:12px;background:#fff;';
-  qrImg.alt = 'QR Code';
-  card.appendChild(qrImg);
+  var qrWrap = document.createElement('div');
+  qrWrap.style.cssText = 'width:240px;height:240px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;';
+  var spinner = document.createElement('div');
+  spinner.textContent = 'Starting…';
+  spinner.style.cssText = 'color:#555;font-size:14px;';
+  qrWrap.appendChild(spinner);
+  card.appendChild(qrWrap);
 
   var hint = document.createElement('div');
-  hint.style.cssText = 'font-size:12px;color:var(--text-faint);text-align:center;';
-  hint.textContent = 'Scan to find this song on YouTube Music';
+  hint.style.cssText = 'font-size:12px;color:var(--text-faint);text-align:center;line-height:1.5;';
+  hint.textContent = 'Both phones must be on the same WiFi.\nScan with camera to download.';
   card.appendChild(hint);
 
   var closeBtn = document.createElement('button');
-  closeBtn.style.cssText = 'margin-top:4px;padding:10px 32px;border-radius:24px;border:none;background:var(--primary);color:#fff;font-size:15px;font-weight:600;';
+  closeBtn.style.cssText = 'padding:10px 32px;border-radius:24px;border:none;background:var(--primary);color:#fff;font-size:15px;font-weight:600;';
   closeBtn.textContent = 'Close';
-  closeBtn.onclick = function() { document.body.removeChild(overlay); };
+  function dismiss() {
+    NativeBridge.stopShareServer();
+    if (overlay.parentNode) document.body.removeChild(overlay);
+  }
+  closeBtn.onclick = dismiss;
+  overlay.onclick = function(e) { if (e.target === overlay) dismiss(); };
   card.appendChild(closeBtn);
 
   overlay.appendChild(card);
-  overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
   document.body.appendChild(overlay);
 
-  // Generate QR natively (offline, via ZXing)
-  NativeBridge.generateQrCode(qrText, 600).then(function(dataUrl) {
-    qrImg.src = dataUrl;
-  }).catch(function() {
-    hint.textContent = 'QR generation failed';
+  // Build song list for the server
+  var serverSongs = songs.map(function(s) {
+    return { contentUri: s.contentUri, fileName: (s.title || s.fn || 'song') + '.mp3' };
+  }).filter(function(s) { return s.contentUri; });
+
+  if (!serverSongs.length) {
+    hint.textContent = 'No shareable file found (content URI missing).';
+    return;
+  }
+
+  NativeBridge.startShareServer(serverSongs).then(function(r) {
+    var url = r.url;
+    // Generate QR natively
+    return NativeBridge.generateQrCode(url, 600).then(function(dataUrl) {
+      var qrImg = document.createElement('img');
+      qrImg.style.cssText = 'width:240px;height:240px;border-radius:12px;object-fit:contain;';
+      qrImg.src = dataUrl;
+      qrWrap.innerHTML = '';
+      qrWrap.appendChild(qrImg);
+      hint.textContent = songs.length === 1
+        ? 'Scan to download "' + songs[0].title + '".\nBoth phones must be on same WiFi.'
+        : 'Scan to open the album download page.\nBoth phones must be on same WiFi.';
+    });
+  }).catch(function(e) {
+    hint.textContent = 'Failed: ' + (e && e.message ? e.message : e);
+    spinner.textContent = '✕';
   });
-}
-
-function songQrText(song) {
-  return 'https://music.youtube.com/search?q=' + encodeURIComponent((song.title || '') + ' ' + (song.artist || '')).replace(/%20/g, '+');
-}
-
-function albumQrText(albumName, artistName) {
-  return 'https://music.youtube.com/search?q=' + encodeURIComponent(albumName + ' ' + artistName).replace(/%20/g, '+');
 }
 
 // ─── Context Bottom Sheet ───
@@ -3791,12 +3809,8 @@ function showAlbumMenu(album) {
     'divider',
     { icon: '&#9998;',   label: 'Tag editor',       action: function() { openEditModal(album.name, album.artist); } },
     { icon: '&#9835;',   label: 'Go to artist',     action: function() { selectedAlbum = null; selectedArtist = album.artist; render(); } },
-    { icon: '&#128257;', label: 'Share album',       action: function() { shareSongs(albumSongs, album.name); } },
-    { icon: '&#9638;',   label: 'Share QR code',    action: function() {
-        var hdr = '<div style="font-weight:700;font-size:16px;">' + escHtml(album.name) + '</div>'
-                + '<div style="font-size:13px;color:var(--text-dim);">' + escHtml(album.artist) + ' &bull; ' + albumSongs.length + ' songs</div>';
-        showQrModal(albumQrText(album.name, album.artist), hdr);
-    }},
+    { icon: '&#128257;', label: 'Share album',    action: function() { shareSongs(albumSongs, album.name); } },
+    { icon: '&#9638;',   label: 'Share QR code', action: function() { showShareQrModal(albumSongs, album.name); } },
     { icon: '&#128465;', label: 'Delete all songs',  action: function() { deleteSongsFromDevice(albumSongs); } },
   ]);
 }
@@ -3898,12 +3912,8 @@ function showSongMenu(songId, songList) {
     { icon: '&#9835;', label: 'Go to album',       action: function() { selectedAlbum = { name: song.album, artist: song.artist }; render(); } },
     { icon: '&#9834;', label: 'Go to artist',      action: function() { selectedAlbum = null; selectedArtist = song.artist; render(); } },
     'divider',
-    { icon: '&#128257;', label: 'Share audio',     action: function() { shareSongs([song], song.title); } },
-    { icon: '&#9638;',   label: 'Share QR code',   action: function() {
-        var hdr = '<div style="font-weight:700;font-size:16px;">' + escHtml(song.title) + '</div>'
-                + '<div style="font-size:13px;color:var(--text-dim);">' + escHtml(song.artist) + ' &bull; ' + escHtml(song.album) + '</div>';
-        showQrModal(songQrText(song), hdr);
-    }},
+    { icon: '&#128257;', label: 'Share audio',   action: function() { shareSongs([song], song.title); } },
+    { icon: '&#9638;',   label: 'Share QR code', action: function() { showShareQrModal([song]); } },
     { icon: '&#128465;', label: 'Delete from device', action: function() { deleteSongsFromDevice([song]); } },
   ]);
 }
