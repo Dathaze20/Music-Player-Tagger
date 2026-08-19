@@ -1675,7 +1675,7 @@ function render() {
   _msArtistMode = false; _msArtistNames = null; _msHideBar();
   cleanupVirtualScroll();
   cleanupArtistVS();
-  cleanupCf();
+  cleanupAlbumGrid();
   var main = document.getElementById('mainContent');
   var tabBar = document.getElementById('tabBar');
   var header = document.getElementById('headerTitle');
@@ -2357,9 +2357,6 @@ function renderSongs(el) {
 function renderAlbums(el) {
   if (songs.length === 0) { renderWelcome(el); return; }
 
-  // Stretch main to full height — no vertical scroll, no bottom padding
-  el.classList.add('albums-cf-mode');
-
   var allAlbums = getAlbums('all');
   var filtered = getAlbums(albumFilter);
   if (albumGenreFilter !== 'all') {
@@ -2380,20 +2377,18 @@ function renderAlbums(el) {
     eps: allAlbums.filter(function(a){return a.type==='EP'||a.type==='Single';}).length,
   };
 
-  // Type chips
   var chips = [['all','All'],['albums','Albums'],['mixtapes','Mixtapes'],['eps','EPs & Singles']];
-  var chipsHtml = '<div class="filter-chips cf-chip-row">';
+  var chipsHtml = '<div class="filter-chips">';
   chips.forEach(function(c) {
     chipsHtml += '<button class="chip' + (albumFilter === c[0] ? ' active' : '') + '" data-filter="' + c[0] + '">' + c[1] + '<span class="count">' + counts[c[0]] + '</span></button>';
   });
   chipsHtml += '</div>';
 
-  // Genre chips (top 6 only when inline)
   var genreMap = {};
   allAlbums.forEach(function(a) { if (a.genre) genreMap[a.genre] = (genreMap[a.genre] || 0) + 1; });
   var genres = Object.keys(genreMap).sort(function(a, b) { return genreMap[b] - genreMap[a]; }).slice(0, 6);
   if (genres.length > 1) {
-    chipsHtml += '<div class="filter-chips genre-chips cf-chip-row">';
+    chipsHtml += '<div class="filter-chips genre-chips">';
     chipsHtml += '<button class="chip chip-genre' + (albumGenreFilter === 'all' ? ' active' : '') + '" data-genre="all">All</button>';
     genres.forEach(function(g) {
       chipsHtml += '<button class="chip chip-genre' + (albumGenreFilter === g ? ' active' : '') + '" data-genre="' + escHtml(g) + '">' + escHtml(g) + '</button>';
@@ -2401,63 +2396,150 @@ function renderAlbums(el) {
     chipsHtml += '</div>';
   }
 
-  el.innerHTML = '<div class="cf-stage" id="cfStage">'
-    + '<div class="cf-glow" id="cfGlow"></div>'
-    + '<div class="cf-floor" id="cfFloor"></div>'
-    + '<div class="cf-specular" id="cfSpecular"></div>'
-    + '<div class="cf-center-shadow" id="cfCenterShadow"></div>'
-    + '<div id="cfViewport"></div>'
-    + '<div class="cf-top-glass" id="cfTopGlass">' + chipsHtml + '</div>'
-    + '<div class="cf-bot-glass">'
-    + '<div class="cf-counter" id="cfCounter"></div>'
-    + '<div class="cf-info-name" id="cfAlbumName"></div>'
-    + '<div class="cf-info-meta" id="cfAlbumMeta"></div>'
-    + '<div class="cf-actions">'
-    + '<button class="cf-btn-play" id="cfBtnPlay">&#9654; Play</button>'
-    + '<button class="cf-btn-shuffle" id="cfBtnShuffle" title="Shuffle">&#8644;</button>'
-    + '<button class="cf-btn-open" id="cfBtnOpen">&#8250;</button>'
-    + '</div>'
-    + '</div>'
-    + '<div class="cf-collection-bar" id="cfCollectionBar"></div>'
+  el.innerHTML = chipsHtml
+    + '<div id="agOuter" style="position:relative;">'
+    + '<div id="agRows" style="position:absolute;left:0;right:0;top:0;"></div>'
     + '</div>';
 
-  // Wire chip filters
   el.querySelectorAll('.chip:not(.chip-genre)').forEach(function(btn) {
-    btn.onclick = function() { albumFilter = btn.dataset.filter; cleanupCf(); render(); };
+    btn.onclick = function() { albumFilter = btn.dataset.filter; render(); };
   });
   el.querySelectorAll('.chip-genre').forEach(function(btn) {
-    btn.onclick = function() { albumGenreFilter = btn.dataset.genre; cleanupCf(); render(); };
+    btn.onclick = function() { albumGenreFilter = btn.dataset.genre; render(); };
   });
 
-  // Wire actions
-  el.querySelector('#cfBtnPlay').onclick = function() {
-    _haptic(12);
-    playCfAlbum(_cfR ? Math.round(_cfR.pos) : _cfCenterIdx);
-  };
-  el.querySelector('#cfBtnShuffle').onclick = function() {
-    _haptic([10, 20, 10]);
-    var idx = _cfR ? Math.round(_cfR.pos) : _cfCenterIdx;
-    var a = _cfAlbums[idx];
-    if (!a) return;
-    var sng = getAlbumSongs(a.name, a.artist);
-    if (!sng.length) { showToast('No songs found'); return; }
-    showNowPlaying = true;
-    cleanupCf();
-    var shuffled = sng.slice().sort(function() { return Math.random() - 0.5; });
-    playSong(shuffled[0], shuffled);
-    document.getElementById('nowPlaying').classList.remove('hidden');
-  };
-  el.querySelector('#cfBtnOpen').onclick = function() {
-    _haptic(8);
-    var a = _cfAlbums[_cfR ? Math.round(_cfR.pos) : _cfCenterIdx];
-    if (a) { cleanupCf(); selectedAlbum = { name: a.name, artist: a.artist }; render(); }
-  };
+  el.addEventListener('click', function agClick(e) {
+    var moreBtn = e.target.closest ? e.target.closest('.ag-more') : null;
+    if (moreBtn) {
+      e.stopPropagation();
+      var idx = parseInt(moreBtn.dataset.albumIdx);
+      if (_agData && _agData[idx]) { _haptic(8); showAlbumMenu(_agData[idx]); }
+      return;
+    }
+    var card = e.target.closest ? e.target.closest('.ag-card') : null;
+    if (card) {
+      var idx = parseInt(card.dataset.albumIdx);
+      if (_agData && _agData[idx]) {
+        _haptic(8);
+        selectedAlbum = { name: _agData[idx].name, artist: _agData[idx].artist };
+        render();
+      }
+    }
+  });
 
-  // Defer one frame so the browser finishes laying out cfStage before
-  // startInlineCf reads offsetWidth/clientHeight. Without this, chip-filter
-  // re-renders can read 0 dimensions and show a black stage.
-  var _cfBootAlbums = filtered;
-  requestAnimationFrame(function() { startInlineCf(_cfBootAlbums); });
+  initAlbumGrid(filtered);
+}
+
+// ─── Album Grid (2-column virtual scroll) ───
+
+var _agData = null;
+var _agRenderedStart = -9999;
+var _agScrollFn = null;
+var AG_COLS = 2;
+var AG_GAP = 8;
+var AG_TEXT_H = 56;
+var _agRowH = 0;
+var _agColW = 0;
+
+function cleanupAlbumGrid() {
+  if (_agScrollFn) {
+    var mc = document.getElementById('mainContent');
+    if (mc) mc.removeEventListener('scroll', _agScrollFn);
+    _agScrollFn = null;
+  }
+  _agData = null;
+}
+
+function initAlbumGrid(albums) {
+  _agData = albums;
+  _agRenderedStart = -9999;
+
+  var outer = document.getElementById('agOuter');
+  var main = document.getElementById('mainContent');
+  if (!outer || !main) return;
+
+  var containerW = outer.clientWidth || window.innerWidth;
+  _agColW = Math.floor((containerW - AG_GAP * (AG_COLS + 1)) / AG_COLS);
+  _agRowH = _agColW + AG_TEXT_H + AG_GAP;
+
+  var totalRows = Math.ceil(albums.length / AG_COLS);
+  outer.style.height = (totalRows * _agRowH + AG_GAP) + 'px';
+
+  _agScrollFn = function() {
+    var ag = document.getElementById('agOuter');
+    if (!ag) { cleanupAlbumGrid(); return; }
+    var relScroll = main.scrollTop - ag.offsetTop;
+    var newStart = Math.max(0, Math.floor(relScroll / _agRowH) - VS_BUFFER);
+    if (newStart > 0 && Math.abs(newStart - _agRenderedStart) < Math.floor(VS_BUFFER / 2)) return;
+    _agRenderedStart = newStart;
+    renderAgWindow(newStart);
+  };
+  main.addEventListener('scroll', _agScrollFn, { passive: true });
+  renderAgWindow(0);
+
+  if (albumSortMode !== 'year' && albumSortMode !== 'songs') {
+    var letters = [];
+    var letterRowMap = {};
+    albums.forEach(function(a, i) {
+      var ch = (a.name || '#')[0].toUpperCase();
+      var letter = /[A-Z]/.test(ch) ? ch : '#';
+      if (letterRowMap[letter] === undefined) {
+        letters.push(letter);
+        letterRowMap[letter] = Math.floor(i / AG_COLS);
+      }
+    });
+    var agTop = outer.offsetTop || 0;
+    renderAlphaStrip(main, letters, function(letter) {
+      return agTop + ((letterRowMap[letter] || 0) * _agRowH);
+    });
+  }
+}
+
+function renderAgWindow(start) {
+  if (!_agData) return;
+  var rows = document.getElementById('agRows');
+  if (!rows) { cleanupAlbumGrid(); return; }
+
+  var totalRows = Math.ceil(_agData.length / AG_COLS);
+  var end = Math.min(totalRows, start + VS_BUFFER * 2 + 20);
+  var parts = [];
+  for (var r = start; r < end; r++) { parts.push(agRowHTML(r)); }
+
+  rows.innerHTML = parts.join('');
+  rows.style.top = (start * _agRowH) + 'px';
+  initLazyArt(rows);
+
+  var dataStart = start * AG_COLS;
+  var dataEnd = Math.min(_agData.length, end * AG_COLS);
+  batchPrefetchWindowArt(_agData, dataStart, dataEnd, 'agRows', Math.min(_agData.length, dataEnd + VS_BUFFER * AG_COLS));
+}
+
+function agRowHTML(rowIdx) {
+  var html = '<div class="ag-row" style="top:' + (rowIdx * _agRowH + AG_GAP) + 'px;">';
+  for (var c = 0; c < AG_COLS; c++) {
+    var aIdx = rowIdx * AG_COLS + c;
+    if (aIdx >= _agData.length) {
+      html += '<div class="ag-card-empty"></div>';
+      continue;
+    }
+    var a = _agData[aIdx];
+    var metaParts = [];
+    if (a.artist && a.artist !== 'Unknown Artist') metaParts.push(escHtml(a.artist));
+    metaParts.push(a.songCount + (a.songCount === 1 ? ' song' : ' songs'));
+
+    html += '<div class="ag-card" data-album-idx="' + aIdx + '">'
+      + '<div class="ag-art art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri || '') + '" data-fill="1" style="width:' + _agColW + 'px;height:' + _agColW + 'px;">'
+      + artHTML(a.name, _agColW, false)
+      + '</div>'
+      + '<div class="ag-info">'
+      + '<div class="ag-name">' + escHtml(a.name) + '</div>'
+      + '<div class="ag-meta">' + metaParts.join(' &bull; ') + '</div>'
+      + '</div>'
+      + '<button class="ag-more" data-album-idx="' + aIdx + '">&#8942;</button>'
+      + '</div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 function renderPlaylists(el) {
@@ -5808,597 +5890,6 @@ document.addEventListener('muzioMediaAction', function(e) {
   }
 });
 
-// ─── Inline 3D Cover Flow (Albums tab) ───
-
-var _cfAlbums = [];
-var _cfCenterIdx = 0;
-var _cfR = null; // runtime state; null when CF not active
-
-// Apply or clear landscape pixel overrides on the CF stage element.
-// Explicit px values bypass any WebView overflow:hidden containment quirk.
-function _cfApplyStageSize(stage, isLs) {
-  if (!stage) return;
-  stage.style.width  = isLs ? window.innerWidth  + 'px' : '';
-  stage.style.height = isLs ? window.innerHeight + 'px' : '';
-}
-
-var _cfGyroX = 0, _cfGyroY = 0, _cfGyroHandler = null, _cfGyroRaf = 0;
-var _cfOrientListener = null;
-// rotateY degrees per slot distance; 65° for slot 1 gives the classic CF fan
-var _CF_ANGLES = [0, 65, 70, 72, 75];
-
-function _cfInterp(arr, absP) {
-  var lo = Math.floor(absP), hi = Math.min(lo + 1, arr.length - 1);
-  var t = absP - lo;
-  return arr[lo] * (1 - t) + arr[hi] * t;
-}
-
-function _cfBuildPositions(sz) {
-  // Visual center-X offsets from stage center for slot distances 0..4.
-  // Uses center-pivot (50% 50%) — item positioned by its CSS center.
-  // visW = sz * cos(angle) = projected width of a rotated album.
-  var offsets = [0];
-  var rightEdge = sz / 2; // right visual edge of center album
-  for (var i = 1; i <= 4; i++) {
-    var visW = sz * Math.cos(_CF_ANGLES[i] * Math.PI / 180);
-    var centerOff = rightEdge + 6 + visW / 2; // 6px gap, then half the visible width
-    offsets.push(centerOff);
-    rightEdge = centerOff + visW / 2;
-  }
-  return offsets;
-}
-
-function startInlineCf(albums) {
-  // Deduplicate: group multi-artist variants of the same album (same name OR same art URI)
-  var seenArt = {}, seenName = {};
-  _cfAlbums = albums.filter(function(a) {
-    var nameKey = a.name.toLowerCase().trim();
-    if (a.albumArtUri && seenArt[a.albumArtUri]) return false;
-    if (seenName[nameKey]) return false;
-    if (a.albumArtUri) seenArt[a.albumArtUri] = true;
-    seenName[nameKey] = true;
-    return true;
-  });
-  if (!_cfAlbums.length) return;
-
-  // Set viewport styles FIRST so offsetWidth/clientHeight give accurate values
-  var vp = document.getElementById('cfViewport');
-  if (!vp) return;
-  vp.innerHTML = '';
-  // Detect landscape before applying full-screen class
-  var stage = document.getElementById('cfStage');
-  var stageW = Math.max(200, vp.offsetWidth || window.innerWidth);
-  var isLandscape = window.innerWidth > window.innerHeight;
-
-  // Landscape: cover flow owns the whole screen (class must be applied before reading dimensions)
-  if (isLandscape) {
-    document.body.classList.add('cf-ls');
-    if (stage) { stage.classList.add('cf-ls'); _cfApplyStageSize(stage, true); }
-  } else {
-    document.body.classList.remove('cf-ls');
-    if (stage) { stage.classList.remove('cf-ls'); _cfApplyStageSize(stage, false); }
-  }
-
-  // Perspective: deeper for the larger landscape covers
-  var lsPersp = isLandscape ? '1200px' : '700px';
-  vp.style.cssText = 'position:absolute;inset:0;overflow:hidden;-webkit-perspective:' + lsPersp + ';perspective:' + lsPersp + ';';
-
-  // Landscape: use window.innerHeight directly (it's reliable; clientHeight can be stale/wrong).
-  // Portrait: read clientHeight so the stage respects its flex-allocated space.
-  var rawStageH = isLandscape
-    ? window.innerHeight
-    : Math.max(200, (stage && stage.clientHeight > 0) ? stage.clientHeight : Math.max(200, window.innerHeight - 160));
-  var mpEl = document.getElementById('miniPlayer');
-  var mpH = (!isLandscape && mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;
-  var stageH = Math.max(200, rawStageH - mpH);
-  if (mpH > 0) {
-    var botGlass = document.querySelector('.cf-bot-glass');
-    if (botGlass) botGlass.style.paddingBottom = (16 + mpH) + 'px';
-  }
-
-  // Landscape: sz fills ~57% of height, floor at 70% → leaves 30% for the info strip.
-  // Portrait: size based on stage width.
-  var sz = isLandscape
-    ? Math.max(160, Math.min(Math.round(stageH * 0.57), 270))
-    : Math.max(130, Math.min(Math.round(stageW * 0.43), 180));
-  var floorY = isLandscape
-    ? Math.round(stageH * 0.70)
-    : Math.round(stageH * 0.60);
-  var refH = Math.round(sz * 0.35);
-
-  var floor = document.getElementById('cfFloor');
-  if (floor) floor.style.top = floorY + 'px';
-  var spec = document.getElementById('cfSpecular');
-  if (spec) spec.style.top = floorY + 'px';
-  var csh = document.getElementById('cfCenterShadow');
-  if (csh) {
-    var shW = Math.round(sz * 0.78);
-    csh.style.top = (floorY - 14) + 'px';
-    csh.style.width = shW + 'px';
-    csh.style.left = '50%';
-    csh.style.marginLeft = '-' + Math.round(shW / 2) + 'px';
-  }
-  var glow = document.getElementById('cfGlow');
-  if (glow) {
-    glow.style.top = Math.round(floorY - sz * 0.5) + 'px';
-    glow.style.left = '50%';
-    glow.style.transform = 'translate(-50%, -50%)';
-    glow.style.webkitTransform = 'translate(-50%, -50%)';
-  }
-
-  var items = [];
-  for (var k = 0; k < 9; k++) {
-    var item = document.createElement('div');
-    item.className = 'cf-item';
-    item.style.cssText = 'position:absolute;cursor:pointer;-webkit-transform-style:preserve-3d;transform-style:preserve-3d;';
-    item._cfIdx = -1;
-    vp.appendChild(item);
-    items.push(item);
-  }
-
-  var startIdx = 0;
-  if (currentSong) {
-    for (var j = 0; j < _cfAlbums.length; j++) {
-      if (_cfAlbums[j].name === currentSong.album && _cfAlbums[j].artist === currentSong.artist) {
-        startIdx = j; break;
-      }
-    }
-  }
-  _cfCenterIdx = startIdx;
-
-  _cfR = {
-    pos: startIdx,
-    velocity: 0,
-    raf: 0,
-    snapRaf: 0,
-    items: items,
-    sz: sz,
-    refH: refH,
-    floorY: floorY,
-    stageW: stageW,
-    positions: _cfBuildPositions(sz)
-  };
-
-  _cfDoRender();
-  updateCfInfo(startIdx);
-  updateCfGlow(startIdx);
-  _cfAttachTouch();
-  _cfPlaySwipeHint();
-  _cfStartGyro();
-
-  // Re-layout on rotation — one listener for portrait ↔ landscape transitions
-  if (_cfOrientListener) window.removeEventListener('resize', _cfOrientListener);
-  _cfOrientListener = _cfHandleResize;
-  window.addEventListener('resize', _cfOrientListener);
-}
-
-// Re-layout cover flow when device rotates — applies/removes fullscreen, rescales covers.
-function _cfHandleResize() {
-  if (!_cfR) return;
-  var stage = document.getElementById('cfStage');
-  var vp    = document.getElementById('cfViewport');
-  if (!stage || !vp) return;
-
-  var isLs = window.innerWidth > window.innerHeight;
-
-  if (isLs) {
-    document.body.classList.add('cf-ls');
-    stage.classList.add('cf-ls');
-  } else {
-    document.body.classList.remove('cf-ls');
-    stage.classList.remove('cf-ls');
-    _cfApplyStageSize(stage, false);
-  }
-
-  // Wait for the browser to finish the rotation layout before reading final dimensions
-  setTimeout(function() {
-    if (!_cfR) return;
-
-    // Apply pixel size after rotation settles — innerWidth/innerHeight are now final
-    _cfApplyStageSize(stage, isLs);
-
-    var lsPersp = isLs ? '1200px' : '700px';
-    vp.style.webkitPerspective = lsPersp;
-    vp.style.perspective = lsPersp;
-
-    var stageW = Math.max(200, vp.offsetWidth  || window.innerWidth);
-    var stageH = isLs
-      ? window.innerHeight
-      : Math.max(200, stage.clientHeight || window.innerHeight);
-
-    var sz, floorY;
-    if (isLs) {
-      sz     = Math.max(160, Math.min(Math.round(stageH * 0.57), 270));
-      floorY = Math.round(stageH * 0.70);
-    } else {
-      var mpEl = document.getElementById('miniPlayer');
-      var mpH  = (mpEl && !mpEl.classList.contains('hidden')) ? (mpEl.offsetHeight || 76) : 0;
-      stageH   = Math.max(200, stageH - mpH);
-      sz       = Math.max(130, Math.min(Math.round(stageW * 0.43), 180));
-      floorY   = Math.round(stageH * 0.60);
-    }
-    var refH = Math.round(sz * 0.35);
-
-    var floor = document.getElementById('cfFloor');
-    if (floor) floor.style.top = floorY + 'px';
-    var spec = document.getElementById('cfSpecular');
-    if (spec) spec.style.top = floorY + 'px';
-    var csh = document.getElementById('cfCenterShadow');
-    if (csh) {
-      var shW = Math.round(sz * 0.78);
-      csh.style.top = (floorY - 14) + 'px';
-      csh.style.width = shW + 'px';
-      csh.style.marginLeft = '-' + Math.round(shW / 2) + 'px';
-    }
-    var glow = document.getElementById('cfGlow');
-    if (glow) glow.style.top = Math.round(floorY - sz * 0.5) + 'px';
-
-    var r = _cfR;
-    r.sz = sz; r.refH = refH; r.floorY = floorY;
-    r.stageW = stageW; r.positions = _cfBuildPositions(sz);
-    r.items.forEach(function(el) { el._cfIdx = -1; });
-    _cfDoRender();
-  }, 220);
-}
-
-function _cfPlaySwipeHint() {
-  var r = _cfR;
-  if (!r || _cfAlbums.length < 3) return;
-  if (localStorage.getItem('muzio_cfHint')) return;
-  localStorage.setItem('muzio_cfHint', '1');
-  var basePos = r.pos;
-  var peak = basePos + 0.55;
-  setTimeout(function() {
-    if (!_cfR || _cfR.snapRaf) return;
-    var step = 0;
-    function hint() {
-      if (!_cfR) return;
-      step++;
-      if (step <= 14) {
-        r.pos += (peak - r.pos) * 0.18;
-      } else {
-        r.pos += (basePos - r.pos) * 0.16;
-        if (Math.abs(r.pos - basePos) < 0.005) { r.pos = basePos; _cfDoRender(); return; }
-      }
-      _cfDoRender();
-      r.snapRaf = requestAnimationFrame(hint);
-    }
-    r.snapRaf = requestAnimationFrame(hint);
-  }, 900);
-}
-
-function _cfDoRender() {
-  var r = _cfR;
-  if (!r || !r.items) return;
-  var sz = r.sz, refH = r.refH, stageW = r.stageW, floorY = r.floorY;
-  var topY = floorY - sz;
-  var centerIdx = Math.round(r.pos);
-
-  for (var k = 0; k < 9; k++) {
-    var slot = k - 4; // -4..+4
-    var albumIdx = centerIdx + slot;
-    var el = r.items[k];
-
-    if (albumIdx < 0 || albumIdx >= _cfAlbums.length) {
-      el.style.display = 'none';
-      continue;
-    }
-
-    var relPos = albumIdx - r.pos; // fractional visual distance from center
-    var absP = Math.abs(relPos);
-
-    if (absP > 3.6) { el.style.display = 'none'; continue; }
-
-    el.style.display = '';
-    // Center-pivot positioning: r.positions gives visual center-X offset from stage center
-    var signP = relPos >= 0 ? 1 : -1;
-    var xOff = signP * _cfInterp(r.positions, absP);
-    el.style.left = Math.round(stageW / 2 + xOff - sz / 2) + 'px';
-    el.style.top = topY + 'px';
-    el.style.width = sz + 'px';
-    el.style.height = (sz + refH) + 'px';
-    el.style.zIndex = Math.round(100 - absP * 10);
-
-    // Center pivot for all items — position calculation and visual center both at CSS center
-    el.style.webkitTransformOrigin = '50% 50%';
-    el.style.transformOrigin = '50% 50%';
-    var absAngle = _cfInterp(_CF_ANGLES, absP);
-    // Right-side: rotateY(+) → left face toward viewer (inner face); Left-side: rotateY(-) → right face toward viewer
-    var rotY = relPos >= 0 ? absAngle : -absAngle;
-    var op = Math.max(0.28, 1 - absP * 0.18);
-    // Push center album toward viewer; side albums recede naturally
-    var tz = Math.round(Math.max(0, (1 - Math.min(absP, 1)) * 26));
-    var tiltBlend = Math.max(0, 1 - absP);
-    var xf = 'translateZ(' + tz + 'px) rotateY(' + rotY.toFixed(1) + 'deg)';
-    el.style.webkitTransform = xf;
-    el.style.transform = xf;
-    el.style.opacity = op.toFixed(3);
-    // Mark the active center album for the CSS glow ring
-    if (absP < 0.25) el.classList.add('cf-item-active');
-    else el.classList.remove('cf-item-active');
-
-    // Paint item first so .cf-glare div exists before we update it
-    if (el._cfIdx !== albumIdx) {
-      el._cfIdx = albumIdx;
-      _cfPaintItem(el, albumIdx, sz, refH);
-    }
-
-    // Dynamic specular glare — runs every frame so light sweeps as phone tilts
-    var glareEl = el.querySelector('.cf-glare');
-    if (glareEl) {
-      var lx = Math.max(5, Math.min(95, 50 - rotY * 0.55 + _cfGyroX * 5.0));
-      var ly = Math.max(5, Math.min(80, 18 - _cfGyroY * 4.0));
-      var glOp = Math.max(0, 0.58 - absP * 0.12);
-      glareEl.style.background = 'radial-gradient(ellipse 65% 45% at ' + lx.toFixed(0) + '% ' + ly.toFixed(0) + '%, rgba(255,255,255,' + glOp.toFixed(2) + ') 0%, transparent 70%)';
-    }
-    // Reflection parallax: mirror shifts opposite direction as phone rolls
-    var refEl = el.querySelector('.cf-reflection-wrap');
-    if (refEl) {
-      var refTx = (_cfGyroX * 3.5 * tiltBlend).toFixed(1);
-      refEl.style.webkitTransform = 'scaleY(-1) translateX(' + refTx + 'px)';
-      refEl.style.transform = 'scaleY(-1) translateX(' + refTx + 'px)';
-    }
-  }
-
-  var ni = Math.round(r.pos);
-  if (ni !== _cfCenterIdx) {
-    _cfCenterIdx = ni;
-    updateCfInfo(ni);
-    updateCfGlow(ni);
-  }
-}
-
-function _cfPaintItem(el, albumIdx, sz, refH) {
-  var a = _cfAlbums[albumIdx];
-  if (!a) return;
-  var grad = getGrad(a.name);
-  var init = escHtml(a.name.split(' ').map(function(w) { return w[0] || ''; }).join('').substring(0, 2).toUpperCase());
-  var gradCss = 'linear-gradient(135deg,' + grad[0] + ',' + grad[1] + ')';
-  var cached = (a.albumArtUri && artCacheHD[a.albumArtUri]) ? artCacheHD[a.albumArtUri]
-             : (a.albumArtUri && artCache[a.albumArtUri]) ? artCache[a.albumArtUri] : '';
-  var badge = (a.type && a.type !== 'Album') ? '<div class="cf-type-badge">' + escHtml(a.type) + '</div>' : '';
-  var artHtml = cached
-    ? '<img class="cf-item-art" src="' + cached + '" alt="" style="width:' + sz + 'px;height:' + sz + 'px;object-fit:cover;">'
-    : '<div class="cf-item-placeholder" style="width:' + sz + 'px;height:' + sz + 'px;background:' + gradCss + ';display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;font-size:' + Math.round(sz * 0.3) + 'px;font-weight:700;color:rgba(255,255,255,0.8);">' + init + '</div>';
-  var refHtml = cached
-    ? '<img src="' + cached + '" alt="" style="width:' + sz + 'px;height:' + sz + 'px;object-fit:cover;">'
-    : '<div style="width:' + sz + 'px;height:' + sz + 'px;background:' + gradCss + ';"></div>';
-
-  el.innerHTML = '<div class="cf-item-inner" style="width:' + sz + 'px;height:' + sz + 'px;overflow:hidden;border-radius:4px;position:relative;">' + artHtml + badge + '<div class="cf-glare"></div></div>'
-    + '<div style="position:absolute;bottom:' + refH + 'px;left:0;right:0;height:16px;background:-webkit-linear-gradient(top,transparent,rgba(0,0,0,0.6));background:linear-gradient(to bottom,transparent,rgba(0,0,0,0.6));"></div>'
-    + '<div class="cf-reflection-wrap" style="position:absolute;top:' + sz + 'px;left:0;width:' + sz + 'px;height:' + refH + 'px;overflow:hidden;-webkit-transform:scaleY(-1);transform:scaleY(-1);opacity:0.32;-webkit-mask-image:-webkit-linear-gradient(top,rgba(0,0,0,0.9),transparent);mask-image:linear-gradient(to bottom,rgba(0,0,0,0.9),transparent);">' + refHtml + '</div>';
-
-  if (a.albumArtUri && !cached) {
-    (function(capturedEl, capturedIdx, capturedSz, capturedRefH, capturedA, capturedBadge) {
-      fetchThumbnail(capturedA.albumArtUri).then(function(data) {
-        if (!data || capturedEl._cfIdx !== capturedIdx) return;
-        var inner = capturedEl.querySelector('.cf-item-inner');
-        if (inner) {
-          inner.innerHTML = '<img class="cf-item-art" src="' + data + '" alt="" style="width:' + capturedSz + 'px;height:' + capturedSz + 'px;object-fit:cover;opacity:0;-webkit-transition:opacity 0.28s ease;transition:opacity 0.28s ease;">' + capturedBadge + '<div class="cf-glare"></div>';
-          var img = inner.querySelector('img');
-          requestAnimationFrame(function() { if (img) img.style.opacity = '1'; });
-        }
-        var rw = capturedEl.querySelector('.cf-reflection-wrap');
-        if (rw) rw.innerHTML = '<img src="' + data + '" alt="" style="width:' + capturedSz + 'px;height:' + capturedSz + 'px;object-fit:cover;">';
-        if (_cfCenterIdx === capturedIdx) updateCfGlow(capturedIdx);
-      });
-    })(el, albumIdx, sz, refH, a, badge);
-  }
-}
-
-function _cfAttachTouch() {
-  var vp = document.getElementById('cfViewport');
-  if (!vp) return;
-  var r = _cfR;
-  var startX, startT, lastX, lastT, startPos;
-
-  function _cfHandleTap(touchX, touchY) {
-    var el = document.elementFromPoint(touchX, touchY);
-    while (el && !el.classList.contains('cf-item')) el = el && el.parentElement;
-    if (!el || el._cfIdx === undefined || el._cfIdx < 0) return;
-    var idx = el._cfIdx;
-    if (idx !== _cfCenterIdx) { _cfSnapTo(idx); return; }
-    var now = Date.now();
-    if (now - _cfLastTap.time < 380 && _cfLastTap.idx === idx) {
-      _cfLastTap.time = 0; _cfLastTap.idx = -1;
-      if (_cfLastTap.timer) { clearTimeout(_cfLastTap.timer); _cfLastTap.timer = 0; }
-      playCfAlbum(idx);
-      return;
-    }
-    _cfLastTap.time = now; _cfLastTap.idx = idx;
-    if (_cfLastTap.timer) clearTimeout(_cfLastTap.timer);
-    _cfLastTap.timer = setTimeout(function() {
-      _cfLastTap.timer = 0;
-      if (!_cfR) return;
-      cleanupCf();
-      selectedAlbum = { name: _cfAlbums[idx].name, artist: _cfAlbums[idx].artist };
-      render();
-    }, 380);
-  }
-
-  vp.addEventListener('touchstart', function(e) {
-    if (r.snapRaf) { cancelAnimationFrame(r.snapRaf); r.snapRaf = 0; }
-    if (r.raf) { cancelAnimationFrame(r.raf); r.raf = 0; }
-    r.velocity = 0;
-    startX = lastX = e.touches[0].clientX;
-    startT = lastT = Date.now();
-    startPos = r.pos;
-    e.preventDefault();
-  }, { passive: false });
-
-  vp.addEventListener('touchmove', function(e) {
-    var x = e.touches[0].clientX;
-    var dt = Math.max(1, Date.now() - lastT);
-    r.velocity = -(x - lastX) / dt;
-    lastX = x;
-    lastT = Date.now();
-    r.pos = Math.max(0, Math.min(_cfAlbums.length - 1, startPos - (x - startX) / r.sz));
-    _cfDoRender();
-    e.preventDefault();
-  }, { passive: false });
-
-  vp.addEventListener('touchend', function(e) {
-    var touch = e.changedTouches[0];
-    var isTap = Math.abs(touch.clientX - startX) < 12 && (Date.now() - startT) < 400;
-    if (isTap) {
-      r.velocity = 0;
-      _cfHandleTap(touch.clientX, touch.clientY);
-    } else {
-      r.velocity = r.velocity * 16 / r.sz;
-      _cfMomentum();
-    }
-    e.preventDefault();
-  }, { passive: false });
-
-  vp.addEventListener('touchcancel', function() {
-    r.velocity = 0;
-    _cfSnapTo(Math.round(r.pos));
-  });
-
-  // Desktop/mouse fallback
-  vp.addEventListener('click', function(e) {
-    _cfHandleTap(e.clientX, e.clientY);
-  });
-}
-
-function _cfMomentum() {
-  var r = _cfR;
-  if (!r) return;
-  if (Math.abs(r.velocity) < 0.008) {
-    r.velocity = 0;
-    _cfSnapTo(Math.round(r.pos));
-    return;
-  }
-  r.pos = Math.max(0, Math.min(_cfAlbums.length - 1, r.pos + r.velocity));
-  r.velocity *= 0.87;
-  _cfDoRender();
-  r.raf = requestAnimationFrame(_cfMomentum);
-}
-
-function _cfSnapTo(target, sv) {
-  var r = _cfR;
-  if (!r) return;
-  target = Math.max(0, Math.min(_cfAlbums.length - 1, target));
-  sv = sv || 0;
-  var diff = target - r.pos;
-  if (Math.abs(diff) < 0.003 && Math.abs(sv) < 0.003) {
-    r.pos = target;
-    _cfDoRender();
-    _haptic([10, 18, 16]);
-    return;
-  }
-  // Spring-damper: accumulate toward target with damping
-  sv = sv * 0.68 + diff * 0.28;
-  r.pos = Math.max(0, Math.min(_cfAlbums.length - 1, r.pos + sv));
-  _cfDoRender();
-  r.snapRaf = requestAnimationFrame(function() { _cfSnapTo(target, sv); });
-}
-
-function cleanupCf() {
-  if (_cfLastTap) {
-    if (_cfLastTap.timer) { clearTimeout(_cfLastTap.timer); _cfLastTap.timer = 0; }
-    _cfLastTap.time = 0; _cfLastTap.idx = -1;
-  }
-  if (_cfInfoTimer) { clearTimeout(_cfInfoTimer); _cfInfoTimer = 0; }
-  if (_cfR) {
-    if (_cfR.raf) cancelAnimationFrame(_cfR.raf);
-    if (_cfR.snapRaf) cancelAnimationFrame(_cfR.snapRaf);
-    _cfR = null;
-  }
-  _cfStopGyro();
-  if (_cfOrientListener) {
-    window.removeEventListener('resize', _cfOrientListener);
-    _cfOrientListener = null;
-  }
-  // Exit landscape fullscreen mode
-  document.body.classList.remove('cf-ls');
-  var cfst = document.getElementById('cfStage');
-  if (cfst) { cfst.classList.remove('cf-ls'); _cfApplyStageSize(cfst, false); }
-  _cfAlbums = [];
-  var main = document.getElementById('mainContent');
-  if (main) main.classList.remove('albums-cf-mode');
-}
-
-function _cfStartGyro() {
-  if (_cfGyroHandler) return;
-  _cfGyroX = 0; _cfGyroY = 0;
-  _cfGyroHandler = function(e) {
-    var gx = Math.max(-20, Math.min(20, e.gamma || 0));
-    // subtract ~30° resting beta so flat-ish hold = neutral
-    var gy = Math.max(-20, Math.min(20, (e.beta || 0) - 30));
-    _cfGyroX = _cfGyroX * 0.82 + gx * 0.18;
-    _cfGyroY = _cfGyroY * 0.82 + gy * 0.18;
-  };
-  window.addEventListener('deviceorientation', _cfGyroHandler, { passive: true });
-  _cfStartGyroLoop();
-}
-
-function _cfStopGyro() {
-  if (_cfGyroHandler) {
-    window.removeEventListener('deviceorientation', _cfGyroHandler);
-    _cfGyroHandler = null;
-  }
-  if (_cfGyroRaf) { cancelAnimationFrame(_cfGyroRaf); _cfGyroRaf = 0; }
-  _cfGyroX = 0; _cfGyroY = 0;
-}
-
-function _cfStartGyroLoop() {
-  if (_cfGyroRaf) return;
-  (function loop() {
-    _cfGyroRaf = 0;
-    var r = _cfR;
-    if (!r || !_cfGyroHandler) return;
-    // Only update from gyro when carousel is idle (no fling or snap in progress)
-    if (!r.raf && !r.snapRaf) _cfDoRender();
-    _cfGyroRaf = requestAnimationFrame(loop);
-  })();
-}
-
-function updateCfInfo(idx) {
-  var ne = document.getElementById('cfAlbumName');
-  var me = document.getElementById('cfAlbumMeta');
-  if (!ne || !me) return;
-  // Fade out, swap text, fade in
-  ne.style.opacity = me.style.opacity = '0';
-  if (_cfInfoTimer) clearTimeout(_cfInfoTimer);
-  _cfInfoTimer = setTimeout(function() {
-    _cfInfoTimer = 0;
-    var a = _cfAlbums[idx];
-    if (!a) return;
-    ne.textContent = a.name;
-    var parts = [a.artist];
-    if (a.year) parts.push(a.year);
-    parts.push(a.songCount + ' song' + (a.songCount !== 1 ? 's' : ''));
-    me.textContent = parts.join(' • ');
-    var ct = document.getElementById('cfCounter');
-    if (ct) ct.textContent = (idx + 1) + ' / ' + _cfAlbums.length;
-    var bar = document.getElementById('cfCollectionBar');
-    if (bar && _cfAlbums.length > 1) {
-      bar.style.width = Math.round((idx / (_cfAlbums.length - 1)) * 100) + '%';
-    }
-    ne.style.opacity = me.style.opacity = '1';
-  }, 110);
-}
-
-function updateCfGlow(idx) {
-  var glow = document.getElementById('cfGlow');
-  if (!glow) return;
-  var a = _cfAlbums[idx];
-  if (!a) return;
-  var g = getGrad(a.name);
-  glow.style.background = 'radial-gradient(ellipse at center, ' + g[0] + ' 0%, ' + g[1] + ' 60%, transparent 100%)';
-}
-
-function playCfAlbum(idx) {
-  var a = _cfAlbums[idx];
-  if (!a) return;
-  var albumSongs = getAlbumSongs(a.name, a.artist);
-  if (!albumSongs.length) { showToast('No songs found'); return; }
-  showNowPlaying = true;
-  cleanupCf();
-  playSong(albumSongs[0], albumSongs);
-  document.getElementById('nowPlaying').classList.remove('hidden');
-}
 
 // ─── Hardware Back Button (Android) ───
 

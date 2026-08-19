@@ -3108,7 +3108,100 @@ body {
 }
 .pl-remove-btn:active { color: var(--red); }
 
-/* ─── Albums tab: Inline 3D Cover Flow ─── */
+/* ─── Albums tab: 2-column grid ─── */
+
+.ag-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.ag-card {
+  -webkit-box-flex: 1;
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ag-card-empty {
+  -webkit-box-flex: 1;
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+}
+
+.ag-art {
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ag-art .art-placeholder {
+  border-radius: 10px;
+  width: 100% !important;
+  height: 100% !important;
+  font-size: 28px !important;
+}
+
+.ag-info {
+  padding: 5px 2px 0;
+  overflow: hidden;
+}
+
+.ag-name {
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.ag-meta {
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  margin-top: 1px;
+}
+
+.ag-more {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: rgba(0, 0, 0, 0.45);
+  border: none;
+  color: #fff;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-size: 17px;
+  line-height: 28px;
+  text-align: center;
+  cursor: pointer;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  justify-content: center;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ─── Albums tab: Inline 3D Cover Flow (legacy — kept for reference) ─── */
 
 /* Main area becomes a full-height flex column with no vertical scroll */
 .main.albums-cf-mode {
