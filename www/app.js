@@ -3492,6 +3492,17 @@ function renderNowPlaying() {
   };
   document.getElementById('npShuffle').onclick = function() {
     isShuffled = !isShuffled;
+    if (isShuffled && queue.length > 1) {
+      // Reshuffle remaining unplayed songs (Fisher-Yates), keep current song in place
+      var curIdx = queue.findIndex(function(s) { return s.id === currentSong.id; });
+      var played = queue.slice(0, curIdx + 1);
+      var remaining = queue.slice(curIdx + 1);
+      for (var i = remaining.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = remaining[i]; remaining[i] = remaining[j]; remaining[j] = tmp;
+      }
+      queue = played.concat(remaining);
+    }
     var btn = document.getElementById('npShuffle');
     if (btn) btn.classList.toggle('active', isShuffled);
   };
@@ -4101,7 +4112,7 @@ function togglePlay() {
   if (isPlaying) {
     _ourPause = true;
     audio.pause();
-    _ourPause = false;
+    // _ourPause cleared in the pause event handler after it fires
     isPlaying = false;
   } else {
     _systemPaused = false;
@@ -4117,13 +4128,8 @@ function handleNext() {
   _haptic([14, 25, 14]);
   if (repeatMode === 'one') { audio.currentTime = 0; audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); }); return; }
   var idx = queue.findIndex(function(s) { return s.id === currentSong.id; });
-  var nextIdx;
-  if (isShuffled) {
-    if (queue.length > 1) {
-      do { nextIdx = Math.floor(Math.random() * queue.length); } while (nextIdx === idx);
-    } else { nextIdx = 0; }
-  } else nextIdx = idx >= queue.length - 1 ? 0 : idx + 1;
-  if (idx >= queue.length - 1 && repeatMode === 'off' && !isShuffled) { isPlaying = false; render(); return; }
+  var nextIdx = idx >= queue.length - 1 ? 0 : idx + 1;
+  if (idx >= queue.length - 1 && repeatMode === 'off') { isPlaying = false; render(); return; }
   var song = queue[nextIdx];
   // Gapless: if next song is already buffered, swap src immediately
   if (!isShuffled && preloadedSong && preloadedSong.id === song.id && preloadedUrl) {
@@ -4206,6 +4212,7 @@ audio.addEventListener('play', function() {
 audio.addEventListener('pause', function() {
   if (!isPlaying) return;
   if (!_ourPause) _systemPaused = true; // OS paused us (call, BT, etc.)
+  _ourPause = false; // clear after event fires so next system pause is detected correctly
   isPlaying = false;
   syncPlaybackUI();
 });
@@ -5337,7 +5344,8 @@ document.getElementById('fabBtn').onclick = function() {
   if (currentTab === 'songs') {
     if (songs.length === 0) return;
     isShuffled = true;
-    var allSongs = songs.slice().sort(function() { return Math.random() - 0.5; });
+    var allSongs = songs.slice();
+    for (var _i = allSongs.length - 1; _i > 0; _i--) { var _j = Math.floor(Math.random() * (_i + 1)); var _t = allSongs[_i]; allSongs[_i] = allSongs[_j]; allSongs[_j] = _t; }
     playSong(allSongs[0], allSongs);
   } else {
     if (!pickFolderWithHandle()) document.getElementById('folderInput').click();
