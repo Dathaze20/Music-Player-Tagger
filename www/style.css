@@ -3111,14 +3111,15 @@ body {
 /* ─── Albums tab: 2-column grid ─── */
 
 .ag-row {
-  position: absolute;
-  left: 0;
-  right: 0;
   display: -webkit-box;
   display: -webkit-flex;
   display: flex;
   gap: 8px;
   padding: 0 8px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  -webkit-box-align: start;
+  align-items: flex-start;
 }
 
 .ag-card {

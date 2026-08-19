@@ -2398,7 +2398,7 @@ function renderAlbums(el) {
 
   el.innerHTML = chipsHtml
     + '<div id="agOuter" style="position:relative;">'
-    + '<div id="agRows" style="position:absolute;left:0;right:0;top:0;"></div>'
+    + '<div id="agRows" style="position:absolute;left:0;right:0;"></div>'
     + '</div>';
 
   el.querySelectorAll('.chip:not(.chip-genre)').forEach(function(btn) {
@@ -2412,22 +2412,24 @@ function renderAlbums(el) {
     var moreBtn = e.target.closest ? e.target.closest('.ag-more') : null;
     if (moreBtn) {
       e.stopPropagation();
-      var idx = parseInt(moreBtn.dataset.albumIdx);
-      if (_agData && _agData[idx]) { _haptic(8); showAlbumMenu(_agData[idx]); }
+      var mIdx = parseInt(moreBtn.dataset.albumIdx, 10);
+      if (_agData && _agData[mIdx]) { _haptic(8); showAlbumMenu(_agData[mIdx]); }
       return;
     }
     var card = e.target.closest ? e.target.closest('.ag-card') : null;
     if (card) {
-      var idx = parseInt(card.dataset.albumIdx);
-      if (_agData && _agData[idx]) {
+      var cIdx = parseInt(card.dataset.albumIdx, 10);
+      if (_agData && _agData[cIdx]) {
         _haptic(8);
-        selectedAlbum = { name: _agData[idx].name, artist: _agData[idx].artist };
+        selectedAlbum = { name: _agData[cIdx].name, artist: _agData[cIdx].artist };
         render();
       }
     }
   });
 
-  initAlbumGrid(filtered);
+  // Defer one frame so layout is complete before measuring container width
+  var _filteredForGrid = filtered;
+  requestAnimationFrame(function() { initAlbumGrid(_filteredForGrid); });
 }
 
 // ─── Album Grid (2-column virtual scroll) ───
@@ -2435,6 +2437,7 @@ function renderAlbums(el) {
 var _agData = null;
 var _agRenderedStart = -9999;
 var _agScrollFn = null;
+var _agResizeFn = null;
 var AG_COLS = 2;
 var AG_GAP = 8;
 var AG_TEXT_H = 56;
@@ -2447,7 +2450,17 @@ function cleanupAlbumGrid() {
     if (mc) mc.removeEventListener('scroll', _agScrollFn);
     _agScrollFn = null;
   }
+  if (_agResizeFn) {
+    window.removeEventListener('resize', _agResizeFn);
+    _agResizeFn = null;
+  }
   _agData = null;
+}
+
+function _agCalcDims(outer) {
+  var containerW = outer.clientWidth || window.innerWidth;
+  _agColW = Math.floor((containerW - AG_GAP * (AG_COLS + 1)) / AG_COLS);
+  _agRowH = _agColW + AG_TEXT_H + AG_GAP;
 }
 
 function initAlbumGrid(albums) {
@@ -2458,9 +2471,7 @@ function initAlbumGrid(albums) {
   var main = document.getElementById('mainContent');
   if (!outer || !main) return;
 
-  var containerW = outer.clientWidth || window.innerWidth;
-  _agColW = Math.floor((containerW - AG_GAP * (AG_COLS + 1)) / AG_COLS);
-  _agRowH = _agColW + AG_TEXT_H + AG_GAP;
+  _agCalcDims(outer);
 
   var totalRows = Math.ceil(albums.length / AG_COLS);
   outer.style.height = (totalRows * _agRowH + AG_GAP) + 'px';
@@ -2475,6 +2486,19 @@ function initAlbumGrid(albums) {
     renderAgWindow(newStart);
   };
   main.addEventListener('scroll', _agScrollFn, { passive: true });
+
+  _agResizeFn = function() {
+    var ag = document.getElementById('agOuter');
+    if (!ag) { cleanupAlbumGrid(); return; }
+    _agCalcDims(ag);
+    var tRows = Math.ceil(albums.length / AG_COLS);
+    ag.style.height = (tRows * _agRowH + AG_GAP) + 'px';
+    _agRenderedStart = -9999;
+    var relScroll = main.scrollTop - ag.offsetTop;
+    renderAgWindow(Math.max(0, Math.floor(relScroll / _agRowH) - VS_BUFFER));
+  };
+  window.addEventListener('resize', _agResizeFn);
+
   renderAgWindow(0);
 
   if (albumSortMode !== 'year' && albumSortMode !== 'songs') {
@@ -2506,7 +2530,8 @@ function renderAgWindow(start) {
   for (var r = start; r < end; r++) { parts.push(agRowHTML(r)); }
 
   rows.innerHTML = parts.join('');
-  rows.style.top = (start * _agRowH) + 'px';
+  // agRows is shifted to the first rendered row; rows inside use normal flow (no per-row top)
+  rows.style.top = (start * _agRowH + AG_GAP) + 'px';
   initLazyArt(rows);
 
   var dataStart = start * AG_COLS;
@@ -2515,7 +2540,7 @@ function renderAgWindow(start) {
 }
 
 function agRowHTML(rowIdx) {
-  var html = '<div class="ag-row" style="top:' + (rowIdx * _agRowH + AG_GAP) + 'px;">';
+  var html = '<div class="ag-row" style="height:' + (_agColW + AG_TEXT_H) + 'px;margin-bottom:' + AG_GAP + 'px;">';
   for (var c = 0; c < AG_COLS; c++) {
     var aIdx = rowIdx * AG_COLS + c;
     if (aIdx >= _agData.length) {
