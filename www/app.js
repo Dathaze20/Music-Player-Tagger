@@ -3789,7 +3789,11 @@ function showShareQrModal(songs, label) {
 
   // Build song list for the server
   var serverSongs = songs.map(function(s) {
-    return { contentUri: s.contentUri, fileName: (s.title || s.fn || 'song') + '.mp3' };
+    var fn = s.fn || '';
+    var dot = fn.lastIndexOf('.');
+    var ext = dot > 0 ? fn.slice(dot) : '.mp3';
+    var title = (s.title || fn.slice(0, dot > 0 ? dot : undefined) || 'song').replace(/[\\/:*?"<>|]/g, '_');
+    return { contentUri: s.contentUri, fileName: title + ext };
   }).filter(function(s) { return s.contentUri; });
 
   if (!serverSongs.length) {
@@ -4319,9 +4323,10 @@ audio.addEventListener('play', function() {
   syncPlaybackUI();
 });
 audio.addEventListener('pause', function() {
-  if (!isPlaying) return;
-  if (!_ourPause) _systemPaused = true; // OS paused us (call, BT, etc.)
-  _ourPause = false; // clear after event fires so next system pause is detected correctly
+  var wasOurs = _ourPause;
+  _ourPause = false; // always clear first — was never cleared when user paused (isPlaying=false already)
+  if (!isPlaying) return; // user-pause: togglePlay already set isPlaying=false, nothing left to do
+  if (!wasOurs) _systemPaused = true; // OS paused us (call, BT, etc.)
   isPlaying = false;
   syncPlaybackUI();
 });

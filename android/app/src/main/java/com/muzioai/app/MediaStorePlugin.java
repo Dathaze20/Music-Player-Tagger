@@ -507,11 +507,13 @@ public class MediaStorePlugin extends Plugin {
             final boolean single = uris.size() == 1;
 
             Thread t = new Thread(() -> {
+                ServerSocket srv = fileServer; // local copy — avoids NPE if stopFileServerInternal races
+                if (srv == null) return;
                 try {
-                    fileServer.setSoTimeout(600000); // 10-min window
+                    srv.setSoTimeout(600000); // 10-min window
                     while (fileServerActive) {
                         try {
-                            Socket client = fileServer.accept();
+                            Socket client = srv.accept();
                             serveClient(client, uris, names, single);
                         } catch (SocketTimeoutException ignored) {
                             break;
@@ -582,7 +584,7 @@ public class MediaStorePlugin extends Plugin {
                 }
                 long size = getContentLength(cr, uri);
                 String headers = "HTTP/1.1 200 OK\r\n"
-                    + "Content-Type: audio/mpeg\r\n"
+                    + "Content-Type: " + mimeFromName(name) + "\r\n"
                     + (size > 0 ? "Content-Length: " + size + "\r\n" : "")
                     + "Content-Disposition: attachment; filename=\"" + name + "\"\r\n"
                     + "Connection: close\r\n\r\n";
@@ -609,10 +611,13 @@ public class MediaStorePlugin extends Plugin {
                         InputStream fis = cr.openInputStream(uris.get(i));
                         if (fis == null) continue;
                         zos.putNextEntry(new ZipEntry(names.get(i)));
-                        int read;
-                        while ((read = fis.read(buf)) != -1) zos.write(buf, 0, read);
-                        fis.close();
-                        zos.closeEntry();
+                        try {
+                            int read;
+                            while ((read = fis.read(buf)) != -1) zos.write(buf, 0, read);
+                        } finally {
+                            fis.close();
+                            zos.closeEntry(); // always close entry so ZIP central directory stays consistent
+                        }
                     } catch (Exception e) {
                         Log.w(TAG, "ZIP entry failed: " + e.getMessage());
                     }
@@ -651,13 +656,32 @@ public class MediaStorePlugin extends Plugin {
                     InetAddress addr = addrs.nextElement();
                     if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
                         String ip = addr.getHostAddress();
-                        if (ip != null && (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")))
+                        if (ip != null && (ip.startsWith("192.168.") || ip.startsWith("10.") || isPrivate172(ip)))
                             return ip;
                     }
                 }
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+    private boolean isPrivate172(String ip) {
+        if (!ip.startsWith("172.")) return false;
+        try {
+            int second = Integer.parseInt(ip.split("\\.")[1]);
+            return second >= 16 && second <= 31;
+        } catch (Exception e) { return false; }
+    }
+
+    private String mimeFromName(String name) {
+        if (name == null) return "audio/mpeg";
+        String lower = name.toLowerCase();
+        if (lower.endsWith(".flac")) return "audio/flac";
+        if (lower.endsWith(".m4a") || lower.endsWith(".aac")) return "audio/mp4";
+        if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        if (lower.endsWith(".wma")) return "audio/x-ms-wma";
+        return "audio/mpeg";
     }
 
     // ─── Permanent file deletion ───────────────────────────────────────────────
