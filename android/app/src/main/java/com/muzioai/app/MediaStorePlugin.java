@@ -511,14 +511,14 @@ public class MediaStorePlugin extends Plugin {
                 if (srv == null) return;
                 try {
                     srv.setSoTimeout(600000); // 10-min window
-                    while (fileServerActive) {
+                    while (fileServerActive && !srv.isClosed()) {
                         try {
                             Socket client = srv.accept();
                             serveClient(client, uris, names, single);
                         } catch (SocketTimeoutException ignored) {
                             break;
                         } catch (Exception e) {
-                            if (!fileServerActive) break;
+                            if (!fileServerActive || srv.isClosed()) break;
                         }
                     }
                 } catch (Exception ignored) {

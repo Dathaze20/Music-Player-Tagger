@@ -2427,9 +2427,11 @@ function renderAlbums(el) {
     }
   });
 
-  // Defer one frame so layout is complete before measuring container width
+  // Defer one frame so layout is complete before measuring container width.
+  // Cancel any pending RAF so a rapid second render() doesn't fire two inits.
+  if (_agRafId) cancelAnimationFrame(_agRafId);
   var _filteredForGrid = filtered;
-  requestAnimationFrame(function() { initAlbumGrid(_filteredForGrid); });
+  _agRafId = requestAnimationFrame(function() { _agRafId = 0; initAlbumGrid(_filteredForGrid); });
 }
 
 // ─── Album Grid (2-column virtual scroll) ───
@@ -2438,6 +2440,7 @@ var _agData = null;
 var _agRenderedStart = -9999;
 var _agScrollFn = null;
 var _agResizeFn = null;
+var _agRafId = 0;
 var AG_COLS = 2;
 var AG_GAP = 8;
 var AG_TEXT_H = 56;
@@ -2445,6 +2448,7 @@ var _agRowH = 0;
 var _agColW = 0;
 
 function cleanupAlbumGrid() {
+  if (_agRafId) { cancelAnimationFrame(_agRafId); _agRafId = 0; }
   if (_agScrollFn) {
     var mc = document.getElementById('mainContent');
     if (mc) mc.removeEventListener('scroll', _agScrollFn);
@@ -2464,6 +2468,7 @@ function _agCalcDims(outer) {
 }
 
 function initAlbumGrid(albums) {
+  cleanupAlbumGrid(); // remove any stale listeners before attaching new ones
   _agData = albums;
   _agRenderedStart = -9999;
 
@@ -4178,6 +4183,17 @@ function playSong(song, songList) {
   loadCurrentSongArt(song);
   saveLibraryLater();
   queue = songList || songs;
+  // If shuffle is active and we just loaded a new unshuffled list, reshuffle everything
+  // after the selected song so the shuffle indicator stays honest.
+  if (isShuffled && queue.length > 1) {
+    var _ci = queue.findIndex(function(s) { return s.id === song.id; });
+    var _remaining = queue.slice(_ci + 1);
+    for (var _i = _remaining.length - 1; _i > 0; _i--) {
+      var _j = Math.floor(Math.random() * (_i + 1));
+      var _t = _remaining[_i]; _remaining[_i] = _remaining[_j]; _remaining[_j] = _t;
+    }
+    queue = queue.slice(0, _ci + 1).concat(_remaining);
+  }
   currentTime = 0;
   duration = song.dur || 0;
   if (song.url) {
