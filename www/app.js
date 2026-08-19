@@ -2321,30 +2321,74 @@ function showOverflowMenu() {
   }
 }
 
+var _SORT_LABELS = {
+  title:    'Title',
+  artist:   'Artist',
+  album:    'Album',
+  year:     'Year',
+  recent:   'Date added',
+  played:   'Most played',
+  duration: 'Duration',
+};
+
 function renderSongs(el) {
   if (songs.length === 0) { renderWelcome(el); return; }
   var sorted = songs.slice();
-  if (sortMode === 'title') sorted.sort(function(a, b) { return a.title.localeCompare(b.title); });
-  else if (sortMode === 'artist') sorted.sort(function(a, b) { return a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title); });
-  else if (sortMode === 'recent') sorted.sort(function(a, b) { return (b.dateAdded || 0) - (a.dateAdded || 0); });
-  else if (sortMode === 'played') sorted.sort(function(a, b) { return (b.lastPlayed || 0) - (a.lastPlayed || 0); });
+  if (sortMode === 'title')    sorted.sort(function(a, b) { return a.title.localeCompare(b.title); });
+  else if (sortMode === 'artist')   sorted.sort(function(a, b) { return a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title); });
+  else if (sortMode === 'album')    sorted.sort(function(a, b) { return a.album.localeCompare(b.album) || (a.track||0) - (b.track||0); });
+  else if (sortMode === 'year')     sorted.sort(function(a, b) { return (parseInt(b.year)||0) - (parseInt(a.year)||0) || a.title.localeCompare(b.title); });
+  else if (sortMode === 'recent')   sorted.sort(function(a, b) { return (b.dateAdded||0) - (a.dateAdded||0); });
+  else if (sortMode === 'played')   sorted.sort(function(a, b) { return (b.lastPlayed||0) - (a.lastPlayed||0); });
+  else if (sortMode === 'duration') sorted.sort(function(a, b) { return (b.dur||0) - (a.dur||0); });
 
+  var sortLabel = _SORT_LABELS[sortMode] || 'Title';
   var totalH = sorted.length * VS_ROW_H;
   el.innerHTML = '<div class="sort-bar">'
-    + '<span class="sort-label">' + sorted.length + ' songs</span>'
-    + '<div class="sort-btns">'
-    + '<button class="sort-btn' + (sortMode==='title'?' active':'') + '" data-sort="title">A-Z</button>'
-    + '<button class="sort-btn' + (sortMode==='artist'?' active':'') + '" data-sort="artist">Artist</button>'
-    + '<button class="sort-btn' + (sortMode==='recent'?' active':'') + '" data-sort="recent">New</button>'
-    + '<button class="sort-btn' + (sortMode==='played'?' active':'') + '" data-sort="played">Played</button>'
-    + '</div></div>'
+    + '<span class="sort-label">' + sorted.length.toLocaleString() + ' songs</span>'
+    + '<button class="sort-dropdown-btn" id="sortDropBtn">' + sortLabel + ' <span class="sort-arrow">&#8595;</span></button>'
+    + '</div>'
     + '<div id="vsOuter" style="position:relative;height:' + totalH + 'px;">'
     + '<div id="vsRows" style="position:absolute;left:0;right:0;top:0;"></div>'
     + '</div>';
 
-  el.querySelectorAll('.sort-btn').forEach(function(btn) {
-    btn.onclick = function(e) { e.stopPropagation(); sortMode = btn.dataset.sort; render(); };
-  });
+  document.getElementById('sortDropBtn').onclick = function(e) {
+    e.stopPropagation();
+    var existing = document.getElementById('sortDropMenu');
+    if (existing) { existing.remove(); return; }
+    var btn = document.getElementById('sortDropBtn');
+    var rect = btn.getBoundingClientRect();
+    var menu = document.createElement('div');
+    menu.id = 'sortDropMenu';
+    menu.style.cssText = 'position:fixed;right:12px;top:' + (rect.bottom + 4) + 'px;'
+      + 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:14px;'
+      + 'z-index:9000;min-width:190px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.55);';
+    var opts = [
+      { key: 'title',    label: 'Title' },
+      { key: 'artist',   label: 'Artist' },
+      { key: 'album',    label: 'Album' },
+      { key: 'year',     label: 'Year' },
+      { key: 'duration', label: 'Duration' },
+      { key: 'recent',   label: 'Date added' },
+      { key: 'played',   label: 'Most played' },
+    ];
+    menu.innerHTML = opts.map(function(o) {
+      var active = sortMode === o.key;
+      return '<div class="sort-drop-item' + (active ? ' active' : '') + '" data-sort="' + o.key + '">'
+        + o.label + (active ? ' <span style="float:right;color:var(--primary);">&#10003;</span>' : '')
+        + '</div>';
+    }).join('');
+    document.getElementById('app').appendChild(menu);
+    menu.querySelectorAll('.sort-drop-item').forEach(function(item) {
+      item.onclick = function() { sortMode = item.dataset.sort; menu.remove(); render(); };
+    });
+    function closeDrop(ev) {
+      if (!menu.contains(ev.target) && ev.target.id !== 'sortDropBtn') {
+        menu.remove(); document.removeEventListener('click', closeDrop);
+      }
+    }
+    setTimeout(function() { document.addEventListener('click', closeDrop); }, 0);
+  };
 
   // Bind song row events on vsRows using event delegation — survives innerHTML replacement on scroll
   var vsRows = document.getElementById('vsRows');

@@ -1110,21 +1110,44 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .sort-label { font-size: 12px; color: var(--text-faint); }
-.sort-btns { display: flex; gap: 4px; }
-.sort-btn {
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 11px;
-  background: none;
+.sort-dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 14px;
+  font-size: 12px;
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
-  color: var(--text-faint);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sort-dropdown-btn:active { opacity: 0.7; }
+.sort-arrow { font-size: 10px; opacity: 0.6; }
+#sortDropMenu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  min-width: 180px;
+}
+.sort-drop-item {
+  display: block;
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 14px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
   cursor: pointer;
 }
-.sort-btn.active {
-  background: var(--primary);
-  color: var(--primary-fg);
-  border-color: var(--primary);
-}
+.sort-drop-item:hover { background: rgba(255,255,255,0.06); }
+.sort-drop-item.active { color: var(--primary); font-weight: 600; }
 
 /* Tab counts */
 .tab-count {
