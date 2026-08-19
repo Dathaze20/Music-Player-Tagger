@@ -4582,6 +4582,7 @@ function openSongEditModal(songId) {
   + '</div>'
   + '<div class="te-footer">'
   +   '<button class="te-btn-cancel" id="teCancelBtn">Cancel</button>'
+  +   '<button class="te-btn-delete" id="teDeleteBtn" style="background:#c0392b;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-size:15px;font-weight:600;cursor:pointer;">&#128465; Delete</button>'
   +   '<button class="te-btn-save" id="teSaveBtn">Save</button>'
   + '</div>';
 
@@ -4625,6 +4626,10 @@ function openSongEditModal(songId) {
 
   document.getElementById('teClose').onclick = closeEditModal;
   document.getElementById('teCancelBtn').onclick = closeEditModal;
+  document.getElementById('teDeleteBtn').onclick = function() {
+    closeEditModal();
+    deleteSongsFromDevice([song]);
+  };
 
   function applyFormToSong() {
     song.title       = document.getElementById('teTitle').value.trim();
