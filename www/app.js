@@ -2204,7 +2204,7 @@ function renderArtists(el) {
     var row = e.target.closest('.artist-row[data-artist]');
     if (!row) return;
     var name = row.dataset.artist;
-    _arLpTimer = setTimeout(function() { _arLpTimer = null; _msArtistEnter(name); }, 480);
+    _arLpTimer = setTimeout(function() { _arLpTimer = null; _msArtistEnter(name); }, 1200);
   }, { passive: true });
   vsArtistRows.addEventListener('touchend', function() {
     if (_arLpTimer) { clearTimeout(_arLpTimer); _arLpTimer = null; }
@@ -4220,8 +4220,7 @@ audio.addEventListener('error', function() {
   if (!currentSong) return;
   isPlaying = false;
   syncPlaybackUI();
-  showToast('Could not play "' + (currentSong.title || currentSong.fn) + '" — skipping');
-  setTimeout(handleNext, 1200);
+  showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
 });
 
 // ─── File Import ───
