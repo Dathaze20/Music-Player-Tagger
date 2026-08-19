@@ -3908,13 +3908,32 @@ body.cf-ls .app { overflow: visible !important; }
 
   /* Tighter controls */
   .now-playing .np-progress { margin-bottom: 4px; }
-  .now-playing .np-main-controls { margin-bottom: 0; gap: 0; }
-  .now-playing .np-main-controls button { font-size: 20px; padding: 6px; }
-  /* Play button: 52px overrides the portrait 72px with !important */
+  .now-playing .np-main-controls { margin-bottom: 0; gap: 10px; }
+  .now-playing .np-main-controls button { font-size: 20px; padding: 0 !important; }
+  /* Skip buttons: slightly smaller in landscape so nothing overlaps */
+  .now-playing .np-skip,
+  .now-playing .np-main-controls button.np-skip {
+    width: 44px !important; min-width: 44px !important; max-width: 44px !important;
+    height: 44px !important; min-height: 44px !important; max-height: 44px !important;
+    font-size: 19px !important;
+  }
+  /* Play button: 52px with proportionally scaled halo — keeps the glow without overlapping neighbours */
   .now-playing .np-play-btn {
-    width: 52px !important;
-    height: 52px !important;
+    width: 52px !important; min-width: 52px !important; max-width: 52px !important;
+    height: 52px !important; min-height: 52px !important; max-height: 52px !important;
     font-size: 20px !important;
+    box-shadow:
+      0 0 0 5px rgba(0,200,190,0.26),
+      0 0 0 10px rgba(0,168,158,0.10),
+      0 6px 20px rgba(0,0,0,0.68),
+      0 3px 14px rgba(0,200,190,0.60) !important;
+  }
+  .now-playing .np-play-btn.is-playing {
+    box-shadow:
+      0 0 0 5px rgba(0,220,210,0.35),
+      0 0 0 10px rgba(0,168,158,0.14),
+      0 6px 20px rgba(0,0,0,0.65),
+      0 3px 16px rgba(0,220,210,0.70) !important;
   }
   .now-playing .np-times { margin-top: 2px; font-size: 10px; }
 }
