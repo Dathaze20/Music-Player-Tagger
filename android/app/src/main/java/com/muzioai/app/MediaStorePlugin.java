@@ -1273,6 +1273,7 @@ public class MediaStorePlugin extends Plugin {
             MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.YEAR,
+            MediaStore.Audio.Media.DATE_ADDED,
             "album_artist",
             "genre",
         };
@@ -1293,8 +1294,9 @@ public class MediaStorePlugin extends Plugin {
                 int albIdCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
                 int trkCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK);
                 int yrCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR);
-                int albArtCol = cursor.getColumnIndex("album_artist");
-                int genreCol  = cursor.getColumnIndex("genre");
+                int albArtCol  = cursor.getColumnIndex("album_artist");
+                int genreCol   = cursor.getColumnIndex("genre");
+                int dateAddCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED);
 
                 while (cursor.moveToNext()) {
                     long   id      = cursor.getLong(idCol);
@@ -1307,8 +1309,9 @@ public class MediaStorePlugin extends Plugin {
                     long   albumId = cursor.getLong(albIdCol);
                     int    trackRaw = cursor.getInt(trkCol);
                     int    year    = cursor.getInt(yrCol);
-                    String albumArtist = (albArtCol >= 0) ? cursor.getString(albArtCol) : null;
-                    String genre       = (genreCol  >= 0) ? cursor.getString(genreCol)  : null;
+                    String albumArtist = (albArtCol  >= 0) ? cursor.getString(albArtCol)  : null;
+                    String genre       = (genreCol   >= 0) ? cursor.getString(genreCol)   : null;
+                    long   dateAdded   = (dateAddCol >= 0) ? cursor.getLong(dateAddCol)   : 0;
 
                     // MediaStore encodes disc as disc*1000 + track
                     int discNum  = trackRaw > 999 ? trackRaw / 1000 : 1;
@@ -1343,6 +1346,7 @@ public class MediaStorePlugin extends Plugin {
                     file.put("track",       trackNum);
                     file.put("year",        (year > 0 && year != 1970) ? String.valueOf(year) : "");
                     file.put("genre",       genre);
+                    file.put("dateAdded",   dateAdded);
                     files.put(file);
                 }
             }

@@ -1114,6 +1114,7 @@ function saveLibrary() {
         contentUri:  s.contentUri  || '',
         albumArtUri: s.albumArtUri || '',
         albumArtist: s.albumArtist || '',
+        dateAdded:   s.dateAdded   || 0,
         aiAttempted: s.aiAttempted || 0, enrichAttempted: s.enrichAttempted || 0
       };
     });
@@ -2256,7 +2257,7 @@ function showOverflowMenu() {
     items += '<div class="overflow-section-label">Sort order</div>'
       + '<div class="overflow-item' + (sortMode === 'title' ? ' active' : '') + '" data-song-sort="title">A &#8594; Z (title)' + (sortMode === 'title' ? ' &#10003;' : '') + '</div>'
       + '<div class="overflow-item' + (sortMode === 'artist' ? ' active' : '') + '" data-song-sort="artist">Artist' + (sortMode === 'artist' ? ' &#10003;' : '') + '</div>'
-      + '<div class="overflow-item' + (sortMode === 'recent' ? ' active' : '') + '" data-song-sort="recent">Recently added' + (sortMode === 'recent' ? ' &#10003;' : '') + '</div>';
+      + '<div class="overflow-item' + (sortMode === 'recent' ? ' active' : '') + '" data-song-sort="recent">Date added (newest first)' + (sortMode === 'recent' ? ' &#10003;' : '') + '</div>';
   }
 
   if (!items) return;
@@ -2325,7 +2326,7 @@ function renderSongs(el) {
   var sorted = songs.slice();
   if (sortMode === 'title') sorted.sort(function(a, b) { return a.title.localeCompare(b.title); });
   else if (sortMode === 'artist') sorted.sort(function(a, b) { return a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title); });
-  else if (sortMode === 'recent') sorted.reverse();
+  else if (sortMode === 'recent') sorted.sort(function(a, b) { return (b.dateAdded || 0) - (a.dateAdded || 0); });
   else if (sortMode === 'played') sorted.sort(function(a, b) { return (b.lastPlayed || 0) - (a.lastPlayed || 0); });
 
   var totalH = sorted.length * VS_ROW_H;
@@ -2334,7 +2335,7 @@ function renderSongs(el) {
     + '<div class="sort-btns">'
     + '<button class="sort-btn' + (sortMode==='title'?' active':'') + '" data-sort="title">A-Z</button>'
     + '<button class="sort-btn' + (sortMode==='artist'?' active':'') + '" data-sort="artist">Artist</button>'
-    + '<button class="sort-btn' + (sortMode==='recent'?' active':'') + '" data-sort="recent">Recent</button>'
+    + '<button class="sort-btn' + (sortMode==='recent'?' active':'') + '" data-sort="recent">New</button>'
     + '<button class="sort-btn' + (sortMode==='played'?' active':'') + '" data-sort="played">Played</button>'
     + '</div></div>'
     + '<div id="vsOuter" style="position:relative;height:' + totalH + 'px;">'

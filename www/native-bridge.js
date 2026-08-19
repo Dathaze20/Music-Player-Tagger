@@ -180,6 +180,7 @@ var NativeBridge = (function() {
       art:         fileInfo.art   || '',   // album art URL from MediaStore
       lyrics: '', syncedLyrics: '',
       dur:         fileInfo.dur || 0,
+      dateAdded:   fileInfo.dateAdded || 0,
       tagging:     false, fav: false, type: '', feat: feat,
     };
   }
