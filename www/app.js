@@ -4880,6 +4880,10 @@ function openEditModal(albumName, artistName) {
   var modal = document.getElementById('editModal');
   var overlay = document.getElementById('editOverlay');
 
+  // Don't pre-fill "Unknown Artist" — leave blank so the guard `if (newArtist)` in the
+  // save handler won't overwrite correctly-tagged songs when the user saves without typing.
+  var editArtistVal = (artistName && artistName !== 'Unknown Artist') ? artistName : '';
+
   modal.innerHTML = '<div class="edit-modal-header"><div><h3>Edit Album</h3>'
     + '<p>Changes apply to all ' + albumSongs.length + ' songs</p></div>'
     + '<button id="editClose">&times;</button></div>'
@@ -4889,7 +4893,7 @@ function openEditModal(albumName, artistName) {
     + '<div id="editArtPreview" style="width:120px;height:120px;border-radius:14px;overflow:hidden;background:var(--bg-secondary);display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:40px;">&#127925;</div>'
     + '<button id="editArtPenBtn" style="position:absolute;bottom:-6px;right:-6px;width:34px;height:34px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);color:#fff;font-size:15px;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);">&#9998;</button>'
     + '</div></div>'
-    + '<div class="edit-field"><label>Artist</label><input id="editArtist" value="' + escHtml(artistName) + '"></div>'
+    + '<div class="edit-field"><label>Artist</label><input id="editArtist" value="' + escHtml(editArtistVal) + '" placeholder="e.g. Eminem"></div>'
     + '<div class="edit-field"><label>Album Artist</label><input id="editAlbumArtist" value="' + escHtml(first.albumArtist || '') + '" placeholder="e.g. Various Artists"></div>'
     + '<div class="edit-field"><label>Album / Mixtape Name</label><input id="editAlbum" value="' + escHtml(albumName) + '"></div>'
     + '<div class="edit-row">'
