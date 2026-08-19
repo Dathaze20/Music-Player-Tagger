@@ -3871,7 +3871,10 @@ body.cf-ls .app { overflow: visible !important; }
     height: 100% !important;
     border-radius: 0 !important;
   }
-  .now-playing .np-art-lyrics { display: none !important; }
+  /* Lyrics stay visible in landscape — overlay covers the art in the left column */
+  .now-playing .np-art-lyrics { display: flex !important; }
+  .now-playing .np-art-lyrics .lyric-line { font-size: 11px; padding: 5px 6px; }
+  .now-playing .np-art-lyrics .lyric-line.active { font-size: 13px; }
 
   /* Song info: right column, middle row — centered vertically */
   .now-playing .np-info-row {

@@ -3538,6 +3538,8 @@ function renderNowPlaying() {
   html += '</div>';  // end np-content
 
   np.innerHTML = html;
+  _lyricItems = null; // new DOM nodes — invalidate cached NodeList
+  if (lyricsVisible) updateSyncedLyrics(currentTime); // jump to current position immediately
 
   // Cache NP elements used on every timeupdate tick
   _npSeekEl  = document.getElementById('npSeek');
