@@ -5652,13 +5652,6 @@ document.getElementById('rescanLibBtn').onclick = function() {
 
 var _profileName = localStorage.getItem('muzio_profile_name') || '';
 var _profilePhoto = localStorage.getItem('muzio_profile_photo') || '';
-// If not in localStorage (e.g. quota was full), load from IDB
-if (!_profilePhoto) {
-  openArtDb().then(function(db) {
-    var req = db.transaction(ART_STORE_NAME, 'readonly').objectStore(ART_STORE_NAME).get('__profile_photo__');
-    req.onsuccess = function() { if (req.result) { _profilePhoto = req.result; _renderProfile(); } };
-  }).catch(function() {});
-}
 
 function _renderProfile() {
   var nameEl = document.getElementById('profileNameDisplay');
@@ -5672,39 +5665,46 @@ function _renderProfile() {
   }
 }
 
-function _saveProfilePhoto(dataUrl) {
-  if (!dataUrl || dataUrl.length < 50) return;
-  _profilePhoto = dataUrl;
-  // Write to localStorage (fast path for next startup)
-  try { localStorage.setItem('muzio_profile_photo', dataUrl); } catch(e) {
-    // Quota full — clear old value and retry once
-    try { localStorage.removeItem('muzio_profile_photo'); localStorage.setItem('muzio_profile_photo', dataUrl); } catch(e2) {}
-  }
-  // Also write to IndexedDB (unlimited quota — primary persistence)
-  openArtDb().then(function(db) {
-    db.transaction(ART_STORE_NAME, 'readwrite').objectStore(ART_STORE_NAME).put(dataUrl, '__profile_photo__');
-  }).catch(function() {});
-  _renderProfile();
-  showToast('Photo saved', 1500);
-}
-
-document.getElementById('profileAvatarBtn').onclick = function() {
-  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
-    NativeBridge.pickAlbumArt().then(function(data) {
-      _saveProfilePhoto(data);
-    }).catch(function() {});
-  } else {
-    var inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = 'image/*';
-    inp.onchange = function() {
-      if (!inp.files || !inp.files[0]) return;
-      var reader = new FileReader();
-      reader.onload = function(ev) { _saveProfilePhoto(ev.target.result); };
-      reader.readAsDataURL(inp.files[0]);
+// Exact same approach as the Pong game: persistent hidden file input,
+// FileReader → canvas 128px JPEG → localStorage
+(function() {
+  var photoInput = document.getElementById('profilePhotoInput');
+  photoInput.addEventListener('change', function(e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    photoInput.value = '';  // reset so same file can be picked again
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var raw = ev.target.result;
+      var img2 = new Image();
+      img2.onload = function() {
+        var sz = 128;
+        var canvas2 = document.createElement('canvas');
+        canvas2.width = sz; canvas2.height = sz;
+        var ctx2 = canvas2.getContext('2d');
+        var min = Math.min(img2.width, img2.height);
+        ctx2.drawImage(img2, (img2.width - min) / 2, (img2.height - min) / 2, min, min, 0, 0, sz, sz);
+        var dataUrl = canvas2.toDataURL('image/jpeg', 0.7);
+        _profilePhoto = dataUrl;
+        try { localStorage.setItem('muzio_profile_photo', dataUrl); } catch(er) {}
+        _renderProfile();
+        showToast('Photo saved', 1500);
+      };
+      img2.onerror = function() {
+        _profilePhoto = raw;
+        try { localStorage.setItem('muzio_profile_photo', raw); } catch(er) {}
+        _renderProfile();
+        showToast('Photo saved', 1500);
+      };
+      img2.src = raw;
     };
-    inp.click();
-  }
-};
+    reader.readAsDataURL(f);
+  });
+
+  document.getElementById('profileAvatarBtn').onclick = function() {
+    photoInput.click();
+  };
+}());
 
 function _openProfileNameEdit() {
   var area = document.getElementById('profileTextArea');
@@ -5793,7 +5793,8 @@ function _doImportBackup(file) {
         localStorage.setItem('muzio_profile_name', _profileName);
       }
       if (data.profilePhoto) {
-        _saveProfilePhoto(data.profilePhoto);
+        _profilePhoto = data.profilePhoto;
+        try { localStorage.setItem('muzio_profile_photo', _profilePhoto); } catch(er) {}
       }
       _renderProfile();
       if (Array.isArray(data.playlists)) { playlists = data.playlists; savePlaylists(); }
