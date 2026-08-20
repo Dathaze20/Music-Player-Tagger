@@ -2779,12 +2779,20 @@ body {
   overflow: hidden;
   cursor: pointer;
   flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
+  position: relative;  /* anchor the inner fill div */
   padding: 0;
   transition: border-color 0.2s;
 }
 .profile-avatar:active { border-color: var(--primary); }
-.profile-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Inner div fills the full button area so img/svg sized to 100% works */
+#profileAvatarInner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#profileAvatarInner img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .profile-text { flex: 1; min-width: 0; }
 .profile-greeting { font-size: 11px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1px; }
 .profile-name { font-size: 19px; font-weight: 800; color: var(--text-primary); line-height: 1.2; word-break: break-word; }

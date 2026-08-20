@@ -5675,19 +5675,27 @@ function _renderProfile() {
 }
 
 function _saveProfilePhoto(dataUrl) {
+  function _persist(data) {
+    _profilePhoto = data;
+    try { localStorage.setItem('muzio_profile_photo', data); } catch(e) {}
+    _renderProfile();
+  }
   var img = new Image();
   img.onload = function() {
-    var sz = 160;
-    var canvas = document.createElement('canvas');
-    canvas.width = sz; canvas.height = sz;
-    var ctx = canvas.getContext('2d');
-    var s = Math.min(img.width, img.height);
-    ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, sz, sz);
-    var compressed = canvas.toDataURL('image/jpeg', 0.85);
-    _profilePhoto = compressed;
-    try { localStorage.setItem('muzio_profile_photo', compressed); } catch(e) {}
-    _renderProfile();
+    try {
+      var sz = 160;
+      var canvas = document.createElement('canvas');
+      canvas.width = sz; canvas.height = sz;
+      var ctx = canvas.getContext('2d');
+      var s = Math.min(img.width, img.height);
+      ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, sz, sz);
+      var compressed = canvas.toDataURL('image/jpeg', 0.85);
+      // toDataURL returns 'data:,' on failure — fall back to raw
+      if (!compressed || compressed.length < 100) { _persist(dataUrl); return; }
+      _persist(compressed);
+    } catch(e) { _persist(dataUrl); }
   };
+  img.onerror = function() { _persist(dataUrl); };
   img.src = dataUrl;
 }
 
