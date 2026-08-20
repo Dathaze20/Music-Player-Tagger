@@ -5657,6 +5657,153 @@ document.getElementById('rescanLibBtn').onclick = function() {
   nativeAutoScan();
 };
 
+// ─── Profile ───
+
+var _profileName = localStorage.getItem('muzio_profile_name') || '';
+var _profilePhoto = localStorage.getItem('muzio_profile_photo') || '';
+
+function _renderProfile() {
+  var nameEl = document.getElementById('profileNameDisplay');
+  if (nameEl) nameEl.textContent = _profileName || 'User';
+  var inner = document.getElementById('profileAvatarInner');
+  if (!inner) return;
+  if (_profilePhoto) {
+    inner.innerHTML = '<img src="' + _profilePhoto + '" style="width:100%;height:100%;object-fit:cover;">';
+  } else {
+    inner.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" fill="rgba(255,255,255,0.45)"/><path d="M4 20c0-4 3.582-7 8-7s8 3 8 7" stroke="rgba(255,255,255,0.45)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+  }
+}
+
+document.getElementById('profileAvatarBtn').onclick = function() {
+  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+    NativeBridge.pickAlbumArt().then(function(data) {
+      _profilePhoto = data;
+      try { localStorage.setItem('muzio_profile_photo', data); } catch(e) {}
+      _renderProfile();
+    }).catch(function() {});
+  } else {
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = function() {
+      if (!inp.files || !inp.files[0]) return;
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        var img = new Image();
+        img.onload = function() {
+          var sz = 128;
+          var canvas = document.createElement('canvas');
+          canvas.width = sz; canvas.height = sz;
+          var ctx = canvas.getContext('2d');
+          var s = Math.min(img.width, img.height);
+          ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, sz, sz);
+          var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          _profilePhoto = dataUrl;
+          try { localStorage.setItem('muzio_profile_photo', dataUrl); } catch(e) {}
+          _renderProfile();
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(inp.files[0]);
+    };
+    inp.click();
+  }
+};
+
+function _openProfileNameEdit() {
+  var area = document.getElementById('profileTextArea');
+  if (!area || area.querySelector('input')) return;
+  var savedHTML = area.innerHTML;
+  var inp = document.createElement('input');
+  inp.type = 'text'; inp.value = _profileName; inp.placeholder = 'Your name'; inp.maxLength = 40;
+  inp.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);border:1px solid var(--primary);border-radius:8px;color:var(--text-primary);font-size:15px;font-weight:600;padding:5px 9px;box-sizing:border-box;outline:none;';
+  area.innerHTML = '';
+  area.appendChild(inp);
+  inp.focus(); inp.select();
+  function _saveName() {
+    _profileName = inp.value.trim();
+    localStorage.setItem('muzio_profile_name', _profileName);
+    area.innerHTML = savedHTML;
+    _renderProfile();
+  }
+  inp.onblur = _saveName;
+  inp.onkeydown = function(e) {
+    if (e.key === 'Enter') inp.blur();
+    if (e.key === 'Escape') { area.innerHTML = savedHTML; }
+  };
+}
+document.getElementById('profileEditBtn').onclick = _openProfileNameEdit;
+document.getElementById('profileNameDisplay').onclick = _openProfileNameEdit;
+_renderProfile();
+
+// ─── Backup ───
+
+document.getElementById('exportBackupBtn').onclick = function() {
+  toggleDrawer(false);
+  loadAllEdits().then(function(editsMap) {
+    var data = {
+      version: 1,
+      exported: new Date().toISOString(),
+      profileName: _profileName,
+      playlists: loadPlaylists(),
+      edits: editsMap,
+    };
+    var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'muzio-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 1000);
+    showToast('Backup exported', 2000);
+  });
+};
+
+document.getElementById('importBackupBtn').onclick = function() {
+  toggleDrawer(false);
+  var inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = function() { if (inp.files && inp.files[0]) _doImportBackup(inp.files[0]); };
+  inp.click();
+};
+
+function _doImportBackup(file) {
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var data = JSON.parse(ev.target.result);
+      if (!data || typeof data !== 'object' || data.version !== 1) {
+        showToast('Invalid backup file', 2500); return;
+      }
+      if (data.profileName) {
+        _profileName = data.profileName;
+        localStorage.setItem('muzio_profile_name', _profileName);
+        _renderProfile();
+      }
+      if (Array.isArray(data.playlists)) { playlists = data.playlists; savePlaylists(); }
+      if (data.edits && typeof data.edits === 'object') {
+        openLibDb().then(function(db) {
+          var tx = db.transaction(EDITS_STORE, 'readwrite');
+          var store = tx.objectStore(EDITS_STORE);
+          var keys = Object.keys(data.edits);
+          keys.forEach(function(key) { store.put(data.edits[key], key); });
+          tx.oncomplete = function() {
+            Object.assign(_editsMap, data.edits);
+            applyEditsToSongs();
+            saveLibrary();
+            render();
+            showToast('Backup restored — ' + keys.length + ' edits applied', 3000);
+          };
+        });
+      } else {
+        render();
+        showToast('Backup restored', 2500);
+      }
+    } catch(e) { showToast('Could not read backup file', 2500); }
+  };
+  reader.readAsText(file);
+}
+
 // Show native-only drawer items once Capacitor is ready
 function updateDrawerForPlatform() {
   var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();

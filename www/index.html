@@ -76,9 +76,16 @@
   <!-- Side drawer -->
   <div id="drawerOverlay" class="drawer-overlay hidden"></div>
   <div id="drawer" class="drawer hidden">
-    <div class="drawer-header">
-      <h2>My Music</h2>
-      <p>Smart Music Player</p>
+    <!-- Profile card -->
+    <div class="drawer-profile">
+      <button class="profile-avatar" id="profileAvatarBtn" title="Change photo">
+        <div id="profileAvatarInner"></div>
+      </button>
+      <div class="profile-text" id="profileTextArea">
+        <div class="profile-greeting">Hello, <span id="profileNameDisplay">User</span></div>
+        <div class="profile-sub">Tap name to edit</div>
+      </div>
+      <button class="profile-edit-btn" id="profileEditBtn" title="Edit name">&#9998;</button>
     </div>
     <nav class="drawer-nav">
       <button class="drawer-item" id="importFolderBtn">
@@ -100,6 +107,13 @@
       </div>
       <button class="drawer-item" id="setApiKeyBtn">
         <span class="icon">&#128273;</span> <span id="apiKeyLabel">Set Gemini API Key</span>
+      </button>
+      <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
+      <button class="drawer-item" id="exportBackupBtn">
+        <span class="icon">&#128190;</span> Export Backup
+      </button>
+      <button class="drawer-item" id="importBackupBtn">
+        <span class="icon">&#128229;</span> Import Backup
       </button>
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
       <button class="drawer-item" id="clearLibBtn">
