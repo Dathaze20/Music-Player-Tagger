@@ -765,7 +765,7 @@ body {
 }
 .drawer-header h2 { font-size: 18px; font-weight: 700; }
 .drawer-header p { font-size: 11px; color: var(--text-faint); }
-.drawer-nav { flex: 1; padding: 8px 0; }
+.drawer-nav { flex: 1; padding: 8px 0; overflow-y: auto; }
 .drawer-item {
   display: flex; align-items: center; gap: 16px;
   padding: 14px 24px;

@@ -5618,15 +5618,6 @@ document.getElementById('setApiKeyBtn').onclick = function() {
   if (lbl && apiKey) lbl.textContent = 'Gemini Key: …' + apiKey.slice(-6);
 })();
 
-document.getElementById('favoritesBtn').onclick = function() {
-  toggleDrawer(false);
-  currentTab = 'favorites';
-  document.querySelectorAll('.tabs button').forEach(function(b) { b.classList.remove('active'); });
-  selectedArtist = null;
-  selectedAlbum = null;
-  render();
-};
-
 document.getElementById('clearLibBtn').onclick = function() {
   toggleDrawer(false);
   if (confirm('Clear your entire library? This cannot be undone.')) {
@@ -5661,6 +5652,13 @@ document.getElementById('rescanLibBtn').onclick = function() {
 
 var _profileName = localStorage.getItem('muzio_profile_name') || '';
 var _profilePhoto = localStorage.getItem('muzio_profile_photo') || '';
+// If not in localStorage (e.g. quota was full), load from IDB
+if (!_profilePhoto) {
+  openArtDb().then(function(db) {
+    var req = db.transaction(ART_STORE_NAME, 'readonly').objectStore(ART_STORE_NAME).get('__profile_photo__');
+    req.onsuccess = function() { if (req.result) { _profilePhoto = req.result; _renderProfile(); } };
+  }).catch(function() {});
+}
 
 function _renderProfile() {
   var nameEl = document.getElementById('profileNameDisplay');
@@ -5675,28 +5673,19 @@ function _renderProfile() {
 }
 
 function _saveProfilePhoto(dataUrl) {
-  function _persist(data) {
-    _profilePhoto = data;
-    try { localStorage.setItem('muzio_profile_photo', data); } catch(e) {}
-    _renderProfile();
+  if (!dataUrl || dataUrl.length < 50) return;
+  _profilePhoto = dataUrl;
+  // Write to localStorage (fast path for next startup)
+  try { localStorage.setItem('muzio_profile_photo', dataUrl); } catch(e) {
+    // Quota full — clear old value and retry once
+    try { localStorage.removeItem('muzio_profile_photo'); localStorage.setItem('muzio_profile_photo', dataUrl); } catch(e2) {}
   }
-  var img = new Image();
-  img.onload = function() {
-    try {
-      var sz = 160;
-      var canvas = document.createElement('canvas');
-      canvas.width = sz; canvas.height = sz;
-      var ctx = canvas.getContext('2d');
-      var s = Math.min(img.width, img.height);
-      ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, sz, sz);
-      var compressed = canvas.toDataURL('image/jpeg', 0.85);
-      // toDataURL returns 'data:,' on failure — fall back to raw
-      if (!compressed || compressed.length < 100) { _persist(dataUrl); return; }
-      _persist(compressed);
-    } catch(e) { _persist(dataUrl); }
-  };
-  img.onerror = function() { _persist(dataUrl); };
-  img.src = dataUrl;
+  // Also write to IndexedDB (unlimited quota — primary persistence)
+  openArtDb().then(function(db) {
+    db.transaction(ART_STORE_NAME, 'readwrite').objectStore(ART_STORE_NAME).put(dataUrl, '__profile_photo__');
+  }).catch(function() {});
+  _renderProfile();
+  showToast('Photo saved', 1500);
 }
 
 document.getElementById('profileAvatarBtn').onclick = function() {
@@ -5804,8 +5793,7 @@ function _doImportBackup(file) {
         localStorage.setItem('muzio_profile_name', _profileName);
       }
       if (data.profilePhoto) {
-        _profilePhoto = data.profilePhoto;
-        try { localStorage.setItem('muzio_profile_photo', _profilePhoto); } catch(e) {}
+        _saveProfilePhoto(data.profilePhoto);
       }
       _renderProfile();
       if (Array.isArray(data.playlists)) { playlists = data.playlists; savePlaylists(); }
