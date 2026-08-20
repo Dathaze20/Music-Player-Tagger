@@ -2993,19 +2993,39 @@ function songRowHTML(s, playing, showEdit) {
 // ─── Detail Views ───
 
 function artistCollageHTML(artistAlbums, artistName) {
-  // Collect album art URIs; fill up to 4 slots (cycle if fewer)
-  var count = Math.max(artistAlbums.length, 1);
-  var cells = [];
-  for (var i = 0; i < 4; i++) {
-    var album = artistAlbums[i % count];
+  var count = artistAlbums.length;
+
+  function cellHTML(album, wPct, hPct, fontSize) {
     var uri = album ? (album.albumArtUri || '') : '';
     var g = getGrad(album ? album.name : artistName);
     var init = (album ? album.name : artistName)
       .split(' ').map(function(w) { return w[0] || ''; }).join('').substring(0, 2).toUpperCase();
-    cells.push('<div class="artist-collage-cell">'
-      + '<div style="width:100%;height:100%;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:20px;font-weight:700;color:rgba(255,255,255,0.8);">' + escHtml(init) + '</div>'
+    return '<div class="artist-collage-cell" style="width:' + wPct + '%;height:' + hPct + '%;">'
+      + '<div style="width:100%;height:100%;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:' + fontSize + 'px;font-weight:700;color:rgba(255,255,255,0.8);">' + escHtml(init) + '</div>'
       + (uri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(uri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
-      + '</div>');
+      + '</div>';
+  }
+
+  if (count <= 1) {
+    // Single album: full square — no repetition
+    return '<div class="artist-collage">' + cellHTML(artistAlbums[0] || null, 100, 100, 28) + '</div>';
+  }
+  if (count === 2) {
+    // Two albums: side-by-side columns
+    return '<div class="artist-collage">'
+      + cellHTML(artistAlbums[0], 50, 100, 20)
+      + cellHTML(artistAlbums[1], 50, 100, 20)
+      + '</div>';
+  }
+  // 3+ albums: 2×2 grid — use up to 4 unique albums (no cycling)
+  var cells = [];
+  for (var i = 0; i < 4; i++) {
+    if (i < count) {
+      cells.push(cellHTML(artistAlbums[i], 50, 50, 16));
+    } else {
+      // empty dark placeholder so the grid stays square
+      cells.push('<div class="artist-collage-cell" style="width:50%;height:50%;background:rgba(0,0,0,0.25);"></div>');
+    }
   }
   return '<div class="artist-collage">' + cells.join('') + '</div>';
 }
@@ -5372,7 +5392,9 @@ function doSearch(q) {
     return s.title.toLowerCase().indexOf(ql) !== -1
       || (s.artist && s.artist.toLowerCase().indexOf(ql) !== -1)
       || (s.album && s.album.toLowerCase().indexOf(ql) !== -1)
-      || (s.feat && s.feat.toLowerCase().indexOf(ql) !== -1);
+      || (s.feat && s.feat.toLowerCase().indexOf(ql) !== -1)
+      || (s.genre && s.genre.toLowerCase().indexOf(ql) !== -1)
+      || (s.albumArtist && s.albumArtist.toLowerCase().indexOf(ql) !== -1);
   });
   var songMatches = allSongMatches.slice(0, SEARCH_CAP);
 
