@@ -2804,6 +2804,39 @@ body {
   flex-shrink: 0; line-height: 1;
 }
 
+/* ─── Backup card ─── */
+.backup-card {
+  margin: 4px 16px 8px;
+  padding: 14px 16px 16px;
+  background: rgba(0,168,158,0.07);
+  border: 1px solid rgba(0,168,158,0.22);
+  border-radius: 16px;
+}
+.backup-card-label {
+  font-size: 13px; font-weight: 700;
+  color: var(--text-primary); margin-bottom: 5px;
+}
+.backup-card-desc {
+  font-size: 11px; color: rgba(255,255,255,0.38);
+  line-height: 1.5; margin-bottom: 12px;
+}
+.backup-card-btns { display: flex; gap: 10px; }
+.backup-btn {
+  flex: 1; padding: 10px 0; border-radius: 12px;
+  font-size: 13px; font-weight: 700;
+  cursor: pointer; border: none; letter-spacing: 0.3px;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.backup-btn:active { opacity: 0.75; transform: scale(0.97); }
+.backup-btn-export {
+  background: var(--primary); color: #fff;
+}
+.backup-btn-import {
+  background: rgba(0,168,158,0.12);
+  border: 1px solid rgba(0,168,158,0.45) !important;
+  color: var(--primary);
+}
+
 /* ─── Bottom sheet + queue: deep glass ─── */
 .bottom-sheet {
   background: rgba(16, 22, 38, 0.98);

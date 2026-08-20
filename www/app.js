@@ -5759,11 +5759,16 @@ _renderProfile();
 document.getElementById('exportBackupBtn').onclick = function() {
   toggleDrawer(false);
   loadAllEdits().then(function(editsMap) {
+    var favList = songs.filter(function(s) { return s.fav; }).map(function(s) {
+      return { fn: s.fn, title: s.title, artist: s.artist || '' };
+    });
     var data = {
       version: 1,
       exported: new Date().toISOString(),
       profileName: _profileName,
+      profilePhoto: _profilePhoto || '',
       playlists: loadPlaylists(),
+      favorites: favList,
       edits: editsMap,
     };
     var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -5774,7 +5779,7 @@ document.getElementById('exportBackupBtn').onclick = function() {
     document.body.appendChild(a);
     a.click();
     setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 1000);
-    showToast('Backup exported', 2000);
+    showToast('Backup exported — ' + songs.length + ' songs, ' + favList.length + ' favorites', 2500);
   });
 };
 
@@ -5797,9 +5802,29 @@ function _doImportBackup(file) {
       if (data.profileName) {
         _profileName = data.profileName;
         localStorage.setItem('muzio_profile_name', _profileName);
-        _renderProfile();
       }
+      if (data.profilePhoto) {
+        _profilePhoto = data.profilePhoto;
+        try { localStorage.setItem('muzio_profile_photo', _profilePhoto); } catch(e) {}
+      }
+      _renderProfile();
       if (Array.isArray(data.playlists)) { playlists = data.playlists; savePlaylists(); }
+      // Restore favorites by matching fn (unique file path) or title+artist
+      var favRestoredCount = 0;
+      if (Array.isArray(data.favorites) && data.favorites.length) {
+        var favByFn = Object.create(null);
+        var favByTA = Object.create(null);
+        data.favorites.forEach(function(f) {
+          if (f.fn) favByFn[f.fn] = true;
+          if (f.title) favByTA[(f.title + '\0' + (f.artist || '')).toLowerCase()] = true;
+        });
+        songs.forEach(function(s) {
+          var matched = (s.fn && favByFn[s.fn]) ||
+            favByTA[(s.title + '\0' + (s.artist || '')).toLowerCase()];
+          if (matched && !s.fav) { s.fav = true; favRestoredCount++; }
+        });
+        _countsCache = null;
+      }
       if (data.edits && typeof data.edits === 'object') {
         openLibDb().then(function(db) {
           var tx = db.transaction(EDITS_STORE, 'readwrite');
@@ -5811,12 +5836,13 @@ function _doImportBackup(file) {
             applyEditsToSongs();
             saveLibrary();
             render();
-            showToast('Backup restored — ' + keys.length + ' edits applied', 3000);
+            showToast('Restored — ' + keys.length + ' edits, ' + favRestoredCount + ' favorites', 3000);
           };
         });
       } else {
+        if (favRestoredCount) saveLibrary();
         render();
-        showToast('Backup restored', 2500);
+        showToast('Backup restored — ' + favRestoredCount + ' favorites', 2500);
       }
     } catch(e) { showToast('Could not read backup file', 2500); }
   };
