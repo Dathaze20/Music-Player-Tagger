@@ -5712,23 +5712,31 @@ document.getElementById('profileAvatarBtn').onclick = function() {
 function _openProfileNameEdit() {
   var area = document.getElementById('profileTextArea');
   if (!area || area.querySelector('input')) return;
-  var savedHTML = area.innerHTML;
+  // Hide the greeting/sub rows without replacing them — preserves onclick bindings
+  var greetDiv = area.querySelector('.profile-greeting');
+  var subDiv   = area.querySelector('.profile-sub');
+  if (greetDiv) greetDiv.style.display = 'none';
+  if (subDiv)   subDiv.style.display   = 'none';
   var inp = document.createElement('input');
   inp.type = 'text'; inp.value = _profileName; inp.placeholder = 'Your name'; inp.maxLength = 40;
   inp.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);border:1px solid var(--primary);border-radius:8px;color:var(--text-primary);font-size:15px;font-weight:600;padding:5px 9px;box-sizing:border-box;outline:none;';
-  area.innerHTML = '';
-  area.appendChild(inp);
+  area.insertBefore(inp, area.firstChild);
   inp.focus(); inp.select();
+  function _restore() {
+    inp.remove();
+    if (greetDiv) greetDiv.style.display = '';
+    if (subDiv)   subDiv.style.display   = '';
+  }
   function _saveName() {
     _profileName = inp.value.trim();
     localStorage.setItem('muzio_profile_name', _profileName);
-    area.innerHTML = savedHTML;
+    _restore();
     _renderProfile();
   }
   inp.onblur = _saveName;
   inp.onkeydown = function(e) {
     if (e.key === 'Enter') inp.blur();
-    if (e.key === 'Escape') { area.innerHTML = savedHTML; }
+    if (e.key === 'Escape') { _restore(); }
   };
 }
 document.getElementById('profileEditBtn').onclick = _openProfileNameEdit;
