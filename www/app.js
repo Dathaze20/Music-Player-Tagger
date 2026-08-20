@@ -5674,12 +5674,27 @@ function _renderProfile() {
   }
 }
 
+function _saveProfilePhoto(dataUrl) {
+  var img = new Image();
+  img.onload = function() {
+    var sz = 160;
+    var canvas = document.createElement('canvas');
+    canvas.width = sz; canvas.height = sz;
+    var ctx = canvas.getContext('2d');
+    var s = Math.min(img.width, img.height);
+    ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, sz, sz);
+    var compressed = canvas.toDataURL('image/jpeg', 0.85);
+    _profilePhoto = compressed;
+    try { localStorage.setItem('muzio_profile_photo', compressed); } catch(e) {}
+    _renderProfile();
+  };
+  img.src = dataUrl;
+}
+
 document.getElementById('profileAvatarBtn').onclick = function() {
   if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
     NativeBridge.pickAlbumArt().then(function(data) {
-      _profilePhoto = data;
-      try { localStorage.setItem('muzio_profile_photo', data); } catch(e) {}
-      _renderProfile();
+      _saveProfilePhoto(data);
     }).catch(function() {});
   } else {
     var inp = document.createElement('input');
@@ -5687,22 +5702,7 @@ document.getElementById('profileAvatarBtn').onclick = function() {
     inp.onchange = function() {
       if (!inp.files || !inp.files[0]) return;
       var reader = new FileReader();
-      reader.onload = function(ev) {
-        var img = new Image();
-        img.onload = function() {
-          var sz = 128;
-          var canvas = document.createElement('canvas');
-          canvas.width = sz; canvas.height = sz;
-          var ctx = canvas.getContext('2d');
-          var s = Math.min(img.width, img.height);
-          ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, sz, sz);
-          var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-          _profilePhoto = dataUrl;
-          try { localStorage.setItem('muzio_profile_photo', dataUrl); } catch(e) {}
-          _renderProfile();
-        };
-        img.src = ev.target.result;
-      };
+      reader.onload = function(ev) { _saveProfilePhoto(ev.target.result); };
       reader.readAsDataURL(inp.files[0]);
     };
     inp.click();
@@ -5712,19 +5712,22 @@ document.getElementById('profileAvatarBtn').onclick = function() {
 function _openProfileNameEdit() {
   var area = document.getElementById('profileTextArea');
   if (!area || area.querySelector('input')) return;
-  // Hide the greeting/sub rows without replacing them — preserves onclick bindings
+  // Hide all rows without replacing them — preserves onclick bindings
   var greetDiv = area.querySelector('.profile-greeting');
+  var nameDiv  = area.querySelector('.profile-name');
   var subDiv   = area.querySelector('.profile-sub');
   if (greetDiv) greetDiv.style.display = 'none';
+  if (nameDiv)  nameDiv.style.display  = 'none';
   if (subDiv)   subDiv.style.display   = 'none';
   var inp = document.createElement('input');
   inp.type = 'text'; inp.value = _profileName; inp.placeholder = 'Your name'; inp.maxLength = 40;
-  inp.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);border:1px solid var(--primary);border-radius:8px;color:var(--text-primary);font-size:15px;font-weight:600;padding:5px 9px;box-sizing:border-box;outline:none;';
+  inp.style.cssText = 'width:100%;background:rgba(255,255,255,0.08);border:1px solid var(--primary);border-radius:8px;color:var(--text-primary);font-size:16px;font-weight:700;padding:6px 10px;box-sizing:border-box;outline:none;';
   area.insertBefore(inp, area.firstChild);
   inp.focus(); inp.select();
   function _restore() {
     inp.remove();
     if (greetDiv) greetDiv.style.display = '';
+    if (nameDiv)  nameDiv.style.display  = '';
     if (subDiv)   subDiv.style.display   = '';
   }
   function _saveName() {
