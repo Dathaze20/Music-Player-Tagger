@@ -106,14 +106,12 @@
         <span class="icon">&#128273;</span> <span id="apiKeyLabel">Set Gemini API Key</span>
       </button>
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
-      <div class="backup-card">
-        <div class="backup-card-label">&#128190; Backup &amp; Restore</div>
-        <div class="backup-card-desc">Export saves your edits, playlists, favorites &amp; profile. Import merges — safe to repeat.</div>
-        <div class="backup-card-btns">
-          <button class="backup-btn backup-btn-export" id="exportBackupBtn">&#8679; Export</button>
-          <button class="backup-btn backup-btn-import" id="importBackupBtn">&#8681; Import</button>
-        </div>
-      </div>
+      <button class="drawer-item backup-export-item" id="exportBackupBtn">
+        <span class="icon">&#8679;</span> Export Backup
+      </button>
+      <button class="drawer-item backup-import-item" id="importBackupBtn">
+        <span class="icon">&#8681;</span> Import Backup
+      </button>
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
       <button class="drawer-item" id="clearLibBtn">
         <span class="icon" style="color:var(--text-faint);">&#128465;</span> Clear Library
