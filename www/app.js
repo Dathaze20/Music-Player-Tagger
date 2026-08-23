@@ -4942,16 +4942,45 @@ function openSongEditModal(songId) {
 
 }
 
+var _artPickPreviewEl = null;
+(function() {
+  var artInput = document.getElementById('albumArtPickerInput');
+  artInput.addEventListener('change', function(e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    artInput.value = '';
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var raw = ev.target.result;
+      var img2 = new Image();
+      img2.onload = function() {
+        var sz = 512;
+        var canvas2 = document.createElement('canvas');
+        canvas2.width = sz; canvas2.height = sz;
+        var ctx2 = canvas2.getContext('2d');
+        var min = Math.min(img2.width, img2.height);
+        ctx2.drawImage(img2, (img2.width - min) / 2, (img2.height - min) / 2, min, min, 0, 0, sz, sz);
+        var b64 = canvas2.toDataURL('image/jpeg', 0.85);
+        _pendingArtBase64 = b64;
+        var el = _artPickPreviewEl || document.getElementById('editArtPreview') || document.getElementById('bEditArtPreview');
+        if (el) el.innerHTML = '<img src="' + b64 + '" style="width:100%;height:100%;object-fit:cover;">';
+        _artPickPreviewEl = null;
+      };
+      img2.onerror = function() {
+        _pendingArtBase64 = raw;
+        var el = _artPickPreviewEl || document.getElementById('editArtPreview') || document.getElementById('bEditArtPreview');
+        if (el) el.innerHTML = '<img src="' + raw + '" style="width:100%;height:100%;object-fit:cover;">';
+        _artPickPreviewEl = null;
+      };
+      img2.src = raw;
+    };
+    reader.readAsDataURL(f);
+  });
+}());
+
 function _pickArt(previewEl) {
-  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) {
-    showToast('Gallery picker requires the native app');
-    return;
-  }
-  NativeBridge.pickAlbumArt().then(function(b64) {
-    _pendingArtBase64 = b64;
-    var el = previewEl || document.getElementById('editArtPreview') || document.getElementById('bEditArtPreview');
-    if (el) el.innerHTML = '<img src="' + b64 + '" style="width:100%;height:100%;object-fit:cover;">';
-  }).catch(function() {}); // user cancelled — no action
+  _artPickPreviewEl = previewEl || null;
+  document.getElementById('albumArtPickerInput').click();
 }
 
 function openEditModal(albumName, artistName) {
