@@ -389,9 +389,11 @@ function artistRowHTML(a) {
       + 'flex-shrink:0;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:11px;font-weight:700;margin-right:6px;">'
       + (sel ? '&#10003;' : '') + '</div>';
   }
-  var artEl = a.albumArtUris && a.albumArtUris.length > 0
-    ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(a.name, 56, true) + '</div>'
-    : artHTML(a.name, 56, true);
+  var artEl = (a.arts && a.arts.length > 0)
+    ? '<img src="' + a.arts[0] + '" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;object-fit:cover;">'
+    : (a.albumArtUris && a.albumArtUris.length > 0)
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(a.name, 56, true) + '</div>'
+      : artHTML(a.name, 56, true);
   var menuBtn = _msArtistMode ? '' : '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>';
   return '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
     + chkHtml + artEl
@@ -2149,9 +2151,11 @@ function renderArtists(el) {
     var artSize = cols === 3 ? 60 : 80;
     var gridParts = ['<div class="artist-grid grid-' + cols + '">'];
     artists.forEach(function(a) {
-      var artEl = a.albumArtUris.length > 0
-        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="' + artSize + '" data-round="1">' + artHTML(a.name, artSize, true) + '</div>'
-        : artHTML(a.name, artSize, true);
+      var artEl = (a.arts && a.arts.length > 0)
+        ? '<img src="' + a.arts[0] + '" style="width:' + artSize + 'px;height:' + artSize + 'px;border-radius:50%;object-fit:cover;">'
+        : (a.albumArtUris.length > 0
+          ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="' + artSize + '" data-round="1">' + artHTML(a.name, artSize, true) + '</div>'
+          : artHTML(a.name, artSize, true));
       gridParts.push('<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'
         + artEl
         + '<div class="artist-grid-name">' + escHtml(a.name) + '</div>'
@@ -2603,9 +2607,10 @@ function agRowHTML(rowIdx) {
     metaParts.push(a.songCount + (a.songCount === 1 ? ' song' : ' songs'));
 
     html += '<div class="ag-card" data-album-idx="' + aIdx + '">'
-      + '<div class="ag-art art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri || '') + '" data-fill="1" style="width:' + _agColW + 'px;height:' + _agColW + 'px;">'
-      + artHTML(a.name, _agColW, false)
-      + '</div>'
+      + (a.art
+        ? '<div class="ag-art" style="width:' + _agColW + 'px;height:' + _agColW + 'px;overflow:hidden;position:relative;">' + artHTML(a.name, _agColW, false) + '<img src="' + a.art + '" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;"></div>'
+        : '<div class="ag-art art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri || '') + '" data-fill="1" style="width:' + _agColW + 'px;height:' + _agColW + 'px;">' + artHTML(a.name, _agColW, false) + '</div>')
+
       + '<div class="ag-info">'
       + '<div class="ag-name">' + escHtml(a.name) + '</div>'
       + '<div class="ag-meta">' + metaParts.join(' &bull; ') + '</div>'
@@ -2996,13 +3001,16 @@ function artistCollageHTML(artistAlbums, artistName) {
   var count = artistAlbums.length;
 
   function cellHTML(album, wPct, hPct, fontSize) {
+    var customArt = album && album.art ? album.art : '';
     var uri = album ? (album.albumArtUri || '') : '';
     var g = getGrad(album ? album.name : artistName);
     var init = (album ? album.name : artistName)
       .split(' ').map(function(w) { return w[0] || ''; }).join('').substring(0, 2).toUpperCase();
     return '<div class="artist-collage-cell" style="width:' + wPct + '%;height:' + hPct + '%;">'
       + '<div style="width:100%;height:100%;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:' + fontSize + 'px;font-weight:700;color:rgba(255,255,255,0.8);">' + escHtml(init) + '</div>'
-      + (uri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(uri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
+      + (customArt
+        ? '<img src="' + customArt + '" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;">'
+        : uri ? '<div class="art-lazy" data-lazy-uri="' + escHtml(uri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>' : '')
       + '</div>';
   }
 
@@ -3147,9 +3155,11 @@ function renderAlbumDetail(el) {
     + '</div></div>';
 
   var albumRowParts = [];
-  var rowArt = albumArtUri
-    ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-size="48" style="width:48px;height:48px;flex-shrink:0;border-radius:6px;overflow:hidden;">' + artHTML(selectedAlbum.name, 48) + '</div>'
-    : '';
+  var rowArt = customAlbumArt
+    ? '<img src="' + customAlbumArt + '" style="width:48px;height:48px;flex-shrink:0;border-radius:6px;object-fit:cover;">'
+    : albumArtUri
+      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(albumArtUri) + '" data-size="48" style="width:48px;height:48px;flex-shrink:0;border-radius:6px;overflow:hidden;">' + artHTML(selectedAlbum.name, 48) + '</div>'
+      : '';
 
   // Multi-disc section headers
   var hasMultiDisc = albumSongs.some(function(s) { return (s.disc || 1) > 1; });
