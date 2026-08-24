@@ -82,7 +82,6 @@ public class MediaStorePlugin extends Plugin {
     private static final int    WRITE_REQUEST_CODE        = 9001;
     private static final int    SAF_REQUEST_CODE          = 9002;
     private static final int    WRITE_ACCESS_REQUEST_CODE = 9003;
-    private static final int    PICK_IMAGE_REQUEST_CODE   = 9004;
     private static final int    DELETE_REQUEST_CODE       = 9005;
     private static final String PREFS_NAME             = "muzio_prefs";
     private static final String PREF_SAF_URI           = "saf_tree_uri";
@@ -99,7 +98,6 @@ public class MediaStorePlugin extends Plugin {
     private Uri        pendingWriteUri;
     private PluginCall savedSafCall;
     private PluginCall savedWriteAccessCall;
-    private PluginCall savedPickCall;
     private PluginCall savedDeleteCall;
     private List<Uri>  pendingDeleteUris;
 
@@ -164,6 +162,62 @@ public class MediaStorePlugin extends Plugin {
     public void exitApp(PluginCall call) {
         call.resolve();
         getActivity().finishAffinity();
+    }
+
+    /**
+     * Writes a text file into the public Downloads folder.
+     *
+     * The WebView has no DownloadListener, so an <a download> pointing at a blob
+     * URL is silently discarded — backups and playlist exports never reached the
+     * filesystem. Writing through MediaStore puts the file somewhere the user can
+     * actually find it, and returns the path so the UI can say where it went.
+     */
+    @PluginMethod
+    public void saveToDownloads(PluginCall call) {
+        String fileName = call.getString("fileName", "");
+        String text     = call.getString("text", "");
+        String mime     = call.getString("mimeType", "text/plain");
+        if (fileName == null || fileName.isEmpty()) { call.reject("No fileName"); return; }
+        if (text == null) text = "";
+        if (mime == null || mime.isEmpty()) mime = "text/plain";
+
+        try {
+            byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+            ContentResolver cr = getContext().getContentResolver();
+            String shownPath = "Downloads/" + fileName;
+
+            if (Build.VERSION.SDK_INT >= 29) {
+                ContentValues cv = new ContentValues();
+                cv.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+                cv.put(MediaStore.Downloads.MIME_TYPE,    mime);
+                cv.put(MediaStore.Downloads.IS_PENDING,   1);
+                Uri outUri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                if (outUri == null) { call.reject("Could not create file in Downloads"); return; }
+                try (OutputStream os = cr.openOutputStream(outUri)) {
+                    if (os == null) { call.reject("Could not open Downloads file"); return; }
+                    os.write(bytes);
+                }
+                cv.clear();
+                cv.put(MediaStore.Downloads.IS_PENDING, 0);
+                cr.update(outUri, cv, null, null);
+            } else {
+                File dir = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS);
+                if (!dir.exists() && !dir.mkdirs()) { call.reject("Could not open Downloads folder"); return; }
+                File out = new File(dir, fileName);
+                try (FileOutputStream fos = new FileOutputStream(out)) { fos.write(bytes); }
+                // Make it visible to file managers straight away
+                MediaScannerConnection.scanFile(
+                    getContext(), new String[]{ out.getAbsolutePath() }, new String[]{ mime }, null);
+                shownPath = out.getAbsolutePath();
+            }
+
+            JSObject r = new JSObject();
+            r.put("path", shownPath);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("Save failed: " + e.getMessage());
+        }
     }
 
     // ─── Album art reading ─────────────────────────────────────────────────────
@@ -311,25 +365,6 @@ public class MediaStorePlugin extends Plugin {
             call.resolve();
         } catch (Exception e) {
             call.resolve(); // vibration is best-effort
-        }
-    }
-
-    // ─── Album art picker ─────────────────────────────────────────────────────
-
-    @PluginMethod
-    public void pickAlbumArt(PluginCall call) {
-        savedPickCall = call;
-        call.setKeepAlive(true);
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.setType("image/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        try {
-            getActivity().startActivityForResult(
-                Intent.createChooser(intent, "Select Album Art"), PICK_IMAGE_REQUEST_CODE);
-        } catch (Exception e) {
-            savedPickCall = null;
-            call.setKeepAlive(false);
-            call.reject("Could not open gallery: " + e.getMessage());
         }
     }
 
@@ -740,47 +775,6 @@ public class MediaStorePlugin extends Plugin {
     @Override
     protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
         super.handleOnActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == PICK_IMAGE_REQUEST_CODE) {
-            PluginCall call = savedPickCall;
-            savedPickCall = null;
-            if (call == null) return;
-            call.setKeepAlive(false);
-            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
-                Uri imageUri = data.getData();
-                try {
-                    ContentResolver resolver = getContext().getContentResolver();
-                    InputStream is = resolver.openInputStream(imageUri);
-                    if (is == null) { call.reject("Cannot open image"); return; }
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    pipe(is, baos);
-                    is.close();
-                    byte[] rawBytes = baos.toByteArray();
-                    // Decode with downsampling to max 600px
-                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
-                    opts.inJustDecodeBounds = true;
-                    android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length, opts);
-                    int sample = 1;
-                    while ((opts.outWidth / (sample * 2)) >= 600 || (opts.outHeight / (sample * 2)) >= 600) sample *= 2;
-                    opts.inSampleSize = sample;
-                    opts.inJustDecodeBounds = false;
-                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length, opts);
-                    if (bmp == null) { call.reject("Cannot decode image"); return; }
-                    ByteArrayOutputStream out = new ByteArrayOutputStream();
-                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
-                    bmp.recycle();
-                    String b64 = "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
-                    JSObject result = new JSObject();
-                    result.put("data", b64);
-                    call.resolve(result);
-                } catch (Exception e) {
-                    call.reject("Image read error: " + e.getMessage());
-                }
-            } else {
-                call.reject("Cancelled");
-            }
-            return;
-        }
 
         if (requestCode == WRITE_ACCESS_REQUEST_CODE) {
             PluginCall call = savedWriteAccessCall;

@@ -892,6 +892,37 @@ function showToast(msg, duration) {
   setTimeout(function() { t.classList.add('fade-out'); setTimeout(function() { t.remove(); }, 300); }, duration || 2500);
 }
 
+// Save a text file where the user can actually find it.
+//
+// The Android WebView has no DownloadListener, so an <a download> pointing at a
+// blob URL is silently dropped — on the phone we must write through the native
+// plugin instead. The blob path is kept for running in a normal browser.
+// onDone(ok, whereOrError) always fires, so callers never claim a silent failure
+// was a success.
+function saveTextFile(fileName, text, mimeType, onDone) {
+  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+    NativeBridge.saveToDownloads(fileName, text, mimeType).then(function(r) {
+      onDone(true, (r && r.path) || ('Downloads/' + fileName));
+    }).catch(function(err) {
+      onDone(false, (err && err.message) ? err.message : 'could not save file');
+    });
+    return;
+  }
+  try {
+    var blob = new Blob([text], { type: mimeType || 'text/plain' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 1000);
+    onDone(true, fileName);
+  } catch (err) {
+    onDone(false, 'could not save file');
+  }
+}
+
 // Show a one-time battery optimization banner for Samsung/Android users.
 // Once dismissed or acted on it never appears again (stored in localStorage).
 function maybeShowBatteryBanner() {
@@ -1845,10 +1876,6 @@ function renderWelcome(el) {
       document.getElementById('folderInput').click();
     }
   };
-  var apiLink = document.getElementById('welcomeApiLink');
-  if (apiLink) {
-    apiLink.onclick = function() { openSettings(); };
-  }
 }
 
 function showScanMorePrompt(count) {
@@ -2810,15 +2837,10 @@ function renderPlaylistSongs(el) {
         lines.push('#EXTINF:' + dur + ',' + info);
         lines.push(s.nativePath || s.url || s.fn || '');
       });
-      var blob = new Blob([lines.join('\n')], { type: 'audio/x-mpegurl' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = (pl.name || 'playlist') + '.m3u';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
-      showToast('Exported ' + plSongs.length + ' songs as M3U');
+      saveTextFile((pl.name || 'playlist') + '.m3u', lines.join('\n'), 'audio/x-mpegurl', function(ok, where) {
+        showToast(ok ? 'Exported ' + plSongs.length + ' songs to ' + where
+                     : 'Export failed \u2014 ' + where, 3000);
+      });
     };
   }
 
@@ -5849,25 +5871,34 @@ document.getElementById('exportBackupBtn').onclick = function() {
       favorites: favList,
       edits: editsMap,
     };
-    var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'muzio-backup-' + new Date().toISOString().slice(0, 10) + '.json';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 1000);
-    showToast('Backup exported — ' + songs.length + ' songs, ' + favList.length + ' favorites', 2500);
+    var fileName = 'muzio-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    saveTextFile(fileName, JSON.stringify(data), 'application/json', function(ok, where) {
+      if (ok) {
+        showToast('Backup saved to ' + where + ' \u2014 '
+          + Object.keys(editsMap).length + ' edits, ' + favList.length + ' favorites', 4000);
+      } else {
+        showToast('Backup failed \u2014 ' + where, 4000);
+      }
+    });
+  }).catch(function() {
+    showToast('Backup failed \u2014 could not read your saved edits', 4000);
   });
 };
 
-document.getElementById('importBackupBtn').onclick = function() {
-  toggleDrawer(false);
-  var inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = '.json,application/json';
-  inp.onchange = function() { if (inp.files && inp.files[0]) _doImportBackup(inp.files[0]); };
-  inp.click();
-};
+// A freshly-created, detached <input type="file"> does not reliably open the
+// picker in the Android WebView, so use the persistent one declared in index.html.
+(function() {
+  var backupInput = document.getElementById('backupImportInput');
+  backupInput.addEventListener('change', function(e) {
+    var f = e.target.files && e.target.files[0];
+    backupInput.value = ''; // let the same file be picked again
+    if (f) _doImportBackup(f);
+  });
+  document.getElementById('importBackupBtn').onclick = function() {
+    toggleDrawer(false);
+    backupInput.click();
+  };
+}());
 
 function _doImportBackup(file) {
   var reader = new FileReader();
@@ -5914,8 +5945,19 @@ function _doImportBackup(file) {
             applyEditsToSongs();
             saveLibrary();
             render();
-            showToast('Restored — ' + keys.length + ' edits, ' + favRestoredCount + ' favorites', 3000);
+            showToast('Restored \u2014 ' + keys.length + ' edits, ' + favRestoredCount + ' favorites', 3000);
           };
+          // Without this a failed write looks identical to a successful one, and
+          // the favourites recovered above would be lost on the next restart.
+          tx.onerror = function() {
+            if (favRestoredCount) saveLibrary();
+            render();
+            showToast('Could not restore edits \u2014 ' + favRestoredCount + ' favorites restored', 4000);
+          };
+        }).catch(function() {
+          if (favRestoredCount) saveLibrary();
+          render();
+          showToast('Could not open the library database to restore edits', 4000);
         });
       } else {
         if (favRestoredCount) saveLibrary();
