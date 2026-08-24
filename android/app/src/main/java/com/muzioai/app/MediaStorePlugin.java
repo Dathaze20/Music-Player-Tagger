@@ -545,8 +545,14 @@ public class MediaStorePlugin extends Plugin {
             if (p == null) { r.put("active", false); call.resolve(r); return; }
             try {
                 long dur = p.getDuration();
+                int  st  = p.getPlaybackState();
+                // playWhenReady, not isPlaying(): isPlaying() drops to false while
+                // buffering, which would flicker the play/pause icon mid-track.
+                boolean playing = p.getPlayWhenReady()
+                    && st != androidx.media3.common.Player.STATE_ENDED
+                    && st != androidx.media3.common.Player.STATE_IDLE;
                 r.put("active",   true);
-                r.put("playing",  p.isPlaying());
+                r.put("playing",  playing);
                 r.put("position", p.getCurrentPosition() / 1000.0);
                 r.put("duration", dur == androidx.media3.common.C.TIME_UNSET ? 0.0 : dur / 1000.0);
                 r.put("ended",    exoEnded);
