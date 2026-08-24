@@ -1068,7 +1068,8 @@ body {
 /* Toast notifications */
 .toast-msg {
   position: fixed;
-  bottom: 148px; left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + 72px);
+  left: 50%;
   transform: translateX(-50%);
   background: var(--bg-card);
   color: var(--text);
@@ -1079,7 +1080,7 @@ body {
   z-index: 200;
   box-shadow: 0 8px 30px rgba(0,0,0,0.5);
   border: 1px solid var(--border);
-  animation: slideUp 0.3s ease;
+  animation: toastDrop 0.3s ease;
   white-space: normal;
   max-width: calc(100vw - 48px);
   text-align: center;
@@ -1531,6 +1532,7 @@ body {
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes toastDrop { from { opacity: 0; margin-top: -10px; } to { opacity: 1; margin-top: 0; } }
 @keyframes slideRight { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
@@ -2939,10 +2941,6 @@ body {
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
-/* ─── Toast: safe-area guard so it never overlaps the mini player on gesture-nav phones ─── */
-.toast-msg {
-  bottom: calc(120px + env(safe-area-inset-bottom, 0px));
-}
 
 /* ─── Lyrics overlay inside album art ─── */
 .np-art-lyrics {

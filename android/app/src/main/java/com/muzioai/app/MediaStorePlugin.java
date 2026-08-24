@@ -1278,7 +1278,10 @@ public class MediaStorePlugin extends Plugin {
             "genre",
         };
 
-        String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+        // Include all audio files ≥10s — IS_MUSIC misses downloaded songs (YouTube,
+        // SoundCloud, etc.) that Android stores in Downloads with IS_MUSIC=0.
+        String selection = MediaStore.Audio.Media.MIME_TYPE + " LIKE 'audio/%'"
+            + " AND " + MediaStore.Audio.Media.DURATION + " > 10000";
         String sortOrder = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC";
         Uri uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
 
