@@ -1072,7 +1072,7 @@ function deleteSongsFromDevice(songsToDelete) {
     queue = queue.filter(function(s) { return !ids.has(s.id); });
     songMap = Object.create(null); songs.forEach(function(s) { songMap[s.id] = s; });
     _countsCache = null;
-    if (currentSong && ids.has(currentSong.id)) { stopNativePlayback(); currentSong = null; isPlaying = false; audio.pause(); }
+    if (currentSong && ids.has(currentSong.id)) { currentSong = null; isPlaying = false; audio.pause(); }
     saveLibrary();
     render();
   }
@@ -4063,15 +4063,6 @@ function setSleepTimer(minutes) {
     _sleepTimerTimeout = null;
     sleepTimerEnd = 0;
     if (_sleepTimerDisplayInt) { clearInterval(_sleepTimerDisplayInt); _sleepTimerDisplayInt = null; }
-    // The native player has no JS-side volume ramp — stop it outright.
-    if (nativePlaybackActive) {
-      NativeBridge.nativeAudioPause();
-      isPlaying = false;
-      syncPlaybackUI();
-      var nBtn = document.getElementById('npSleepBtn');
-      if (nBtn) { nBtn.innerHTML = '&#9203;'; nBtn.classList.remove('active'); }
-      return;
-    }
     var origVol = audio.volume;
     var steps = 30; var cnt = 0; var dec = origVol / steps;
     var fadeInt = setInterval(function() {
@@ -4255,7 +4246,6 @@ function openEqPanel() {
 }
 
 function playSong(song, songList) {
-  stopNativePlayback(); // release the native player before the <audio> element takes over
   if (currentSong && !_historyJump) {
     _playHistory.push(currentSong.id);
     if (_playHistory.length > 200) _playHistory.shift();
@@ -4324,15 +4314,7 @@ function syncPlaybackUI() {
 }
 
 function togglePlay() {
-  if (!currentSong) return;
-  if (nativePlaybackActive) {
-    _haptic(10);
-    if (isPlaying) { NativeBridge.nativeAudioPause(); isPlaying = false; }
-    else           { NativeBridge.nativeAudioResume(); isPlaying = true; }
-    syncPlaybackUI();
-    return;
-  }
-  if (!currentSong.url) return;
+  if (!currentSong || !currentSong.url) return;
   _haptic(10);
   if (isPlaying) {
     _ourPause = true;
@@ -4352,7 +4334,6 @@ function handleNext() {
   if (!currentSong || queue.length === 0) return;
   _haptic([14, 25, 14]);
   if (repeatMode === 'one') {
-    if (nativePlaybackActive) { startNativePlayback(currentSong, 0); return; }
     audio.currentTime = 0;
     audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
     return;
@@ -4450,7 +4431,6 @@ audio.addEventListener('pause', function() {
 var _audioRetried = Object.create(null);
 audio.addEventListener('error', function() {
   if (!currentSong) return;
-  if (nativePlaybackActive || _natStarting) return; // native player owns this song now
   isPlaying = false;
   syncPlaybackUI();
 
@@ -4465,118 +4445,37 @@ audio.addEventListener('error', function() {
         audio.src = freshUrl;
         audio.playbackRate = playbackRate;
         isPlaying = true;
-        audio.play().catch(function() { startNativePlayback(currentSong, 0); });
+        audio.play().catch(function() { reportUnplayable(currentSong); });
         return;
       }
     } catch(e) {}
   }
 
-  // The WebView cannot decode this file — hand it to the native player,
-  // which uses Android's own extractors and handles far more formats.
-  startNativePlayback(currentSong, 0);
+  reportUnplayable(currentSong);
 });
 
-// ─── Native fallback playback ───
-// Chromium's <audio> decoders reject some perfectly valid files (odd MP3 headers,
-// unusual M4A/Opus/WebM containers produced by download apps). When that happens
-// we hand the song to ExoPlayer natively and drive the existing UI from a poll.
-
-var nativePlaybackActive = false;
-var _natStarting = false;
-var _natPollTimer = 0;
-
-function startNativePlayback(song, startAt) {
-  if (!song || typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) {
-    showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
-    return;
-  }
-  var uri = song.contentUri || song.nativePath || '';
-  if (!uri) {
-    showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
-    return;
-  }
-
-  // Detach the <audio> element. Clearing src can itself fire an 'error' event,
-  // so _natStarting keeps that from re-entering this handoff.
-  _natStarting = true;
-  audio.pause();
-  audio.removeAttribute('src');
-  try { audio.load(); } catch(e) {}
-
-  NativeBridge.nativeAudioPlay(uri, startAt || 0).then(function() {
-    _natStarting = false;
-    nativePlaybackActive = true;
-    isPlaying = true;
-    syncPlaybackUI();
-    _startNativePoll();
-  }).catch(function() {
-    _natStarting = false;
-    nativePlaybackActive = false;
-    isPlaying = false;
-    syncPlaybackUI();
-    showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
-  });
+// Say *why* a file won't play instead of just that it won't. A byte count at or
+// near zero means the download never finished, so the file is truncated rather
+// than merely an unsupported format — that distinction decides whether it is
+// worth re-downloading the track or simply deleting it.
+function reportUnplayable(song) {
+  var code = (audio.error && audio.error.code) || 0;
+  var reason;
+  // size is -1 when MediaStore did not report one — only trust a real byte count.
+  if (song && typeof song.size === 'number' && song.size >= 0 && song.size < 16384) {
+    reason = song.size === 0
+      ? 'file is empty (0 bytes)'
+      : 'incomplete download (' + (song.size < 1024 ? song.size + ' bytes' : Math.round(song.size / 1024) + ' KB') + ')';
+  } else if (code === 3) { reason = 'file is damaged';
+  } else if (code === 4) { reason = 'format not supported';
+  } else if (code === 2) { reason = 'file could not be read';
+  } else                 { reason = 'file could not be played'; }
+  showToast('Can\u2019t play \u2014 ' + reason + '. Tap \u22ee to delete it.', 4500);
 }
 
-function stopNativePlayback() {
-  if (!nativePlaybackActive && !_natStarting) return;
-  nativePlaybackActive = false;
-  _natStarting = false;
-  if (_natPollTimer) { clearInterval(_natPollTimer); _natPollTimer = 0; }
-  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) NativeBridge.nativeAudioStop();
-}
-
-function _startNativePoll() {
-  if (_natPollTimer) clearInterval(_natPollTimer);
-  _natPollTimer = setInterval(function() {
-    if (!nativePlaybackActive) { clearInterval(_natPollTimer); _natPollTimer = 0; return; }
-    NativeBridge.nativeAudioState().then(function(st) {
-      if (!nativePlaybackActive || _natStarting) return; // a restart is in flight
-      if (!st || !st.active) return;
-
-      if (st.error) {
-        stopNativePlayback();
-        isPlaying = false;
-        syncPlaybackUI();
-        showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
-        return;
-      }
-
-      if (st.ended) {
-        if (repeatMode === 'one') { startNativePlayback(currentSong, 0); return; }
-        stopNativePlayback();
-        handleNext();
-        return;
-      }
-
-      currentTime = st.position || 0;
-      if (st.duration > 0) {
-        duration = st.duration;
-        if (currentSong && (!currentSong.dur || currentSong.dur < 1)) {
-          currentSong.dur = st.duration;
-          saveLibraryLater();
-        }
-      }
-      if (isPlaying !== st.playing) { isPlaying = st.playing; syncPlaybackUI(); }
-
-      if (showNowPlaying) {
-        if (_npSeekEl && !_npSeeking) { _npSeekEl.max = duration || 0; _npSeekEl.value = currentTime; }
-        if (_npFillEl && duration > 0 && !_npSeeking) _npFillEl.style.width = (currentTime / duration * 100).toFixed(1) + '%';
-        if (_npTime0El) _npTime0El.textContent = fmtTime(currentTime);
-        if (_npTime1El) _npTime1El.textContent = fmtTime(duration);
-        updateSyncedLyrics(currentTime);
-      }
-      updateMiniPlayer();
-      updateMediaSession();
-    });
-  }, 500);
-}
-
-// Single seek entry point — routes to whichever player currently owns playback.
 function seekTo(seconds) {
   currentTime = seconds;
-  if (nativePlaybackActive) NativeBridge.nativeAudioSeek(seconds);
-  else audio.currentTime = seconds;
+  audio.currentTime = seconds;
 }
 
 // ─── File Import ───
@@ -5811,7 +5710,6 @@ document.getElementById('setApiKeyBtn').onclick = function() {
 document.getElementById('clearLibBtn').onclick = function() {
   toggleDrawer(false);
   if (confirm('Clear your entire library? This cannot be undone.')) {
-    stopNativePlayback();
     audio.pause();
     isPlaying = false;
     songs = [];
@@ -6261,6 +6159,7 @@ function nativeAutoScan() {
           ex.nativePath  = ns.nativePath  || ex.nativePath;
           ex.albumArtUri = ns.albumArtUri || ex.albumArtUri;
           ex.dur         = ns.dur         || ex.dur;
+          if (typeof ns.size === 'number') ex.size = ns.size;
           return ex;
         });
         songMap = Object.create(null);
@@ -6331,6 +6230,7 @@ function nativeAutoScan() {
       ex.nativePath  = ns.nativePath  || ex.nativePath;
       ex.albumArtUri = ns.albumArtUri || ex.albumArtUri;
       ex.dur         = ns.dur         || ex.dur;
+      if (typeof ns.size === 'number') ex.size = ns.size;
       return ex;
     });
 
@@ -6388,7 +6288,7 @@ document.addEventListener('muzioMediaAction', function(e) {
 
 // ─── Resume after audio interruption (call, BT, other app) ───
 document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'visible' && _systemPaused && currentSong && currentSong.url && !nativePlaybackActive) {
+  if (document.visibilityState === 'visible' && _systemPaused && currentSong && currentSong.url) {
     _systemPaused = false;
     initAudioCtx();
     isPlaying = true;
@@ -6399,7 +6299,7 @@ document.addEventListener('visibilitychange', function() {
 
 if (typeof window.Capacitor !== 'undefined') {
   document.addEventListener('resume', function() {
-    if (_systemPaused && currentSong && currentSong.url && !nativePlaybackActive) {
+    if (_systemPaused && currentSong && currentSong.url) {
       _systemPaused = false;
       initAudioCtx();
       isPlaying = true;
