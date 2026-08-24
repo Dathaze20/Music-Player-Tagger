@@ -352,7 +352,43 @@ var NativeBridge = (function() {
     return plugin.requestBatteryOptimizationExemption().catch(function() {});
   }
 
+  // ─── Native fallback player ───
+  // Plays files the WebView's <audio> element refuses to decode.
+  function nativeAudioPlay(uri, position) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.nativeAudioPlay) return Promise.reject(new Error('no native player'));
+    return plugin.nativeAudioPlay({ uri: uri, position: position || 0 });
+  }
+  function nativeAudioState() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.nativeAudioState) return Promise.resolve({ active: false });
+    return plugin.nativeAudioState().catch(function() { return { active: false }; });
+  }
+  function nativeAudioPause() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.nativeAudioPause) return Promise.resolve();
+    return plugin.nativeAudioPause().catch(function() {});
+  }
+  function nativeAudioResume() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.nativeAudioResume) return Promise.resolve();
+    return plugin.nativeAudioResume().catch(function() {});
+  }
+  function nativeAudioSeek(position) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.nativeAudioSeek) return Promise.resolve();
+    return plugin.nativeAudioSeek({ position: position || 0 }).catch(function() {});
+  }
+  function nativeAudioStop() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.nativeAudioStop) return Promise.resolve();
+    return plugin.nativeAudioStop().catch(function() {});
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
+           nativeAudioPlay: nativeAudioPlay, nativeAudioState: nativeAudioState,
+           nativeAudioPause: nativeAudioPause, nativeAudioResume: nativeAudioResume,
+           nativeAudioSeek: nativeAudioSeek, nativeAudioStop: nativeAudioStop,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
            readAlbumArt: readAlbumArt, writeFileTags: writeFileTags, pickAlbumArt: pickAlbumArt,
            vibrate: vibrate,

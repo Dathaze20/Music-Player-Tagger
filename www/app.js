@@ -709,8 +709,8 @@ function bindSyncedLyricsClicks(container) {
     line.onclick = function() {
       var t = parseFloat(line.dataset.time);
       if (!isNaN(t) && currentSong && currentSong.url) {
-        audio.currentTime = t;
-        if (!isPlaying) { isPlaying = true; audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); }); syncPlaybackUI(); }
+        seekTo(t);
+        if (!isPlaying) togglePlay();
       }
     };
   });
@@ -867,10 +867,10 @@ function initMediaSession() {
   navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
   navigator.mediaSession.setActionHandler('nexttrack',     handleNext);
   navigator.mediaSession.setActionHandler('seekto',        function(d) {
-    if (d.seekTime !== undefined) { audio.currentTime = d.seekTime; updateMediaSession(); }
+    if (d.seekTime !== undefined) { seekTo(d.seekTime); updateMediaSession(); }
   });
-  navigator.mediaSession.setActionHandler('seekforward',   function(d) { audio.currentTime = Math.min(duration, audio.currentTime + (d.seekOffset || 10)); });
-  navigator.mediaSession.setActionHandler('seekbackward',  function(d) { audio.currentTime = Math.max(0, audio.currentTime - (d.seekOffset || 10)); });
+  navigator.mediaSession.setActionHandler('seekforward',   function(d) { seekTo(Math.min(duration, currentTime + (d.seekOffset || 10))); });
+  navigator.mediaSession.setActionHandler('seekbackward',  function(d) { seekTo(Math.max(0, currentTime - (d.seekOffset || 10))); });
 }
 
 function imgOrArt(url, text, size, round, cls) {
@@ -1072,7 +1072,7 @@ function deleteSongsFromDevice(songsToDelete) {
     queue = queue.filter(function(s) { return !ids.has(s.id); });
     songMap = Object.create(null); songs.forEach(function(s) { songMap[s.id] = s; });
     _countsCache = null;
-    if (currentSong && ids.has(currentSong.id)) { currentSong = null; isPlaying = false; audio.pause(); }
+    if (currentSong && ids.has(currentSong.id)) { stopNativePlayback(); currentSong = null; isPlaying = false; audio.pause(); }
     saveLibrary();
     render();
   }
@@ -1421,7 +1421,7 @@ function scheduleStartupRender() {
 // _lazyArtObs removed — initLazyArt now uses per-container observers
 
 // Now Playing DOM element refs — cached after renderNowPlaying, cleared on close
-var _npSeekEl = null, _npFillEl = null, _npTime0El = null, _npSeeking = false;
+var _npSeekEl = null, _npFillEl = null, _npTime0El = null, _npTime1El = null, _npSeeking = false;
 
 // Mini player DOM cache — populated on first updateMiniPlayer() call
 var _miniLastSongId = '';
@@ -3627,6 +3627,7 @@ function renderNowPlaying() {
   _npSeekEl  = document.getElementById('npSeek');
   _npFillEl  = document.getElementById('npSeekFill');
   _npTime0El = np.querySelector('.np-times span');
+  _npTime1El = np.querySelector('.np-times span:last-child');
 
   // Enable marquee scrolling only if title actually overflows its container.
   // Use rAF so the browser has laid out before we measure.
@@ -3653,7 +3654,7 @@ function renderNowPlaying() {
 
   document.getElementById('npClose').onclick = function() {
     showNowPlaying = false; np.classList.add('hidden');
-    _npSeekEl = null; _npFillEl = null; _npTime0El = null;
+    _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
     updateMiniPlayer();
   };
   var npArtEl = document.getElementById('npArtImg');
@@ -3708,7 +3709,7 @@ function renderNowPlaying() {
   var _seekEl = document.getElementById('npSeek');
   _seekEl.addEventListener('touchstart', function() { _npSeeking = true; }, { passive: true });
   _seekEl.addEventListener('touchend', function(e) {
-    audio.currentTime = parseFloat(e.target.value);
+    seekTo(parseFloat(e.target.value));
     _npSeeking = false;
     _lastNotifKey = '';
     updateMediaSession();
@@ -3728,7 +3729,7 @@ function renderNowPlaying() {
         showNowPlaying = false;
         var npEl = document.getElementById('nowPlaying');
         if (npEl) npEl.classList.add('hidden');
-        _npSeekEl = null; _npFillEl = null; _npTime0El = null;
+        _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
         var _tapArtist = getBestAlbumArtistKey(_tapAlbum);
         selectedAlbum  = { name: _tapAlbum, artist: _tapArtist };
         selectedArtist = null;
@@ -3748,7 +3749,7 @@ function renderNowPlaying() {
       showNowPlaying = false;
       var npEl = document.getElementById('nowPlaying');
       if (npEl) npEl.classList.add('hidden');
-      _npSeekEl = null; _npFillEl = null; _npTime0El = null;
+      _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
       selectedArtist = _tapArtistName;
       selectedAlbum  = null;
       currentTab = 'artists';
@@ -3810,7 +3811,7 @@ function renderNowPlaying() {
     var dx = e.changedTouches[0].clientX - _swipeX;
     var dy = e.changedTouches[0].clientY - _swipeY;
     if (Math.abs(dy) > Math.abs(dx)) {
-      if (dy > 80) { showNowPlaying = false; np.classList.add('hidden'); _npSeekEl = null; _npFillEl = null; _npTime0El = null; updateMiniPlayer(); }
+      if (dy > 80) { showNowPlaying = false; np.classList.add('hidden'); _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null; updateMiniPlayer(); }
     } else {
       if (dx < -60) handleNext();
       else if (dx > 60) handlePrev();
@@ -4062,6 +4063,15 @@ function setSleepTimer(minutes) {
     _sleepTimerTimeout = null;
     sleepTimerEnd = 0;
     if (_sleepTimerDisplayInt) { clearInterval(_sleepTimerDisplayInt); _sleepTimerDisplayInt = null; }
+    // The native player has no JS-side volume ramp — stop it outright.
+    if (nativePlaybackActive) {
+      NativeBridge.nativeAudioPause();
+      isPlaying = false;
+      syncPlaybackUI();
+      var nBtn = document.getElementById('npSleepBtn');
+      if (nBtn) { nBtn.innerHTML = '&#9203;'; nBtn.classList.remove('active'); }
+      return;
+    }
     var origVol = audio.volume;
     var steps = 30; var cnt = 0; var dec = origVol / steps;
     var fadeInt = setInterval(function() {
@@ -4245,6 +4255,7 @@ function openEqPanel() {
 }
 
 function playSong(song, songList) {
+  stopNativePlayback(); // release the native player before the <audio> element takes over
   if (currentSong && !_historyJump) {
     _playHistory.push(currentSong.id);
     if (_playHistory.length > 200) _playHistory.shift();
@@ -4313,7 +4324,15 @@ function syncPlaybackUI() {
 }
 
 function togglePlay() {
-  if (!currentSong || !currentSong.url) return;
+  if (!currentSong) return;
+  if (nativePlaybackActive) {
+    _haptic(10);
+    if (isPlaying) { NativeBridge.nativeAudioPause(); isPlaying = false; }
+    else           { NativeBridge.nativeAudioResume(); isPlaying = true; }
+    syncPlaybackUI();
+    return;
+  }
+  if (!currentSong.url) return;
   _haptic(10);
   if (isPlaying) {
     _ourPause = true;
@@ -4332,7 +4351,12 @@ function togglePlay() {
 function handleNext() {
   if (!currentSong || queue.length === 0) return;
   _haptic([14, 25, 14]);
-  if (repeatMode === 'one') { audio.currentTime = 0; audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); }); return; }
+  if (repeatMode === 'one') {
+    if (nativePlaybackActive) { startNativePlayback(currentSong, 0); return; }
+    audio.currentTime = 0;
+    audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
+    return;
+  }
   var idx = queue.findIndex(function(s) { return s.id === currentSong.id; });
   var nextIdx = idx >= queue.length - 1 ? 0 : idx + 1;
   if (idx >= queue.length - 1 && repeatMode === 'off') { isPlaying = false; render(); return; }
@@ -4367,7 +4391,7 @@ function handleNext() {
 function handlePrev() {
   if (!currentSong || queue.length === 0) return;
   _haptic([14, 25, 14]);
-  if (currentTime > 3) { audio.currentTime = 0; return; }
+  if (currentTime > 3) { seekTo(0); return; }
   preloadedUrl = '';
   preloadedSong = null;
   _historyJump = true; // don't push current song when going backwards
@@ -4426,6 +4450,7 @@ audio.addEventListener('pause', function() {
 var _audioRetried = Object.create(null);
 audio.addEventListener('error', function() {
   if (!currentSong) return;
+  if (nativePlaybackActive || _natStarting) return; // native player owns this song now
   isPlaying = false;
   syncPlaybackUI();
 
@@ -4440,14 +4465,119 @@ audio.addEventListener('error', function() {
         audio.src = freshUrl;
         audio.playbackRate = playbackRate;
         isPlaying = true;
-        audio.play().catch(function() { isPlaying = false; render(); showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000); });
+        audio.play().catch(function() { startNativePlayback(currentSong, 0); });
         return;
       }
     } catch(e) {}
   }
 
-  showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
+  // The WebView cannot decode this file — hand it to the native player,
+  // which uses Android's own extractors and handles far more formats.
+  startNativePlayback(currentSong, 0);
 });
+
+// ─── Native fallback playback ───
+// Chromium's <audio> decoders reject some perfectly valid files (odd MP3 headers,
+// unusual M4A/Opus/WebM containers produced by download apps). When that happens
+// we hand the song to ExoPlayer natively and drive the existing UI from a poll.
+
+var nativePlaybackActive = false;
+var _natStarting = false;
+var _natPollTimer = 0;
+
+function startNativePlayback(song, startAt) {
+  if (!song || typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) {
+    showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
+    return;
+  }
+  var uri = song.contentUri || song.nativePath || '';
+  if (!uri) {
+    showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
+    return;
+  }
+
+  // Detach the <audio> element. Clearing src can itself fire an 'error' event,
+  // so _natStarting keeps that from re-entering this handoff.
+  _natStarting = true;
+  audio.pause();
+  audio.removeAttribute('src');
+  try { audio.load(); } catch(e) {}
+
+  NativeBridge.nativeAudioPlay(uri, startAt || 0).then(function() {
+    _natStarting = false;
+    nativePlaybackActive = true;
+    isPlaying = true;
+    syncPlaybackUI();
+    _startNativePoll();
+  }).catch(function() {
+    _natStarting = false;
+    nativePlaybackActive = false;
+    isPlaying = false;
+    syncPlaybackUI();
+    showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
+  });
+}
+
+function stopNativePlayback() {
+  if (!nativePlaybackActive && !_natStarting) return;
+  nativePlaybackActive = false;
+  _natStarting = false;
+  if (_natPollTimer) { clearInterval(_natPollTimer); _natPollTimer = 0; }
+  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) NativeBridge.nativeAudioStop();
+}
+
+function _startNativePoll() {
+  if (_natPollTimer) clearInterval(_natPollTimer);
+  _natPollTimer = setInterval(function() {
+    if (!nativePlaybackActive) { clearInterval(_natPollTimer); _natPollTimer = 0; return; }
+    NativeBridge.nativeAudioState().then(function(st) {
+      if (!nativePlaybackActive || _natStarting) return; // a restart is in flight
+      if (!st || !st.active) return;
+
+      if (st.error) {
+        stopNativePlayback();
+        isPlaying = false;
+        syncPlaybackUI();
+        showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
+        return;
+      }
+
+      if (st.ended) {
+        if (repeatMode === 'one') { startNativePlayback(currentSong, 0); return; }
+        stopNativePlayback();
+        handleNext();
+        return;
+      }
+
+      currentTime = st.position || 0;
+      if (st.duration > 0) {
+        duration = st.duration;
+        if (currentSong && (!currentSong.dur || currentSong.dur < 1)) {
+          currentSong.dur = st.duration;
+          saveLibraryLater();
+        }
+      }
+      if (isPlaying !== st.playing) { isPlaying = st.playing; syncPlaybackUI(); }
+
+      if (showNowPlaying) {
+        if (_npSeekEl && !_npSeeking) { _npSeekEl.max = duration || 0; _npSeekEl.value = currentTime; }
+        if (_npFillEl && duration > 0 && !_npSeeking) _npFillEl.style.width = (currentTime / duration * 100).toFixed(1) + '%';
+        if (_npTime0El) _npTime0El.textContent = fmtTime(currentTime);
+        if (_npTime1El) _npTime1El.textContent = fmtTime(duration);
+        updateSyncedLyrics(currentTime);
+      }
+      updateMiniPlayer();
+      updateMediaSession();
+    });
+  }, 500);
+}
+
+// Single seek entry point — routes to whichever player currently owns playback.
+function seekTo(seconds) {
+  currentTime = seconds;
+  if (nativePlaybackActive) NativeBridge.nativeAudioSeek(seconds);
+  else audio.currentTime = seconds;
+}
 
 // ─── File Import ───
 
@@ -5681,6 +5811,7 @@ document.getElementById('setApiKeyBtn').onclick = function() {
 document.getElementById('clearLibBtn').onclick = function() {
   toggleDrawer(false);
   if (confirm('Clear your entire library? This cannot be undone.')) {
+    stopNativePlayback();
     audio.pause();
     isPlaying = false;
     songs = [];
@@ -6257,7 +6388,7 @@ document.addEventListener('muzioMediaAction', function(e) {
 
 // ─── Resume after audio interruption (call, BT, other app) ───
 document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'visible' && _systemPaused && currentSong && currentSong.url) {
+  if (document.visibilityState === 'visible' && _systemPaused && currentSong && currentSong.url && !nativePlaybackActive) {
     _systemPaused = false;
     initAudioCtx();
     isPlaying = true;
@@ -6268,7 +6399,7 @@ document.addEventListener('visibilitychange', function() {
 
 if (typeof window.Capacitor !== 'undefined') {
   document.addEventListener('resume', function() {
-    if (_systemPaused && currentSong && currentSong.url) {
+    if (_systemPaused && currentSong && currentSong.url && !nativePlaybackActive) {
       _systemPaused = false;
       initAudioCtx();
       isPlaying = true;
@@ -6317,7 +6448,7 @@ function handleHardwareBack() {
   if (showNowPlaying) {
     showNowPlaying = false;
     document.getElementById('nowPlaying').classList.add('hidden');
-    _npSeekEl = null; _npFillEl = null; _npTime0El = null;
+    _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
     updateMiniPlayer();
     return;
   }

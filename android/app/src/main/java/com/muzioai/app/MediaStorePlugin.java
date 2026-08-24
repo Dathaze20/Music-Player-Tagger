@@ -107,6 +107,14 @@ public class MediaStorePlugin extends Plugin {
     private ServerSocket fileServer;
     private volatile boolean fileServerActive = false;
 
+    // Native fallback player. The WebView's <audio> element uses Chromium's decoders,
+    // which reject files that Android's own extractors handle fine (odd MP3 headers,
+    // unusual M4A/Opus/WebM containers from download apps). ExoPlayer ships its own
+    // extractors, so anything the phone can play elsewhere plays here too.
+    private androidx.media3.exoplayer.ExoPlayer exoPlayer;
+    private volatile boolean exoEnded = false;
+    private volatile String  exoError = "";
+
     // ─── Notification button receiver ─────────────────────────────────────────
     // Receives ACTION_PREV/PLAY_PAUSE/NEXT/CLOSE from MuzioPlaybackService
     // and dispatches the corresponding JS event to the WebView.
@@ -467,6 +475,137 @@ public class MediaStorePlugin extends Plugin {
     }
 
     // ─── Local WiFi file-share server ─────────────────────────────────────────
+
+    // ─── Native fallback player ────────────────────────────────────────────────
+    // Used when the WebView's <audio> element reports it cannot decode a file.
+    // ExoPlayer runs on the main thread, so every entry point hops there first.
+
+    /** Start (or restart) native playback of a content:// or file:// URI. */
+    @PluginMethod
+    public void nativeAudioPlay(final PluginCall call) {
+        final String uriStr = call.getString("uri", "");
+        if (uriStr == null || uriStr.isEmpty()) { call.reject("No uri"); return; }
+        Double startSec = call.getDouble("position", 0.0);
+        final long startMs = startSec == null ? 0L : (long) (startSec * 1000);
+
+        getActivity().runOnUiThread(() -> {
+            try {
+                releaseExoInternal();
+                exoEnded = false;
+                exoError = "";
+
+                androidx.media3.common.AudioAttributes attrs =
+                    new androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build();
+
+                androidx.media3.exoplayer.ExoPlayer p =
+                    new androidx.media3.exoplayer.ExoPlayer.Builder(getContext())
+                        .setAudioAttributes(attrs, true)      // true = handle audio focus
+                        .setHandleAudioBecomingNoisy(true)    // pause when headphones unplug
+                        .build();
+                p.setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL);
+
+                p.addListener(new androidx.media3.common.Player.Listener() {
+                    @Override
+                    public void onPlaybackStateChanged(int state) {
+                        if (state == androidx.media3.common.Player.STATE_ENDED) exoEnded = true;
+                    }
+                    @Override
+                    public void onPlayerError(androidx.media3.common.PlaybackException e) {
+                        exoError = (e.getMessage() == null) ? "playback error" : e.getMessage();
+                    }
+                });
+
+                p.setMediaItem(androidx.media3.common.MediaItem.fromUri(Uri.parse(uriStr)));
+                p.prepare();
+                if (startMs > 0) p.seekTo(startMs);
+                p.play();
+                exoPlayer = p;
+
+                JSObject r = new JSObject();
+                r.put("started", true);
+                call.resolve(r);
+            } catch (Exception e) {
+                call.reject("Native play failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Poll playback state. The WebView drives its progress bar, synced lyrics and
+     * lock-screen position from this while the native player owns playback.
+     */
+    @PluginMethod
+    public void nativeAudioState(final PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            JSObject r = new JSObject();
+            androidx.media3.exoplayer.ExoPlayer p = exoPlayer;
+            if (p == null) { r.put("active", false); call.resolve(r); return; }
+            try {
+                long dur = p.getDuration();
+                r.put("active",   true);
+                r.put("playing",  p.isPlaying());
+                r.put("position", p.getCurrentPosition() / 1000.0);
+                r.put("duration", dur == androidx.media3.common.C.TIME_UNSET ? 0.0 : dur / 1000.0);
+                r.put("ended",    exoEnded);
+                r.put("error",    exoError);
+            } catch (Exception e) {
+                r.put("active", false);
+            }
+            call.resolve(r);
+        });
+    }
+
+    @PluginMethod
+    public void nativeAudioPause(final PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            androidx.media3.exoplayer.ExoPlayer p = exoPlayer;
+            if (p != null) { try { p.pause(); } catch (Exception ignored) {} }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void nativeAudioResume(final PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            androidx.media3.exoplayer.ExoPlayer p = exoPlayer;
+            if (p != null) { try { p.play(); } catch (Exception ignored) {} }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void nativeAudioSeek(final PluginCall call) {
+        Double sec = call.getDouble("position", 0.0);
+        final long ms = sec == null ? 0L : (long) (sec * 1000);
+        getActivity().runOnUiThread(() -> {
+            androidx.media3.exoplayer.ExoPlayer p = exoPlayer;
+            if (p != null) { try { p.seekTo(ms); } catch (Exception ignored) {} }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void nativeAudioStop(final PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            releaseExoInternal();
+            call.resolve();
+        });
+    }
+
+    /** Must be called on the main thread. */
+    private void releaseExoInternal() {
+        androidx.media3.exoplayer.ExoPlayer p = exoPlayer;
+        exoPlayer = null;
+        exoEnded = false;
+        exoError = "";
+        if (p != null) {
+            try { p.stop(); }    catch (Exception ignored) {}
+            try { p.release(); } catch (Exception ignored) {}
+        }
+    }
 
     /**
      * Starts a temporary HTTP server on the local WiFi so another device on the same
@@ -1254,6 +1393,7 @@ public class MediaStorePlugin extends Plugin {
             notifReceiver = null;
             receiverRegistered = false;
         }
+        releaseExoInternal(); // handleOnDestroy already runs on the main thread
     }
 
     // ─── MediaStore query ─────────────────────────────────────────────────────
@@ -1278,10 +1418,14 @@ public class MediaStorePlugin extends Plugin {
             "genre",
         };
 
-        // Include all audio files ≥10s — IS_MUSIC misses downloaded songs (YouTube,
-        // SoundCloud, etc.) that Android stores in Downloads with IS_MUSIC=0.
+        // Include every audio file that isn't a system sound. IS_MUSIC misses downloaded
+        // songs (YouTube, SoundCloud, etc.) that Android stores with IS_MUSIC=0, and a
+        // DURATION filter would drop files MediaStore failed to probe (DURATION=0) —
+        // exactly the ones we now recover with the native player.
         String selection = MediaStore.Audio.Media.MIME_TYPE + " LIKE 'audio/%'"
-            + " AND " + MediaStore.Audio.Media.DURATION + " > 10000";
+            + " AND " + MediaStore.Audio.Media.IS_RINGTONE     + " = 0"
+            + " AND " + MediaStore.Audio.Media.IS_NOTIFICATION + " = 0"
+            + " AND " + MediaStore.Audio.Media.IS_ALARM        + " = 0";
         String sortOrder = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC";
         Uri uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
 
