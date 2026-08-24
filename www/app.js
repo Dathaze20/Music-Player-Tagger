@@ -4423,10 +4423,29 @@ audio.addEventListener('pause', function() {
   isPlaying = false;
   syncPlaybackUI();
 });
+var _audioRetried = Object.create(null);
 audio.addEventListener('error', function() {
   if (!currentSong) return;
   isPlaying = false;
   syncPlaybackUI();
+
+  // One automatic retry: regenerate the URL from contentUri in case the
+  // stored URL was stale (blob: from a prior session, or old localhost format).
+  if (!_audioRetried[currentSong.id] && currentSong.contentUri) {
+    _audioRetried[currentSong.id] = true;
+    try {
+      var freshUrl = window.Capacitor.convertFileSrc(currentSong.contentUri);
+      if (freshUrl) {
+        currentSong.url = freshUrl;
+        audio.src = freshUrl;
+        audio.playbackRate = playbackRate;
+        isPlaying = true;
+        audio.play().catch(function() { isPlaying = false; render(); showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000); });
+        return;
+      }
+    } catch(e) {}
+  }
+
   showToast('Cannot play this file — tap ⋮ to delete or edit it', 4000);
 });
 
@@ -6073,8 +6092,10 @@ function nativeAutoScan() {
   // saveLibrary() may have been called while songs was still at 2000, resetting
   // the count). MediaStore is the only ground truth.
   if (songs.length > 0 && !_forceRescan) {
-    var needsUrl = songs.filter(function(s) { return !s.url; });
-    needsUrl.forEach(function(s) {
+    // Refresh playback URL for every song that has a native source.
+    // This fixes stale blob: URLs from a previous file-picker session and ensures
+    // content:// URIs are always freshly converted via the Capacitor HTTP bridge.
+    songs.forEach(function(s) {
       try {
         if (s.contentUri) {
           s.url = window.Capacitor.convertFileSrc(s.contentUri);
