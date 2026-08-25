@@ -1109,6 +1109,23 @@ function applyEditsToSongs() {
 function deleteSongsFromDevice(songsToDelete) {
   var ids = new Set(songsToDelete.map(function(s) { return s.id; }));
   function removeFromMemory() {
+    // Deleting the song that is playing should move on to the next one, so work
+    // out its successor while the queue still holds the original order.
+    var wasPlaying = currentSong && ids.has(currentSong.id);
+    var advanceTo = null;
+    if (wasPlaying) {
+      var qi = queue.findIndex(function(s) { return s.id === currentSong.id; });
+      for (var i = qi + 1; i < queue.length; i++) {
+        if (!ids.has(queue[i].id)) { advanceTo = queue[i]; break; }
+      }
+      // Nothing survives after it — wrap round to the first song still standing.
+      if (!advanceTo) {
+        for (var j = 0; j < queue.length; j++) {
+          if (!ids.has(queue[j].id)) { advanceTo = queue[j]; break; }
+        }
+      }
+    }
+
     songsToDelete.forEach(function(s) { if (s.url && s.url.startsWith('blob:')) URL.revokeObjectURL(s.url); });
     songs = songs.filter(function(s) { return !ids.has(s.id); });
     queue = queue.filter(function(s) { return !ids.has(s.id); });
@@ -1123,13 +1140,34 @@ function deleteSongsFromDevice(songsToDelete) {
     // Drop the saved manual edits too. Left behind they keep growing, and a file
     // later re-downloaded under the same name would silently inherit them.
     deleteEditsFor(songsToDelete);
-    if (currentSong && ids.has(currentSong.id)) {
+
+    if (wasPlaying) {
       currentSong = null;
       isPlaying = false;
       audio.pause();
-      audio.removeAttribute('src');
+      // Only detach the source when nothing is queued to replace it; clearing it
+      // moments before playSong sets a new one can raise a stray error event.
+      if (!advanceTo) audio.removeAttribute('src');
     }
+
+    // Invalidates the album/artist caches, so the lookups below rebuild them
+    // from the songs that are left rather than answering from stale data.
     saveLibrary();
+
+    // Never leave the user looking at an album or artist that no longer has any
+    // songs — that empty page is just another ghost.
+    if (selectedAlbum && getAlbumSongs(selectedAlbum.name, selectedAlbum.artist).length === 0) {
+      selectedAlbum = null;
+    }
+    if (selectedArtist && getArtistSongs(selectedArtist).length === 0) {
+      selectedArtist = null;
+    }
+
+    if (wasPlaying && advanceTo) {
+      _historyJump = true; // the deleted song must not enter the history
+      playSong(advanceTo, queue); // renders for us
+      return;
+    }
     render();
   }
   if (NativeBridge.isNative()) {
@@ -6053,8 +6091,15 @@ function restoreUIState() {
 
   try {
     if (state.tab) currentTab = state.tab;
-    if (state.artist) selectedArtist = state.artist;
-    if (state.album) selectedAlbum = state.album;
+    // Only reopen an artist or album that still has songs. Restoring one whose
+    // files have since been deleted would land the user on an empty ghost page.
+    // Skipped while songs is empty, since the library may still be loading.
+    if (state.artist && (!songs.length || getArtistSongs(state.artist).length)) {
+      selectedArtist = state.artist;
+    }
+    if (state.album && (!songs.length || getAlbumSongs(state.album.name, state.album.artist).length)) {
+      selectedAlbum = state.album;
+    }
     if (state.genre) selectedGenre = state.genre;
     if (state.albumFilter) albumFilter = state.albumFilter;
     if (state.sortMode) sortMode = state.sortMode;
