@@ -193,52 +193,6 @@ body {
 .artist-row:active { background: var(--bg-secondary); transform: scale(0.99); }
 .artist-name { font-size: 15px; font-weight: 600; }
 .artist-meta { font-size: 12px; color: var(--primary); opacity: 0.85; margin-top: 3px; }
-
-/* Album grid */
-.album-grid {
-  display: -webkit-box;
-  display: -webkit-flex;
-  display: flex;
-  -webkit-flex-wrap: wrap;
-  flex-wrap: wrap;
-  padding: 8px;
-}
-.album-card {
-  width: calc(50% - 16px);
-  margin: 8px;
-  cursor: pointer;
-  text-align: left;
-  -webkit-transition: -webkit-transform 0.12s;
-  transition: transform 0.12s;
-  min-width: 0;
-}
-.album-card:active { -webkit-transform: scale(0.96); transform: scale(0.96); opacity: 0.9; }
-.album-art-wrap {
-  position: relative;
-  width: 100%;
-  padding-top: 100%;
-  height: 0;
-  border-radius: 12px;
-  overflow: hidden;
-  margin-bottom: 8px;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-}
-/* Pin every direct child of the wrap to fill it absolutely */
-.album-art-wrap > * {
-  position: absolute !important;
-  top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  margin: 0 !important;
-  border-radius: 0 !important;
-}
-/* Badge: restore to small top-left chip */
-.album-art-wrap > .release-badge {
-  width: auto !important; height: auto !important;
-  bottom: auto !important; right: auto !important;
-  top: 8px !important; left: 8px !important;
-}
-.album-art-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .release-badge {
   position: absolute;
   top: 8px;
@@ -253,8 +207,6 @@ body {
 .release-badge.mixtape { background: rgba(245,158,11,0.9); color: #000; }
 .release-badge.ep { background: rgba(139,92,246,0.9); color: #fff; }
 .release-badge.single { background: rgba(16,185,129,0.9); color: #fff; }
-.album-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.album-meta { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Artist detail header — horizontal collage + info */
 .artist-detail-header {
@@ -509,11 +461,9 @@ body {
 .np-song-title .feat { color: rgba(255,255,255,0.45); font-size: 15px; font-weight: 400; }
 .np-song-artist { font-size: 14px; color: rgba(255,255,255,0.9); font-weight: 700; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .np-song-artist:active { opacity: 0.6; }
-.np-song-album { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
 
 /* Keep old .np-art for any legacy references */
 .np-art { display: none; }
-.np-art-container { display: none; }
 
 .np-controls { padding: 0 20px 8px; flex-shrink: 0; }
 .np-progress { margin-bottom: 20px; }
@@ -710,36 +660,6 @@ body {
   background: none; border: none; color: var(--text-faint);
   padding: 8px; cursor: pointer; font-size: 20px;
 }
-.np-badges {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 8px;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
-.np-badge {
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 10px;
-  background: var(--bg-secondary);
-  color: var(--text-dim);
-}
-.np-badge.mixtape { background: rgba(245,158,11,0.15); color: var(--amber); }
-.np-badge.ep { background: rgba(139,92,246,0.15); color: var(--violet); }
-.volume-control { display: flex; align-items: center; gap: 8px; }
-.volume-control input[type=range] {
-  width: 80px; height: 4px;
-  -webkit-appearance: none;
-  background: var(--bg-secondary);
-  border-radius: 2px;
-}
-.volume-control input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: var(--primary);
-}
 
 /* Drawer */
 .drawer-overlay {
@@ -759,12 +679,6 @@ body {
   display: flex;
   flex-direction: column;
 }
-.drawer-header {
-  padding: 24px;
-  border-bottom: 1px solid var(--border);
-}
-.drawer-header h2 { font-size: 18px; font-weight: 700; }
-.drawer-header p { font-size: 11px; color: var(--text-faint); }
 .drawer-nav { flex: 1; padding: 8px 0; overflow-y: auto; }
 .drawer-item {
   display: flex; align-items: center; gap: 16px;
@@ -873,9 +787,6 @@ body {
 }
 .btn-cancel { background: var(--bg-secondary); color: var(--text-dim); }
 .btn-save { background: var(--primary); color: var(--primary-fg); }
-.btn-save-file { background: #2a6496; color: #fff; font-size: 12px; padding: 0 10px; }
-.edit-modal-footer:has(.btn-save-file) .btn-cancel,
-.edit-modal-footer:has(.btn-save-file) .btn-save { font-size: 12px; padding: 0 10px; }
 
 /* FAB */
 .fab {
@@ -894,29 +805,6 @@ body {
   transition: transform 0.15s;
 }
 .fab:active { transform: scale(0.92); }
-
-/* Drop overlay */
-.drop-overlay {
-  position: absolute; inset: 0;
-  z-index: 60;
-  background: rgba(26,31,46,0.92);
-  backdrop-filter: blur(8px);
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  animation: fadeIn 0.2s;
-}
-.drop-icon {
-  width: 128px; height: 128px;
-  border: 4px dashed rgba(0,168,158,0.5);
-  border-radius: 24px;
-  display: flex; align-items: center; justify-content: center;
-  margin-bottom: 24px;
-  animation: pulse 2s infinite;
-  font-size: 48px; color: rgba(0,168,158,0.5);
-}
-.drop-overlay h3 { font-size: 18px; font-weight: 600; }
-.drop-overlay p { font-size: 14px; color: var(--text-dim); margin-top: 4px; }
-.drop-overlay .hint { font-size: 12px; color: var(--amber); opacity: 0.7; margin-top: 12px; }
 
 /* Empty state */
 .empty-state {
@@ -1192,7 +1080,6 @@ body {
   justify-content: center;
   font-size: 20px;
 }
-.fav-icon { background: rgba(239,68,68,0.15); }
 
 /* Section headers */
 .section-header {
@@ -1229,61 +1116,6 @@ body {
 /* Tagging song row indicator */
 .song-row.tagging {
   background: rgba(0,168,158,0.04);
-}
-
-/* Lyrics toggle button */
-.lyrics-toggle {
-  display: block;
-  margin: 16px auto 0;
-  padding: 8px 24px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-  background: var(--bg-secondary);
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-/* Full-screen synced lyrics overlay */
-.lyrics-fullscreen {
-  position: absolute;
-  inset: 0;
-  z-index: 45;
-  background: linear-gradient(180deg, #0d1117 0%, #1a1f2e 40%, #0d1117 100%);
-  display: flex;
-  flex-direction: column;
-  animation: fadeIn 0.3s ease;
-}
-.lyrics-fs-header {
-  padding: 16px 20px 8px;
-  text-align: center;
-  flex-shrink: 0;
-}
-.lyrics-fs-header button {
-  position: absolute;
-  left: 16px;
-  top: 12px;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-size: 24px;
-  cursor: pointer;
-  padding: 8px;
-}
-.lyrics-fs-song {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.lyrics-fs-artist {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
 }
 
 /* Synced lyrics scroll container */
@@ -1342,62 +1174,10 @@ body {
   text-align: center;
   font-weight: 500;
 }
-
-/* Empty lyrics state */
-.lyrics-empty-fs {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px;
-}
 .lyrics-empty-icon {
   font-size: 48px;
   color: var(--text-faint);
   margin-bottom: 16px;
-}
-.lyrics-empty-fs p { font-size: 15px; color: var(--text-dim); }
-.lyrics-empty-fs .sub { font-size: 12px; color: var(--text-faint); margin-top: 8px; }
-
-/* Bottom mini controls in lyrics view */
-.lyrics-fs-controls {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: rgba(13,17,23,0.95);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid var(--border);
-}
-.lyrics-fs-mini-art { flex-shrink: 0; }
-.lyrics-fs-info { flex: 1; min-width: 0; }
-.lyrics-fs-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.lyrics-fs-meta {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.lyrics-fs-play {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: var(--primary-fg);
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
 }
 
 /* Scanning welcome state */
@@ -1531,21 +1311,10 @@ body {
   animation: npBreath2 5.4s ease-in-out infinite 1.4s;
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-@keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes toastDrop { from { opacity: 0; margin-top: -10px; } to { opacity: 1; margin-top: 0; } }
 @keyframes slideRight { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-
-/* ─── Inline lyrics panel (Now Playing) ─── */
-.np-lyrics-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-height: 100px;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
 .lyrics-empty-np {
   flex: 1;
   display: flex;
@@ -1791,15 +1560,6 @@ body {
   margin-top: 1px;
 }
 
-/* ─── Volume slider ─── */
-.volume-control input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--primary);
-  box-shadow: 0 0 6px rgba(0,168,158,0.4);
-}
-
 /* ─── Scroll Indicator ─── */
 .scroll-indicator {
   position: fixed;
@@ -1884,98 +1644,6 @@ body {
   -webkit-transform: translateY(-50%);
   transform: translateY(-50%);
 }
-
-/* ─── Settings Guide ─── */
-.settings-guide {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-.settings-guide-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-dim);
-  margin-bottom: 8px;
-}
-.settings-guide-steps {
-  list-style: none;
-  counter-reset: step;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0;
-}
-.settings-guide-steps li {
-  counter-increment: step;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text);
-}
-.settings-guide-steps li span {
-  min-width: 0;
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-.settings-link {
-  color: var(--primary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  text-decoration-color: rgba(0,168,158,0.5);
-}
-.settings-guide-steps li::before {
-  content: counter(step);
-  background: var(--primary);
-  color: #fff;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 700;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-.settings-guide-note {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-faint);
-}
-.settings-test-btn {
-  width: 100%;
-  padding: 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
-  color: var(--text);
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.settings-test-btn:active { background: rgba(255,255,255,0.12); }
-.settings-divider {
-  height: 1px;
-  background: rgba(255,255,255,0.08);
-  margin: 2px 0;
-}
-.settings-retag-btn {
-  width: 100%;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(0,168,158,0.3);
-  background: rgba(0,168,158,0.12);
-  color: var(--primary);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.settings-retag-btn:active { background: rgba(0,168,158,0.22); }
-.settings-retag-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* ─── Artist three-dot button ─── */
 .artist-menu-btn {
@@ -2421,17 +2089,6 @@ body {
   padding: 13px;
   cursor: pointer;
 }
-.te-btn-file {
-  flex: 1;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 10px;
-  color: var(--text-dim);
-  font-size: 14px;
-  font-weight: 600;
-  padding: 13px 8px;
-  cursor: pointer;
-}
 /* ─── Disc Header ─── */
 .disc-header {
   display: flex;
@@ -2450,17 +2107,6 @@ body {
   height: 1px;
   background: var(--border);
 }
-
-/* ─── Genre Filter Chips ─── */
-.genre-chips-row {
-  display: flex;
-  gap: 8px;
-  padding: 0 16px 12px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-.genre-chips-row::-webkit-scrollbar { display: none; }
 .chip-genre {
   flex-shrink: 0;
   padding: 6px 14px;
@@ -2479,45 +2125,6 @@ body {
   border-color: var(--primary);
   color: #fff;
   font-weight: 600;
-}
-
-/* ─── Art Viewer Overlay ─── */
-.art-viewer-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background: rgba(0,0,0,0);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.22s;
-}
-.art-viewer-overlay.visible { background: rgba(0,0,0,0.92); }
-.art-viewer-img {
-  max-width: 92vw;
-  max-height: 85vh;
-  border-radius: 12px;
-  object-fit: contain;
-  box-shadow: 0 16px 60px rgba(0,0,0,0.8);
-  transform: scale(0.92);
-  transition: transform 0.22s;
-}
-.art-viewer-overlay.visible .art-viewer-img { transform: scale(1); }
-.art-viewer-close {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.15);
-  border: none;
-  color: #fff;
-  font-size: 22px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 /* ─── Search Grouped Results ─── */
@@ -2573,11 +2180,6 @@ body {
 }
 
 /* ─── New keyframes ─── */
-@keyframes popIn {
-  0%   { transform: scale(0.8);  opacity: 0; }
-  65%  { transform: scale(1.06); opacity: 1; }
-  100% { transform: scale(1);    opacity: 1; }
-}
 @keyframes shimmer {
   from { background-position: -200% center; }
   to   { background-position:  200% center; }
@@ -2649,13 +2251,6 @@ body {
 .song-art { box-shadow: 0 2px 10px rgba(0,0,0,0.4); }
 .song-row.playing .song-art,
 .song-row.playing .art-placeholder { box-shadow: 0 2px 12px rgba(0,168,158,0.2); }
-
-/* ─── Album art: multi-layer depth ─── */
-.album-art-wrap {
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.65), 0 3px 8px rgba(0,0,0,0.4);
-}
-.album-card:active { transform: scale(0.94); }
 .artist-collage { box-shadow: 0 10px 30px rgba(0,0,0,0.65); }
 
 /* ─── Mini player: premium glass ─── */
@@ -2748,21 +2343,6 @@ body {
   backdrop-filter: blur(36px);
   -webkit-backdrop-filter: blur(36px);
 }
-.drawer-header {
-  padding: 36px 24px 22px;
-  background: linear-gradient(150deg, rgba(0,168,158,0.16) 0%, rgba(0,168,158,0.03) 100%);
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-.drawer-header h2 {
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.4px;
-  background: linear-gradient(90deg, #00e0d6, #00a89e);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.drawer-header p { margin-top: 4px; font-size: 11px; color: rgba(255,255,255,0.25); }
 .drawer-item { padding: 15px 24px; font-size: 15px; }
 .drawer-item .icon { font-size: 22px; }
 .drawer-footer { color: rgba(255,255,255,0.18); border-top: 1px solid rgba(255,255,255,0.05); }
@@ -2941,7 +2521,6 @@ body {
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
-
 /* ─── Lyrics overlay inside album art ─── */
 .np-art-lyrics {
   position: absolute;
@@ -2997,33 +2576,6 @@ body {
 }
 .np-heart-svg { display: block; }
 .np-heart-svg.fav-filled { filter: drop-shadow(0 2px 8px rgba(255,45,85,0.55)); }
-
-/* ─── Ghost volume slider: barely visible thin strip ─── */
-.np-vol-ghost {
-  padding: 0 24px;
-  margin-bottom: 2px;
-  opacity: 0.35;
-  flex-shrink: 0;
-}
-.np-vol-ghost-slider {
-  display: block;
-  width: 100%;
-  -webkit-appearance: none;
-  appearance: none;
-  height: 2px;
-  border-radius: 2px;
-  background: rgba(255,255,255,0.5);
-  outline: none;
-  cursor: pointer;
-}
-.np-vol-ghost-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.9);
-  cursor: pointer;
-}
-.np-vol-ghost:focus-within { opacity: 0.85; }
 
 /* ─── Playlist system ─── */
 /* ─── Smart playlist 2×2 grid ─── */
@@ -3157,20 +2709,6 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .pl-delete-btn:active { color: var(--red); }
-.create-pl-btn {
-  width: 100%;
-  padding: 14px;
-  border-radius: 12px;
-  border: 1px dashed rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.04);
-  color: var(--text-dim);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s;
-}
-.create-pl-btn:active { background: rgba(255,255,255,0.08); }
 .pl-remove-btn {
   background: none; border: none;
   color: var(--text-faint); font-size: 16px;
@@ -3288,115 +2826,6 @@ body {
   flex-direction: column;
 }
 
-/* cf-item-active: subtle glow ring on the center album */
-.cf-item-active .cf-item-inner {
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.18), 0 8px 40px rgba(0,0,0,0.9);
-}
-
-/* specular glare overlay — updated every frame via JS */
-.cf-glare {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: 4px;
-  mix-blend-mode: screen;
-}
-
-/* Position counter */
-.cf-counter {
-  font-size: 11px;
-  font-weight: 500;
-  color: rgba(255,255,255,0.35);
-  letter-spacing: 1px;
-  margin-bottom: 4px;
-}
-
-/* Stage fills all remaining main-content space */
-.cf-stage {
-  -webkit-box-flex: 1;
-  -webkit-flex: 1;
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-  background: #050710;  /* near-black base, very dark */
-}
-
-/* Ambient glow — JS sets top/left position and background color */
-.cf-glow {
-  position: absolute;
-  width: 340px;
-  height: 340px;
-  border-radius: 50%;
-  -webkit-filter: blur(100px);
-  filter: blur(100px);
-  opacity: 0.40;
-  pointer-events: none;
-  z-index: 0;
-  -webkit-transition: background 0.55s ease;
-  transition: background 0.55s ease;
-}
-
-/* Glass stage floor — JS sets top (= floor line), extends to bottom */
-.cf-floor {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  z-index: 2;
-  pointer-events: none;
-  /* Dark gradient from transparent at the floor line to solid black at bottom */
-  background: -webkit-linear-gradient(top,
-    rgba(0,0,0,0) 0%,
-    rgba(0,0,0,0.55) 35%,
-    rgba(0,0,0,0.85) 65%,
-    #000 100%);
-  background: linear-gradient(to bottom,
-    rgba(0,0,0,0) 0%,
-    rgba(0,0,0,0.55) 35%,
-    rgba(0,0,0,0.85) 65%,
-    #000 100%);
-}
-
-/* Specular shine — 1px horizontal highlight at the glass floor line */
-/* JS sets top position */
-.cf-specular {
-  position: absolute;
-  left: 0; right: 0;
-  height: 1px;
-  z-index: 4;
-  pointer-events: none;
-  background: -webkit-linear-gradient(left,
-    transparent 0%,
-    rgba(255,255,255,0.06) 10%,
-    rgba(255,255,255,0.22) 30%,
-    rgba(255,255,255,0.38) 50%,
-    rgba(255,255,255,0.22) 70%,
-    rgba(255,255,255,0.06) 90%,
-    transparent 100%);
-  background: linear-gradient(to right,
-    transparent 0%,
-    rgba(255,255,255,0.06) 10%,
-    rgba(255,255,255,0.22) 30%,
-    rgba(255,255,255,0.38) 50%,
-    rgba(255,255,255,0.22) 70%,
-    rgba(255,255,255,0.06) 90%,
-    transparent 100%);
-}
-
-/* Contact shadow ellipse sitting on the floor under the center album */
-/* JS sets top, width, left, marginLeft */
-.cf-center-shadow {
-  position: absolute;
-  height: 28px;
-  z-index: 3;
-  pointer-events: none;
-  border-radius: 50%;
-  background: radial-gradient(ellipse at center top,
-    rgba(0,0,0,0.85) 0%,
-    rgba(0,0,0,0.5) 40%,
-    transparent 75%);
-  -webkit-filter: blur(5px);
-  filter: blur(5px);
-}
-
 /* Virtual-pool viewport — JS positions 9 absolutely-placed items */
 #cfViewport {
   position: absolute;
@@ -3405,222 +2834,6 @@ body {
   -webkit-perspective: 700px;
   perspective: 700px;
   z-index: 1;
-}
-
-/* Filter chips float at top with gradient veil */
-.cf-top-glass {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  z-index: 10;
-  background: -webkit-linear-gradient(top, rgba(5,7,16,0.92) 60%, transparent);
-  background: linear-gradient(to bottom, rgba(5,7,16,0.92) 60%, transparent);
-  pointer-events: none;
-}
-.cf-top-glass .cf-chip-row { pointer-events: auto; }
-
-/* Info + action panel floats at bottom */
-.cf-bot-glass {
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  z-index: 11;
-  background: -webkit-linear-gradient(bottom, rgba(0,0,0,0.98) 55%, transparent);
-  background: linear-gradient(to top, rgba(0,0,0,0.98) 55%, transparent);
-  padding: 28px 22px 16px;
-  text-align: center;
-}
-
-.cf-info-name {
-  font-size: 20px;
-  font-weight: 800;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  letter-spacing: -0.3px;
-  text-shadow: 0 1px 10px rgba(0,0,0,0.8);
-  -webkit-transition: opacity 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-.cf-info-meta {
-  font-size: 13px;
-  color: rgba(255,255,255,0.50);
-  margin: 4px 0 14px;
-  -webkit-transition: opacity 0.15s ease;
-  transition: opacity 0.15s ease;
-}
-
-.cf-actions {
-  display: -webkit-box;
-  display: -webkit-flex;
-  display: flex;
-  gap: 12px;
-}
-.cf-btn-play {
-  -webkit-box-flex: 1;
-  -webkit-flex: 1;
-  flex: 1;
-  padding: 13px;
-  border-radius: 14px;
-  border: none;
-  background: var(--primary);
-  color: #fff;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  box-shadow: 0 4px 18px rgba(0,168,158,0.5);
-  -webkit-transition: opacity 0.1s, -webkit-transform 0.1s;
-  transition: opacity 0.1s, transform 0.1s;
-}
-.cf-btn-play:active { opacity: 0.8; -webkit-transform: scale(0.97); transform: scale(0.97); }
-.cf-btn-open {
-  padding: 13px 18px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.82);
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  white-space: nowrap;
-  -webkit-transition: background 0.1s;
-  transition: background 0.1s;
-}
-.cf-btn-open:active { background: rgba(255,255,255,0.13); }
-.cf-btn-shuffle {
-  padding: 13px 15px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.82);
-  font-size: 17px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-transition: background 0.1s;
-  transition: background 0.1s;
-}
-.cf-btn-shuffle:active { background: rgba(255,255,255,0.13); }
-
-/* Thin progress bar at bottom of stage showing collection position */
-.cf-collection-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--primary);
-  opacity: 0.55;
-  z-index: 12;
-  pointer-events: none;
-  border-radius: 0 1px 1px 0;
-  -webkit-transition: width 0.35s ease;
-  transition: width 0.35s ease;
-}
-
-/* Non-album type badge (EP / Single / Mixtape) */
-.cf-type-badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  background: rgba(0,0,0,0.70);
-  color: rgba(255,255,255,0.88);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  padding: 2px 7px;
-  border-radius: 6px;
-  pointer-events: none;
-  z-index: 2;
-  text-transform: uppercase;
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-}
-
-/* Each album item: outer div contains art + contact shadow + reflection */
-.cf-item {
-  -webkit-flex-shrink: 0;
-  flex-shrink: 0;
-  -webkit-scroll-snap-align: center;
-  scroll-snap-align: center;
-  position: relative;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  will-change: transform, opacity;
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-}
-
-/* Album art square — height set inline by JS */
-.cf-item-inner {
-  width: 100%;
-  border-radius: 4px;
-  overflow: hidden;
-  /* Deep shadow + warm rim light on the bottom edge */
-  box-shadow:
-    0 6px 24px rgba(0,0,0,0.8),
-    0 18px 50px rgba(0,0,0,0.9),
-    0 1px 0 rgba(255,255,255,0.08) inset;
-}
-
-.cf-item-art {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.cf-item-placeholder {
-  width: 100%;
-  height: 100%;
-  display: -webkit-box;
-  display: -webkit-flex;
-  display: flex;
-  -webkit-box-align: center;
-  align-items: center;
-  -webkit-box-pack: center;
-  justify-content: center;
-  font-size: 52px;
-  font-weight: 800;
-  color: rgba(255,255,255,0.9);
-}
-
-/* Per-item contact shadow between art bottom and reflection */
-.cf-item-shadow {
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  height: 20px;
-  border-radius: 50%;
-  pointer-events: none;
-  background: radial-gradient(ellipse at center, rgba(0,0,0,0.9) 0%, transparent 80%);
-  -webkit-filter: blur(4px);
-  filter: blur(4px);
-  z-index: 1;
-}
-
-/* Reflection: immediately contacts the bottom edge of the art */
-.cf-reflection-wrap {
-  position: absolute;
-  left: 0; right: 0;
-  overflow: hidden;
-  pointer-events: none;
-  /* Stronger opacity at contact (0.40), fades to 0 over ~45% of height */
-  -webkit-mask-image: -webkit-linear-gradient(top,
-    rgba(0,0,0,0.40) 0%,
-    rgba(0,0,0,0.18) 40%,
-    transparent 70%);
-  mask-image: linear-gradient(to bottom,
-    rgba(0,0,0,0.40) 0%,
-    rgba(0,0,0,0.18) 40%,
-    transparent 70%);
-}
-.cf-reflection-img {
-  width: 100%;
-  display: block;
-  -webkit-transform: scaleY(-1);
-  transform: scaleY(-1);
-  -webkit-filter: blur(0.5px);
-  filter: blur(0.5px);
 }
 
 /* ─── Content fade-in on navigation ─── */
@@ -3830,72 +3043,6 @@ body.cf-ls .app { overflow: visible !important; }
   z-index: 9000;
 }
 
-/* Filter chips take too much vertical room in landscape — hide them */
-#cfStage.cf-ls .cf-top-glass { display: none !important; }
-
-/* Compact bottom strip — counter + name + meta + small buttons */
-#cfStage.cf-ls .cf-bot-glass {
-  padding: 5px 20px 10px;
-  text-align: left;
-}
-#cfStage.cf-ls .cf-counter {
-  display: none;
-}
-#cfStage.cf-ls .cf-info-name {
-  font-size: 15px;
-  letter-spacing: -0.3px;
-  margin-bottom: 1px;
-}
-#cfStage.cf-ls .cf-info-meta {
-  font-size: 11px;
-  margin: 0 0 6px;
-}
-
-/* Explicit height on buttons — Samsung Bold font ignores padding-based sizing */
-#cfStage.cf-ls .cf-actions {
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-}
-/* All three buttons the same compact icon size — Play is no longer flex:1 */
-#cfStage.cf-ls .cf-btn-play {
-  flex: 0 0 auto;
-  height: 34px;
-  line-height: 34px;
-  padding: 0 14px;
-  font-size: 13px;
-  border-radius: 8px;
-  box-sizing: border-box;
-  transition: transform 0.08s, opacity 0.08s;
-}
-#cfStage.cf-ls .cf-btn-play:active {
-  transform: scale(0.90);
-  opacity: 0.75;
-}
-#cfStage.cf-ls .cf-btn-shuffle,
-#cfStage.cf-ls .cf-btn-open {
-  flex: 0 0 auto;
-  height: 34px;
-  line-height: 34px;
-  padding: 0 14px;
-  font-size: 14px;
-  border-radius: 8px;
-  box-sizing: border-box;
-  transition: transform 0.08s, opacity 0.08s;
-}
-#cfStage.cf-ls .cf-btn-shuffle:active,
-#cfStage.cf-ls .cf-btn-open:active {
-  transform: scale(0.88);
-  opacity: 0.7;
-}
-
-/* Bigger ambient glow in landscape */
-#cfStage.cf-ls .cf-glow {
-  width: 500px;
-  height: 500px;
-  opacity: 0.50;
-}
-
 /* ─── Now Playing: landscape two-column layout ─── */
 /* Art fills the left column, info + controls stack on the right.
    Uses CSS grid; no HTML restructuring needed.
@@ -3975,7 +3122,6 @@ body.cf-ls .app { overflow: visible !important; }
 
   /* Hide bottom-row extras and volume slider — not enough vertical room */
   .now-playing .np-bottom { display: none !important; }
-  .now-playing .np-vol-ghost { display: none !important; }
 
   /* Tighter controls */
   .now-playing .np-progress { margin-bottom: 4px; }
@@ -4067,13 +3213,6 @@ body.cf-ls .app { overflow: visible !important; }
   box-shadow: 0 0 0 2px rgba(0,168,158,0.18), 0 4px 14px rgba(0,0,0,0.45);
 }
 
-/* ── Album cards: art shadow depth + bolder text ── */
-.album-art-wrap {
-  box-shadow: 0 14px 40px rgba(0,0,0,0.75), 0 4px 12px rgba(0,0,0,0.45);
-}
-.album-name { font-weight: 700; }
-.album-meta { color: var(--primary); opacity: 0.75; }
-
 /* ── Genre cards: deeper shadow + subtle border ── */
 .genre-card {
   box-shadow: 0 8px 30px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.05);
@@ -4132,5 +3271,4 @@ body.cf-ls .app { overflow: visible !important; }
 .detail-actions .btn-secondary {
   background: rgba(42,48,64,0.85);
   border: 1px solid rgba(255,255,255,0.10);
-}
 }

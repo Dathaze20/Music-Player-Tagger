@@ -512,30 +512,6 @@ function initSwipeGestures(el) {
   }, { passive: true });
 }
 
-// ─── Full-screen Art Viewer ───
-
-function openArtViewer(src) {
-  if (!src) return;
-  var overlay = document.createElement('div');
-  overlay.className = 'art-viewer-overlay';
-  var img = document.createElement('img');
-  img.className = 'art-viewer-img';
-  img.src = src;
-  img.alt = 'Album art';
-  var closeBtn = document.createElement('button');
-  closeBtn.className = 'art-viewer-close';
-  closeBtn.setAttribute('aria-label', 'Close');
-  closeBtn.textContent = '×';
-  overlay.appendChild(img);
-  overlay.appendChild(closeBtn);
-  overlay.addEventListener('click', function(e) {
-    if (e.target === overlay || e.target.classList.contains('art-viewer-close')) overlay.remove();
-  });
-  // Pinch-to-zoom: let browser handle via touch-action
-  document.getElementById('app').appendChild(overlay);
-  setTimeout(function() { overlay.classList.add('visible'); }, 10);
-}
-
 // Deduplicated 600px HD art fetch — ensures only one native read fires per URI
 // even when playSong() and renderNowPlaying() both request art at the same time.
 var _artHdInFlight = {};
@@ -1574,9 +1550,6 @@ var artistViewMode = 'list';   // 'list' | 'grid2' | 'grid3'
 var albumArtistsOnly = true;
 var playlists = loadPlaylists();
 var currentPlaylistId = null;
-var sleepTimerEnd = 0;
-var _sleepTimerTimeout = null;
-var _sleepTimerDisplayInt = null;
 var nativeScanning = false;
 var nativeScanCount = 0;
 var nativeScanError = '';
@@ -4137,48 +4110,6 @@ function showAddToPlaylistSheet(song) {
   openBottomSheet('<div class="bs-info"><div class="bs-name">Add to playlist</div><div class="bs-meta">' + escHtml(song.title) + '</div></div>', items);
 }
 
-function setSleepTimer(minutes) {
-  if (_sleepTimerTimeout) { clearTimeout(_sleepTimerTimeout); _sleepTimerTimeout = null; }
-  if (_sleepTimerDisplayInt) { clearInterval(_sleepTimerDisplayInt); _sleepTimerDisplayInt = null; }
-  sleepTimerEnd = 0;
-  if (minutes === 0) {
-    var btn = document.getElementById('npSleepBtn');
-    if (btn) { btn.innerHTML = '&#9203;'; btn.classList.remove('active'); }
-    return;
-  }
-  sleepTimerEnd = Date.now() + minutes * 60000;
-  _sleepTimerTimeout = setTimeout(function() {
-    _sleepTimerTimeout = null;
-    sleepTimerEnd = 0;
-    if (_sleepTimerDisplayInt) { clearInterval(_sleepTimerDisplayInt); _sleepTimerDisplayInt = null; }
-    var origVol = audio.volume;
-    var steps = 30; var cnt = 0; var dec = origVol / steps;
-    var fadeInt = setInterval(function() {
-      cnt++;
-      audio.volume = Math.max(0, origVol - dec * cnt);
-      if (cnt >= steps) {
-        clearInterval(fadeInt);
-        audio.pause(); isPlaying = false;
-        audio.volume = origVol; volume = origVol;
-        syncPlaybackUI();
-      }
-    }, 100);
-    var btn = document.getElementById('npSleepBtn');
-    if (btn) { btn.innerHTML = '&#9203;'; btn.classList.remove('active'); }
-  }, minutes * 60000);
-  _sleepTimerDisplayInt = setInterval(function() {
-    if (!sleepTimerEnd) { clearInterval(_sleepTimerDisplayInt); return; }
-    var btn = document.getElementById('npSleepBtn');
-    if (btn) {
-      var mins = Math.ceil((sleepTimerEnd - Date.now()) / 60000);
-      btn.innerHTML = '&#9203;' + (mins > 0 ? mins + 'm' : '');
-      btn.classList.add('active');
-    }
-  }, 30000);
-  var btn = document.getElementById('npSleepBtn');
-  if (btn) { btn.innerHTML = '&#9203;' + minutes + 'm'; btn.classList.add('active'); }
-}
-
 function showSongMenu(songId, songList) {
   var song = songMap[songId];
   if (!song) return;
@@ -4630,29 +4561,6 @@ function handleFileImport(files) {
 }
 
 // ─── Tag Editor AI Fill ───
-
-// Resize album art to at most maxPx × maxPx JPEG before sending — avoids 10–15 MB
-// base64 blobs that choke the WebView on low-RAM devices like the Galaxy A16.
-function _resizeArtToBase64(dataUrl, maxPx, quality) {
-  return new Promise(function(resolve) {
-    var img = new Image();
-    img.onload = function() {
-      var w = img.width, h = img.height;
-      var scale = Math.min(1, maxPx / Math.max(w, h, 1));
-      var tw = Math.max(1, Math.round(w * scale));
-      var th = Math.max(1, Math.round(h * scale));
-      try {
-        var canvas = document.createElement('canvas');
-        canvas.width = tw; canvas.height = th;
-        canvas.getContext('2d').drawImage(img, 0, 0, tw, th);
-        var out = canvas.toDataURL('image/jpeg', quality);
-        resolve(out.replace(/^data:[^;]+;base64,/, '') || null);
-      } catch(e) { resolve(null); }
-    };
-    img.onerror = function() { resolve(null); };
-    img.src = dataUrl;
-  });
-}
 
 // Query MusicBrainz (free, no key) for album metadata — year, albumArtist, releaseType, genre.
 // Returns a partial result object (only populated fields) or null on failure / no match.
