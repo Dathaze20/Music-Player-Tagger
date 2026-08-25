@@ -1057,6 +1057,17 @@ function saveEditsBatch(songList) {
   }).catch(function() {});
 }
 
+// Forget the manual edits for songs that no longer exist.
+function deleteEditsFor(songList) {
+  var keys = songList.map(function(s) { return s.contentUri || s.fn; }).filter(Boolean);
+  if (!keys.length) return;
+  keys.forEach(function(k) { delete _editsMap[k]; });
+  openLibDb().then(function(db) {
+    var st = db.transaction(EDITS_STORE, 'readwrite').objectStore(EDITS_STORE);
+    keys.forEach(function(k) { st.delete(k); });
+  }).catch(function() {});
+}
+
 function loadAllEdits() {
   return openLibDb().then(function(db) {
     return new Promise(function(resolve) {
@@ -1103,7 +1114,21 @@ function deleteSongsFromDevice(songsToDelete) {
     queue = queue.filter(function(s) { return !ids.has(s.id); });
     songMap = Object.create(null); songs.forEach(function(s) { songMap[s.id] = s; });
     _countsCache = null;
-    if (currentSong && ids.has(currentSong.id)) { currentSong = null; isPlaying = false; audio.pause(); }
+    // Purge every other reference, or the song lingers as a ghost: skipping back
+    // could still reach it through the history, and a preloaded deleted track
+    // would be swapped in by the gapless handoff.
+    _playHistory = _playHistory.filter(function(id) { return !ids.has(id); });
+    if (preloadedSong && ids.has(preloadedSong.id)) { preloadedSong = null; preloadedUrl = ''; }
+    songsToDelete.forEach(function(s) { delete _audioRetried[s.id]; });
+    // Drop the saved manual edits too. Left behind they keep growing, and a file
+    // later re-downloaded under the same name would silently inherit them.
+    deleteEditsFor(songsToDelete);
+    if (currentSong && ids.has(currentSong.id)) {
+      currentSong = null;
+      isPlaying = false;
+      audio.pause();
+      audio.removeAttribute('src');
+    }
     saveLibrary();
     render();
   }
@@ -1111,8 +1136,11 @@ function deleteSongsFromDevice(songsToDelete) {
     var uris = songsToDelete.map(function(s) { return s.contentUri; }).filter(Boolean);
     if (!uris.length) { removeFromMemory(); showToast('Removed from library'); return; }
     NativeBridge.deleteFiles(uris).then(function(r) {
+      var n = (r && typeof r.deleted === 'number') ? r.deleted : songsToDelete.length;
       removeFromMemory();
-      showToast('Deleted ' + (r.deleted || songsToDelete.length) + ' song' + (songsToDelete.length !== 1 ? 's' : ''));
+      showToast(n < songsToDelete.length
+        ? 'Deleted ' + n + ' of ' + songsToDelete.length + ' \u2014 the rest could not be removed'
+        : 'Deleted ' + n + ' song' + (n !== 1 ? 's' : ''));
     }).catch(function(e) {
       if (e && e.message && e.message.indexOf('cancelled') !== -1) {
         showToast('Delete cancelled');

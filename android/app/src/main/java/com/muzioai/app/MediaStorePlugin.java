@@ -100,6 +100,9 @@ public class MediaStorePlugin extends Plugin {
     private PluginCall savedWriteAccessCall;
     private PluginCall savedDeleteCall;
     private List<Uri>  pendingDeleteUris;
+    // Android 10 only: the consent dialog grants permission but does not delete,
+    // so the delete has to be retried once the user has approved it.
+    private boolean    pendingDeleteNeedsRetry = false;
 
     // WiFi file-share server state
     private ServerSocket fileServer;
@@ -744,8 +747,11 @@ public class MediaStorePlugin extends Plugin {
 
         ContentResolver cr = getContext().getContentResolver();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10+: show system confirmation dialog
+        // createDeleteRequest is API 30, not 29 — guarding on Q called a method that
+        // does not exist on Android 10 and threw NoSuchMethodError, which is an Error
+        // and so slipped past the catch below.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: one system confirmation dialog deletes the whole batch
             try {
                 PendingIntent pi = MediaStore.createDeleteRequest(cr, uris);
                 if (savedDeleteCall != null) {
@@ -754,22 +760,76 @@ public class MediaStorePlugin extends Plugin {
                 }
                 savedDeleteCall = call;
                 pendingDeleteUris = uris;
+                pendingDeleteNeedsRetry = false; // the system performs the delete itself
                 call.setKeepAlive(true);
                 getActivity().startIntentSenderForResult(
                     pi.getIntentSender(), DELETE_REQUEST_CODE, null, 0, 0, 0, null);
             } catch (Exception e) {
                 call.reject("createDeleteRequest: " + e.getMessage());
             }
-        } else {
-            // Android < 10: direct delete via ContentResolver
-            int deleted = 0;
-            for (Uri uri : uris) {
-                try { deleted += cr.delete(uri, null, null); } catch (Exception ignored) {}
-            }
-            JSObject r = new JSObject();
-            r.put("deleted", deleted);
-            call.resolve(r);
+            return;
         }
+
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            deleteWithConsentQ(call, cr, uris);
+            return;
+        }
+
+        // Android 9 and below: WRITE_EXTERNAL_STORAGE covers it
+        int deleted = 0;
+        for (Uri uri : uris) {
+            try { deleted += cr.delete(uri, null, null); } catch (Exception ignored) {}
+        }
+        finishDelete(call, deleted);
+    }
+
+    /**
+     * Android 10 delete path, kept in its own method so RecoverableSecurityException
+     * (API 29) is never referenced by a method that also runs on older devices.
+     *
+     * Files owned by another app throw RecoverableSecurityException, which carries a
+     * consent dialog. Showing it only grants permission, so the delete is retried in
+     * handleOnActivityResult once the user approves.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
+    private void deleteWithConsentQ(PluginCall call, ContentResolver cr, List<Uri> uris) {
+        int deleted = 0;
+        android.app.RecoverableSecurityException needsConsent = null;
+        for (Uri uri : uris) {
+            try {
+                deleted += cr.delete(uri, null, null);
+            } catch (android.app.RecoverableSecurityException rse) {
+                if (needsConsent == null) needsConsent = rse;
+            } catch (Exception ignored) {}
+        }
+        if (needsConsent == null) { finishDelete(call, deleted); return; }
+        try {
+            if (savedDeleteCall != null) {
+                savedDeleteCall.setKeepAlive(false);
+                savedDeleteCall.reject("Superseded by newer delete");
+            }
+            savedDeleteCall = call;
+            pendingDeleteUris = uris;
+            pendingDeleteNeedsRetry = true; // consent alone does not delete anything
+            call.setKeepAlive(true);
+            getActivity().startIntentSenderForResult(
+                needsConsent.getUserAction().getActionIntent().getIntentSender(),
+                DELETE_REQUEST_CODE, null, 0, 0, 0, null);
+        } catch (Exception e) {
+            call.reject("Delete permission request failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Report the real count. Claiming success on a failed delete would strand the file
+     * on disk while the library forgot about it, and the next scan would bring it
+     * straight back as a ghost entry.
+     */
+    private void finishDelete(PluginCall call, int deleted) {
+        if (deleted == 0) { call.reject("Could not delete the file"); return; }
+        JSObject r = new JSObject();
+        r.put("deleted", deleted);
+        call.resolve(r);
     }
 
     @Override
@@ -788,19 +848,34 @@ public class MediaStorePlugin extends Plugin {
         }
 
         if (requestCode == DELETE_REQUEST_CODE) {
-            PluginCall call = savedDeleteCall;
-            List<Uri> uris = pendingDeleteUris;
+            PluginCall call  = savedDeleteCall;
+            List<Uri> uris   = pendingDeleteUris;
+            boolean   retry  = pendingDeleteNeedsRetry;
             savedDeleteCall = null;
             pendingDeleteUris = null;
+            pendingDeleteNeedsRetry = false;
             if (call == null) return;
             call.setKeepAlive(false);
-            if (resultCode == Activity.RESULT_OK) {
-                JSObject r = new JSObject();
-                r.put("deleted", uris != null ? uris.size() : 0);
-                call.resolve(r);
+            if (resultCode != Activity.RESULT_OK) { call.reject("Delete cancelled"); return; }
+
+            int deleted;
+            if (retry) {
+                // Android 10: consent granted, now actually delete
+                deleted = 0;
+                ContentResolver cr2 = getContext().getContentResolver();
+                if (uris != null) {
+                    for (Uri uri : uris) {
+                        try { deleted += cr2.delete(uri, null, null); } catch (Exception ignored) {}
+                    }
+                }
+                if (deleted == 0) { call.reject("Could not delete the file"); return; }
             } else {
-                call.reject("Delete cancelled");
+                // Android 11+: the system already removed them
+                deleted = uris != null ? uris.size() : 0;
             }
+            JSObject r = new JSObject();
+            r.put("deleted", deleted);
+            call.resolve(r);
             return;
         }
 
