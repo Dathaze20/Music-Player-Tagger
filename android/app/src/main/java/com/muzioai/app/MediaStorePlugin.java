@@ -69,6 +69,13 @@ import java.util.zip.ZipOutputStream;
 
 @CapacitorPlugin(
     name = "MediaStore",
+    // Capacitor routes an activity result to a plugin by looking the request code up in
+    // this list (Bridge.getPluginWithRequestCode). It defaults to empty, so without these
+    // entries handleOnActivityResult below was never called: every flow that shows a
+    // system dialog — deleting a file, granting tag-write access, picking the SD card —
+    // left its PluginCall alive and unanswered, and the JS promise waited for ever.
+    // Must stay in sync with the request code constants declared below.
+    requestCodes = { 9001, 9002, 9003, 9005 },
     permissions = {
         @Permission(alias = "audioApi33",       strings = { "android.permission.READ_MEDIA_AUDIO" }),
         @Permission(alias = "audioLegacy",      strings = { "android.permission.READ_EXTERNAL_STORAGE" }),
