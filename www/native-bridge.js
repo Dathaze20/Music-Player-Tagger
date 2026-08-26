@@ -51,56 +51,10 @@ var NativeBridge = (function() {
           year:        f.year   || '',
           genre:       f.genre  || '',
           dur:         f.dur    || 0,
+          size:        typeof f.size === 'number' ? f.size : -1,
         };
       });
     });
-  }
-
-  // Fallback: Filesystem directory scan (works on older Android, limited on Android 13+)
-  function scanWithFilesystem(onProgress) {
-    var Filesystem = getPlugin('Filesystem');
-    if (!Filesystem) return Promise.reject(new Error('Filesystem plugin not available'));
-
-    var AUDIO_EXTS = ['mp3','m4a','flac','ogg','wav','aac','wma','opus'];
-    var SCAN_ROOTS = [
-      'file:///storage/emulated/0/Music',
-      'file:///storage/emulated/0/Download',
-      'file:///storage/emulated/0/',
-      'file:///sdcard/Music',
-      'file:///sdcard/',
-      'file:///storage/sdcard1/',
-      'file:///storage/extSdCard/',
-      'file:///storage/external_sd/',
-    ];
-
-    var results = [];
-    var seen = {};
-
-    function scanDir(uri) {
-      return Filesystem.readdir({ path: uri }).then(function(res) {
-        var entries = res.files || [];
-        var promises = [];
-        entries.forEach(function(entry) {
-          var name = typeof entry === 'string' ? entry : (entry.name || '');
-          var type = typeof entry === 'object' ? (entry.type || 'file') : 'file';
-          var fullUri = uri.replace(/\/$/, '') + '/' + name;
-          if (type === 'directory') {
-            promises.push(scanDir(fullUri).catch(function() {}));
-          } else {
-            var ext = name.split('.').pop().toLowerCase();
-            if (AUDIO_EXTS.indexOf(ext) !== -1 && !seen[fullUri]) {
-              seen[fullUri] = true;
-              results.push({ name: name, contentUri: '', nativePath: fullUri });
-              if (onProgress) onProgress(results.length);
-            }
-          }
-        });
-        return Promise.all(promises);
-      }).catch(function() {});
-    }
-
-    var chains = SCAN_ROOTS.map(function(root) { return scanDir(root).catch(function(){}); });
-    return Promise.all(chains).then(function() { return results; });
   }
 
   function requestPermissions() {
@@ -180,6 +134,8 @@ var NativeBridge = (function() {
       art:         fileInfo.art   || '',   // album art URL from MediaStore
       lyrics: '', syncedLyrics: '',
       dur:         fileInfo.dur || 0,
+      size:        typeof fileInfo.size === 'number' ? fileInfo.size : -1,
+      dateAdded:   fileInfo.dateAdded || 0,
       tagging:     false, fav: false, type: '', feat: feat,
     };
   }
@@ -286,17 +242,6 @@ var NativeBridge = (function() {
     }
   }
 
-  // Launch the system image picker and return the chosen image as a base64 JPEG data URL.
-  // Resolves { data: "data:image/jpeg;base64,..." } or rejects if user cancels.
-  function pickAlbumArt() {
-    var plugin = getPlugin('MediaStore');
-    if (!plugin || !plugin.pickAlbumArt) return Promise.reject(new Error('pickAlbumArt not available'));
-    return plugin.pickAlbumArt().then(function(r) {
-      if (!r || !r.data) return Promise.reject(new Error('No image returned'));
-      return r.data;
-    });
-  }
-
   // Open the Android share sheet for one or more audio content URIs.
   // The system chooser shows Quick Share, Bluetooth, and any installed app that handles audio.
   function shareFiles(uris, title) {
@@ -351,9 +296,17 @@ var NativeBridge = (function() {
     return plugin.requestBatteryOptimizationExemption().catch(function() {});
   }
 
+  // Write a text file to the public Downloads folder (backups, playlist exports).
+  function saveToDownloads(fileName, text, mimeType) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.saveToDownloads) return Promise.reject(new Error('saveToDownloads not available'));
+    return plugin.saveToDownloads({ fileName: fileName, text: text, mimeType: mimeType || 'text/plain' });
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
+           saveToDownloads: saveToDownloads,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
-           readAlbumArt: readAlbumArt, writeFileTags: writeFileTags, pickAlbumArt: pickAlbumArt,
+           readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
            vibrate: vibrate,
            requestWriteAccess: requestWriteAccess,
            requestSdCardAccess: requestSdCardAccess, getSdCardTreeUri: getSdCardTreeUri,

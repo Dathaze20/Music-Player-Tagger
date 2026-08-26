@@ -1,6 +1,8 @@
 module.exports = [
   {
-    ignores: ['node_modules/**', 'www/**', 'android/**'],
+    // www/ is the shipped app — it must be linted. android/ contains only the
+    // CI-generated copy of www/, so linting it would double-report every finding.
+    ignores: ['node_modules/**', 'android/**'],
   },
   {
     files: ['**/*.js'],
@@ -27,8 +29,15 @@ module.exports = [
         URL: 'readonly',
         confirm: 'readonly',
         alert: 'readonly',
+        prompt: 'readonly',
         module: 'readonly',
+        cancelAnimationFrame: 'readonly',
+        AbortController: 'readonly',
+        IntersectionObserver: 'readonly',
+        MediaMetadata: 'readonly',
         NativeBridge: 'readonly',
+        // Defined in app.js; native-bridge.js loads first and guards with typeof
+        genId: 'readonly',
         fmtTime: 'readonly',
         escHtml: 'readonly',
         parseFileName: 'readonly',
@@ -41,7 +50,7 @@ module.exports = [
     },
   },
   {
-    files: ['sw.js'],
+    files: ['**/sw.js'],
     languageOptions: {
       globals: {
         self: 'readonly',

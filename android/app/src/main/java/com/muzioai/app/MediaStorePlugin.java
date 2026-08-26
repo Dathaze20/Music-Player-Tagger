@@ -64,9 +64,18 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @CapacitorPlugin(
     name = "MediaStore",
+    // Capacitor routes an activity result to a plugin by looking the request code up in
+    // this list (Bridge.getPluginWithRequestCode). It defaults to empty, so without these
+    // entries handleOnActivityResult below was never called: every flow that shows a
+    // system dialog — deleting a file, granting tag-write access, picking the SD card —
+    // left its PluginCall alive and unanswered, and the JS promise waited for ever.
+    // Must stay in sync with the request code constants declared below.
+    requestCodes = { 9001, 9002, 9003, 9005 },
     permissions = {
         @Permission(alias = "audioApi33",       strings = { "android.permission.READ_MEDIA_AUDIO" }),
         @Permission(alias = "audioLegacy",      strings = { "android.permission.READ_EXTERNAL_STORAGE" }),
@@ -80,7 +89,6 @@ public class MediaStorePlugin extends Plugin {
     private static final int    WRITE_REQUEST_CODE        = 9001;
     private static final int    SAF_REQUEST_CODE          = 9002;
     private static final int    WRITE_ACCESS_REQUEST_CODE = 9003;
-    private static final int    PICK_IMAGE_REQUEST_CODE   = 9004;
     private static final int    DELETE_REQUEST_CODE       = 9005;
     private static final String PREFS_NAME             = "muzio_prefs";
     private static final String PREF_SAF_URI           = "saf_tree_uri";
@@ -97,9 +105,11 @@ public class MediaStorePlugin extends Plugin {
     private Uri        pendingWriteUri;
     private PluginCall savedSafCall;
     private PluginCall savedWriteAccessCall;
-    private PluginCall savedPickCall;
     private PluginCall savedDeleteCall;
     private List<Uri>  pendingDeleteUris;
+    // Android 10 only: the consent dialog grants permission but does not delete,
+    // so the delete has to be retried once the user has approved it.
+    private boolean    pendingDeleteNeedsRetry = false;
 
     // WiFi file-share server state
     private ServerSocket fileServer;
@@ -162,6 +172,62 @@ public class MediaStorePlugin extends Plugin {
     public void exitApp(PluginCall call) {
         call.resolve();
         getActivity().finishAffinity();
+    }
+
+    /**
+     * Writes a text file into the public Downloads folder.
+     *
+     * The WebView has no DownloadListener, so an <a download> pointing at a blob
+     * URL is silently discarded — backups and playlist exports never reached the
+     * filesystem. Writing through MediaStore puts the file somewhere the user can
+     * actually find it, and returns the path so the UI can say where it went.
+     */
+    @PluginMethod
+    public void saveToDownloads(PluginCall call) {
+        String fileName = call.getString("fileName", "");
+        String text     = call.getString("text", "");
+        String mime     = call.getString("mimeType", "text/plain");
+        if (fileName == null || fileName.isEmpty()) { call.reject("No fileName"); return; }
+        if (text == null) text = "";
+        if (mime == null || mime.isEmpty()) mime = "text/plain";
+
+        try {
+            byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+            ContentResolver cr = getContext().getContentResolver();
+            String shownPath = "Downloads/" + fileName;
+
+            if (Build.VERSION.SDK_INT >= 29) {
+                ContentValues cv = new ContentValues();
+                cv.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+                cv.put(MediaStore.Downloads.MIME_TYPE,    mime);
+                cv.put(MediaStore.Downloads.IS_PENDING,   1);
+                Uri outUri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                if (outUri == null) { call.reject("Could not create file in Downloads"); return; }
+                try (OutputStream os = cr.openOutputStream(outUri)) {
+                    if (os == null) { call.reject("Could not open Downloads file"); return; }
+                    os.write(bytes);
+                }
+                cv.clear();
+                cv.put(MediaStore.Downloads.IS_PENDING, 0);
+                cr.update(outUri, cv, null, null);
+            } else {
+                File dir = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS);
+                if (!dir.exists() && !dir.mkdirs()) { call.reject("Could not open Downloads folder"); return; }
+                File out = new File(dir, fileName);
+                try (FileOutputStream fos = new FileOutputStream(out)) { fos.write(bytes); }
+                // Make it visible to file managers straight away
+                MediaScannerConnection.scanFile(
+                    getContext(), new String[]{ out.getAbsolutePath() }, new String[]{ mime }, null);
+                shownPath = out.getAbsolutePath();
+            }
+
+            JSObject r = new JSObject();
+            r.put("path", shownPath);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("Save failed: " + e.getMessage());
+        }
     }
 
     // ─── Album art reading ─────────────────────────────────────────────────────
@@ -312,25 +378,6 @@ public class MediaStorePlugin extends Plugin {
         }
     }
 
-    // ─── Album art picker ─────────────────────────────────────────────────────
-
-    @PluginMethod
-    public void pickAlbumArt(PluginCall call) {
-        savedPickCall = call;
-        call.setKeepAlive(true);
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.setType("image/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        try {
-            getActivity().startActivityForResult(
-                Intent.createChooser(intent, "Select Album Art"), PICK_IMAGE_REQUEST_CODE);
-        } catch (Exception e) {
-            savedPickCall = null;
-            call.setKeepAlive(false);
-            call.reject("Could not open gallery: " + e.getMessage());
-        }
-    }
-
     // ─── Tag writing ──────────────────────────────────────────────────────────
 
     @PluginMethod
@@ -465,7 +512,6 @@ public class MediaStorePlugin extends Plugin {
     }
 
     // ─── Local WiFi file-share server ─────────────────────────────────────────
-
     /**
      * Starts a temporary HTTP server on the local WiFi so another device on the same
      * network can download the song(s) by scanning a QR code.
@@ -505,18 +551,21 @@ public class MediaStorePlugin extends Plugin {
             final boolean single = uris.size() == 1;
 
             Thread t = new Thread(() -> {
+                ServerSocket srv = fileServer; // local copy — avoids NPE if stopFileServerInternal races
+                if (srv == null) return;
                 try {
-                    fileServer.setSoTimeout(600000); // 10-min window
-                    while (fileServerActive) {
+                    srv.setSoTimeout(600000); // 10-min window
+                    while (fileServerActive && !srv.isClosed()) {
                         try {
-                            Socket client = fileServer.accept();
+                            Socket client = srv.accept();
                             serveClient(client, uris, names, single);
                         } catch (SocketTimeoutException ignored) {
                             break;
                         } catch (Exception e) {
-                            if (!fileServerActive) break;
+                            if (!fileServerActive || srv.isClosed()) break;
                         }
                     }
+                } catch (Exception ignored) {
                 } finally { stopFileServerInternal(); }
             });
             t.setDaemon(true);
@@ -579,7 +628,7 @@ public class MediaStorePlugin extends Plugin {
                 }
                 long size = getContentLength(cr, uri);
                 String headers = "HTTP/1.1 200 OK\r\n"
-                    + "Content-Type: audio/mpeg\r\n"
+                    + "Content-Type: " + mimeFromName(name) + "\r\n"
                     + (size > 0 ? "Content-Length: " + size + "\r\n" : "")
                     + "Content-Disposition: attachment; filename=\"" + name + "\"\r\n"
                     + "Connection: close\r\n\r\n";
@@ -592,28 +641,32 @@ public class MediaStorePlugin extends Plugin {
                     fis.close();
                 }
             } else {
-                // Serve HTML index for album
-                StringBuilder html = new StringBuilder();
-                html.append("<!DOCTYPE html><html><head><meta charset=UTF-8>"
-                    + "<meta name=viewport content='width=device-width'>"
-                    + "<title>My Music Share</title>"
-                    + "<style>body{font-family:sans-serif;padding:24px;background:#111;color:#eee}"
-                    + "a{display:block;padding:12px 16px;margin:8px 0;background:#1a2a3a;border-radius:8px;"
-                    + "color:#00c8be;text-decoration:none;font-size:16px}"
-                    + "h2{color:#fff}p{color:#888;font-size:13px}</style></head><body>"
-                    + "<h2>My Music — Album Download</h2>"
-                    + "<p>Tap a song to download it.</p>");
-                for (String n : names) {
-                    html.append("<a href=\"/").append(Uri.encode(n)).append("\" download>&#127911; ").append(n).append("</a>");
-                }
-                html.append("</body></html>");
-                byte[] body = html.toString().getBytes(StandardCharsets.UTF_8);
-                String headers = "HTTP/1.1 200 OK\r\n"
-                    + "Content-Type: text/html; charset=UTF-8\r\n"
-                    + "Content-Length: " + body.length + "\r\n"
+                // Serve all songs as a single ZIP download
+                String zipHeaders = "HTTP/1.1 200 OK\r\n"
+                    + "Content-Type: application/zip\r\n"
+                    + "Content-Disposition: attachment; filename=\"MyMusic-Album.zip\"\r\n"
                     + "Connection: close\r\n\r\n";
-                out.write(headers.getBytes(StandardCharsets.UTF_8));
-                out.write(body);
+                out.write(zipHeaders.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                ZipOutputStream zos = new ZipOutputStream(out);
+                byte[] buf = new byte[65536];
+                for (int i = 0; i < uris.size(); i++) {
+                    try {
+                        InputStream fis = cr.openInputStream(uris.get(i));
+                        if (fis == null) continue;
+                        zos.putNextEntry(new ZipEntry(names.get(i)));
+                        try {
+                            int read;
+                            while ((read = fis.read(buf)) != -1) zos.write(buf, 0, read);
+                        } finally {
+                            fis.close();
+                            zos.closeEntry(); // always close entry so ZIP central directory stays consistent
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "ZIP entry failed: " + e.getMessage());
+                    }
+                }
+                zos.finish();
             }
             out.flush();
         } catch (Exception e) {
@@ -647,13 +700,32 @@ public class MediaStorePlugin extends Plugin {
                     InetAddress addr = addrs.nextElement();
                     if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
                         String ip = addr.getHostAddress();
-                        if (ip != null && (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")))
+                        if (ip != null && (ip.startsWith("192.168.") || ip.startsWith("10.") || isPrivate172(ip)))
                             return ip;
                     }
                 }
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+    private boolean isPrivate172(String ip) {
+        if (!ip.startsWith("172.")) return false;
+        try {
+            int second = Integer.parseInt(ip.split("\\.")[1]);
+            return second >= 16 && second <= 31;
+        } catch (Exception e) { return false; }
+    }
+
+    private String mimeFromName(String name) {
+        if (name == null) return "audio/mpeg";
+        String lower = name.toLowerCase();
+        if (lower.endsWith(".flac")) return "audio/flac";
+        if (lower.endsWith(".m4a") || lower.endsWith(".aac")) return "audio/mp4";
+        if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        if (lower.endsWith(".wma")) return "audio/x-ms-wma";
+        return "audio/mpeg";
     }
 
     // ─── Permanent file deletion ───────────────────────────────────────────────
@@ -682,8 +754,11 @@ public class MediaStorePlugin extends Plugin {
 
         ContentResolver cr = getContext().getContentResolver();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10+: show system confirmation dialog
+        // createDeleteRequest is API 30, not 29 — guarding on Q called a method that
+        // does not exist on Android 10 and threw NoSuchMethodError, which is an Error
+        // and so slipped past the catch below.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: one system confirmation dialog deletes the whole batch
             try {
                 PendingIntent pi = MediaStore.createDeleteRequest(cr, uris);
                 if (savedDeleteCall != null) {
@@ -692,68 +767,81 @@ public class MediaStorePlugin extends Plugin {
                 }
                 savedDeleteCall = call;
                 pendingDeleteUris = uris;
+                pendingDeleteNeedsRetry = false; // the system performs the delete itself
                 call.setKeepAlive(true);
                 getActivity().startIntentSenderForResult(
                     pi.getIntentSender(), DELETE_REQUEST_CODE, null, 0, 0, 0, null);
             } catch (Exception e) {
                 call.reject("createDeleteRequest: " + e.getMessage());
             }
-        } else {
-            // Android < 10: direct delete via ContentResolver
-            int deleted = 0;
-            for (Uri uri : uris) {
-                try { deleted += cr.delete(uri, null, null); } catch (Exception ignored) {}
-            }
-            JSObject r = new JSObject();
-            r.put("deleted", deleted);
-            call.resolve(r);
+            return;
         }
+
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            deleteWithConsentQ(call, cr, uris);
+            return;
+        }
+
+        // Android 9 and below: WRITE_EXTERNAL_STORAGE covers it
+        int deleted = 0;
+        for (Uri uri : uris) {
+            try { deleted += cr.delete(uri, null, null); } catch (Exception ignored) {}
+        }
+        finishDelete(call, deleted);
+    }
+
+    /**
+     * Android 10 delete path, kept in its own method so RecoverableSecurityException
+     * (API 29) is never referenced by a method that also runs on older devices.
+     *
+     * Files owned by another app throw RecoverableSecurityException, which carries a
+     * consent dialog. Showing it only grants permission, so the delete is retried in
+     * handleOnActivityResult once the user approves.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
+    private void deleteWithConsentQ(PluginCall call, ContentResolver cr, List<Uri> uris) {
+        int deleted = 0;
+        android.app.RecoverableSecurityException needsConsent = null;
+        for (Uri uri : uris) {
+            try {
+                deleted += cr.delete(uri, null, null);
+            } catch (android.app.RecoverableSecurityException rse) {
+                if (needsConsent == null) needsConsent = rse;
+            } catch (Exception ignored) {}
+        }
+        if (needsConsent == null) { finishDelete(call, deleted); return; }
+        try {
+            if (savedDeleteCall != null) {
+                savedDeleteCall.setKeepAlive(false);
+                savedDeleteCall.reject("Superseded by newer delete");
+            }
+            savedDeleteCall = call;
+            pendingDeleteUris = uris;
+            pendingDeleteNeedsRetry = true; // consent alone does not delete anything
+            call.setKeepAlive(true);
+            getActivity().startIntentSenderForResult(
+                needsConsent.getUserAction().getActionIntent().getIntentSender(),
+                DELETE_REQUEST_CODE, null, 0, 0, 0, null);
+        } catch (Exception e) {
+            call.reject("Delete permission request failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Report the real count. Claiming success on a failed delete would strand the file
+     * on disk while the library forgot about it, and the next scan would bring it
+     * straight back as a ghost entry.
+     */
+    private void finishDelete(PluginCall call, int deleted) {
+        if (deleted == 0) { call.reject("Could not delete the file"); return; }
+        JSObject r = new JSObject();
+        r.put("deleted", deleted);
+        call.resolve(r);
     }
 
     @Override
     protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
         super.handleOnActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == PICK_IMAGE_REQUEST_CODE) {
-            PluginCall call = savedPickCall;
-            savedPickCall = null;
-            if (call == null) return;
-            call.setKeepAlive(false);
-            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
-                Uri imageUri = data.getData();
-                try {
-                    ContentResolver resolver = getContext().getContentResolver();
-                    InputStream is = resolver.openInputStream(imageUri);
-                    if (is == null) { call.reject("Cannot open image"); return; }
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    pipe(is, baos);
-                    is.close();
-                    byte[] rawBytes = baos.toByteArray();
-                    // Decode with downsampling to max 600px
-                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
-                    opts.inJustDecodeBounds = true;
-                    android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length, opts);
-                    int sample = 1;
-                    while ((opts.outWidth / (sample * 2)) >= 600 || (opts.outHeight / (sample * 2)) >= 600) sample *= 2;
-                    opts.inSampleSize = sample;
-                    opts.inJustDecodeBounds = false;
-                    android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.length, opts);
-                    if (bmp == null) { call.reject("Cannot decode image"); return; }
-                    ByteArrayOutputStream out = new ByteArrayOutputStream();
-                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
-                    bmp.recycle();
-                    String b64 = "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
-                    JSObject result = new JSObject();
-                    result.put("data", b64);
-                    call.resolve(result);
-                } catch (Exception e) {
-                    call.reject("Image read error: " + e.getMessage());
-                }
-            } else {
-                call.reject("Cancelled");
-            }
-            return;
-        }
 
         if (requestCode == WRITE_ACCESS_REQUEST_CODE) {
             PluginCall call = savedWriteAccessCall;
@@ -767,19 +855,34 @@ public class MediaStorePlugin extends Plugin {
         }
 
         if (requestCode == DELETE_REQUEST_CODE) {
-            PluginCall call = savedDeleteCall;
-            List<Uri> uris = pendingDeleteUris;
+            PluginCall call  = savedDeleteCall;
+            List<Uri> uris   = pendingDeleteUris;
+            boolean   retry  = pendingDeleteNeedsRetry;
             savedDeleteCall = null;
             pendingDeleteUris = null;
+            pendingDeleteNeedsRetry = false;
             if (call == null) return;
             call.setKeepAlive(false);
-            if (resultCode == Activity.RESULT_OK) {
-                JSObject r = new JSObject();
-                r.put("deleted", uris != null ? uris.size() : 0);
-                call.resolve(r);
+            if (resultCode != Activity.RESULT_OK) { call.reject("Delete cancelled"); return; }
+
+            int deleted;
+            if (retry) {
+                // Android 10: consent granted, now actually delete
+                deleted = 0;
+                ContentResolver cr2 = getContext().getContentResolver();
+                if (uris != null) {
+                    for (Uri uri : uris) {
+                        try { deleted += cr2.delete(uri, null, null); } catch (Exception ignored) {}
+                    }
+                }
+                if (deleted == 0) { call.reject("Could not delete the file"); return; }
             } else {
-                call.reject("Delete cancelled");
+                // Android 11+: the system already removed them
+                deleted = uris != null ? uris.size() : 0;
             }
+            JSObject r = new JSObject();
+            r.put("deleted", deleted);
+            call.resolve(r);
             return;
         }
 
@@ -1245,11 +1348,20 @@ public class MediaStorePlugin extends Plugin {
             MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.YEAR,
+            MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.SIZE,
             "album_artist",
             "genre",
         };
 
-        String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+        // Include every audio file that isn't a system sound. IS_MUSIC misses downloaded
+        // songs (YouTube, SoundCloud, etc.) that Android stores with IS_MUSIC=0, and a
+        // DURATION filter would drop files MediaStore failed to probe (DURATION=0) —
+        // exactly the ones we now recover with the native player.
+        String selection = MediaStore.Audio.Media.MIME_TYPE + " LIKE 'audio/%'"
+            + " AND " + MediaStore.Audio.Media.IS_RINGTONE     + " = 0"
+            + " AND " + MediaStore.Audio.Media.IS_NOTIFICATION + " = 0"
+            + " AND " + MediaStore.Audio.Media.IS_ALARM        + " = 0";
         String sortOrder = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC";
         Uri uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
 
@@ -1265,8 +1377,10 @@ public class MediaStorePlugin extends Plugin {
                 int albIdCol  = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
                 int trkCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK);
                 int yrCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR);
-                int albArtCol = cursor.getColumnIndex("album_artist");
-                int genreCol  = cursor.getColumnIndex("genre");
+                int albArtCol  = cursor.getColumnIndex("album_artist");
+                int genreCol   = cursor.getColumnIndex("genre");
+                int dateAddCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED);
+                int sizeCol    = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE);
 
                 while (cursor.moveToNext()) {
                     long   id      = cursor.getLong(idCol);
@@ -1279,8 +1393,10 @@ public class MediaStorePlugin extends Plugin {
                     long   albumId = cursor.getLong(albIdCol);
                     int    trackRaw = cursor.getInt(trkCol);
                     int    year    = cursor.getInt(yrCol);
-                    String albumArtist = (albArtCol >= 0) ? cursor.getString(albArtCol) : null;
-                    String genre       = (genreCol  >= 0) ? cursor.getString(genreCol)  : null;
+                    String albumArtist = (albArtCol  >= 0) ? cursor.getString(albArtCol)  : null;
+                    String genre       = (genreCol   >= 0) ? cursor.getString(genreCol)   : null;
+                    long   dateAdded   = (dateAddCol >= 0) ? cursor.getLong(dateAddCol)   : 0;
+                    long   size        = (sizeCol    >= 0) ? cursor.getLong(sizeCol)      : -1;
 
                     // MediaStore encodes disc as disc*1000 + track
                     int discNum  = trackRaw > 999 ? trackRaw / 1000 : 1;
@@ -1315,6 +1431,8 @@ public class MediaStorePlugin extends Plugin {
                     file.put("track",       trackNum);
                     file.put("year",        (year > 0 && year != 1970) ? String.valueOf(year) : "");
                     file.put("genre",       genre);
+                    file.put("dateAdded",   dateAdded);
+                    file.put("size",        size);
                     files.put(file);
                 }
             }

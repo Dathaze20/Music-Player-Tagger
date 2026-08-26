@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import TextUtils from '../text-utils.js';
+import TextUtils from '../www/text-utils.js';
 
 const { fmtTime, escHtml, parseFileName, parseLRC } = TextUtils;
 

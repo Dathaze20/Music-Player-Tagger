@@ -76,9 +76,17 @@
   <!-- Side drawer -->
   <div id="drawerOverlay" class="drawer-overlay hidden"></div>
   <div id="drawer" class="drawer hidden">
-    <div class="drawer-header">
-      <h2>My Music</h2>
-      <p>Smart Music Player</p>
+    <!-- Profile card -->
+    <div class="drawer-profile">
+      <button class="profile-avatar" id="profileAvatarBtn" title="Change photo">
+        <div id="profileAvatarInner"></div>
+      </button>
+      <div class="profile-text" id="profileTextArea">
+        <div class="profile-greeting">Hello,</div>
+        <div class="profile-name"><span id="profileNameDisplay">User</span></div>
+        <div class="profile-sub">Tap to edit name &bull; tap photo to change</div>
+      </div>
+      <button class="profile-edit-btn" id="profileEditBtn" title="Edit name">&#9998;</button>
     </div>
     <nav class="drawer-nav">
       <button class="drawer-item" id="importFolderBtn">
@@ -91,15 +99,18 @@
         <span class="icon">&#128257;</span> Rescan Library
       </button>
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
-      <button class="drawer-item" id="favoritesBtn">
-        <span class="icon" style="color:#f44;">&#10084;</span> Favorites
-      </button>
-      <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
       <div style="padding:6px 24px 2px;font-size:11px;color:var(--text-faint);line-height:1.5;">
         Free AI auto-tagging — <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--primary);text-decoration:none;">get your free Gemini API key</a> and paste it below.
       </div>
       <button class="drawer-item" id="setApiKeyBtn">
         <span class="icon">&#128273;</span> <span id="apiKeyLabel">Set Gemini API Key</span>
+      </button>
+      <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
+      <button class="drawer-item backup-export-item" id="exportBackupBtn">
+        <span class="icon">&#8679;</span> Export Backup
+      </button>
+      <button class="drawer-item backup-import-item" id="importBackupBtn">
+        <span class="icon">&#8681;</span> Import Backup
       </button>
       <div style="margin:8px 24px;border-top:1px solid var(--border);"></div>
       <button class="drawer-item" id="clearLibBtn">
@@ -119,6 +130,9 @@
   <!-- Hidden file inputs -->
   <input type="file" id="fileInput" accept="audio/*" multiple style="display:none">
   <input type="file" id="folderInput" accept="audio/*" multiple style="display:none">
+  <input type="file" id="profilePhotoInput" accept="image/*" style="display:none">
+  <input type="file" id="albumArtPickerInput" accept="image/*" style="display:none">
+  <input type="file" id="backupImportInput" accept="application/json,.json" style="display:none">
 
   <!-- Audio element -->
   <audio id="audioEl" preload="metadata"></audio>
