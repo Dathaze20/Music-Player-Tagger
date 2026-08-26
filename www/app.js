@@ -996,6 +996,13 @@ function loadLibraryIDB() {
 
 var _editsMap = Object.create(null); // contentUri||fn → edit object (in-memory mirror)
 
+// Only art the user actually chose is worth persisting. Everything else is a
+// localhost URL the WebView regenerates from MediaStore on every launch, so
+// storing it bloats the edits store and every backup taken from it for nothing.
+function customArtOnly(art) {
+  return (art && art.indexOf('data:') === 0) ? art : '';
+}
+
 function saveEdit(song) {
   var key = song.contentUri || song.fn;
   if (!key) return;
@@ -1004,7 +1011,7 @@ function saveEdit(song) {
     albumArtist: song.albumArtist, year: song.year, genre: song.genre,
     track: song.track, type: song.type, feat: song.feat,
     syncedLyrics: song.syncedLyrics, lyrics: song.lyrics,
-    art: song.art, editedAt: Date.now()
+    art: customArtOnly(song.art), editedAt: Date.now()
   };
   _editsMap[key] = edit;
   openLibDb().then(function(db) {
@@ -1025,7 +1032,7 @@ function saveEditsBatch(songList) {
         albumArtist: song.albumArtist, year: song.year, genre: song.genre,
         track: song.track, type: song.type, feat: song.feat,
         syncedLyrics: song.syncedLyrics, lyrics: song.lyrics,
-        art: song.art, editedAt: now
+        art: customArtOnly(song.art), editedAt: now
       };
       _editsMap[key] = edit;
       st.put(edit, key);
@@ -1076,7 +1083,7 @@ function applyEditsToSongs() {
     if (edit.feat   !== undefined) s.feat   = edit.feat;
     if (edit.syncedLyrics !== undefined) s.syncedLyrics = edit.syncedLyrics;
     if (edit.lyrics !== undefined) s.lyrics = edit.lyrics;
-    if (edit.art)    s.art = edit.art;
+    if (edit.art && edit.art.indexOf('data:') === 0) s.art = edit.art;
   });
 }
 
@@ -5845,7 +5852,7 @@ document.getElementById('exportBackupBtn').onclick = function() {
       favorites: favList,
       edits: editsMap,
     };
-    var fileName = 'muzio-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    var fileName = 'my-music-backup-' + new Date().toISOString().slice(0, 10) + '.json';
     saveTextFile(fileName, JSON.stringify(data), 'application/json', function(ok, where) {
       if (ok) {
         showToast('Backup saved to ' + where + ' \u2014 '

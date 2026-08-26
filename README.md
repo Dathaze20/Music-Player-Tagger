@@ -1,4 +1,4 @@
-# Muzio — Smart Music Player
+# My Music — Smart Music Player
 
 A local-first, dark-themed music player for Android with AI-assisted auto-tagging. Point it at your music library and it fills in artist, album, year, genre, and release type (Album / Mixtape / EP / Single) using MusicBrainz (free, no key) and, optionally, the Google Gemini API.
 
