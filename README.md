@@ -1,114 +1,97 @@
 # Muzio — Smart Music Player
 
-A local-first, dark-themed music player for Android with AI-powered auto-tagging. Point it at your music library and it automatically fills in artist, album, year, genre, and release type (Album / Mixtape / EP / Single) using MusicBrainz (free, no key required) and the Google Gemini API.
+A local-first, dark-themed music player for Android with AI-assisted auto-tagging. Point it at your music library and it fills in artist, album, year, genre, and release type (Album / Mixtape / EP / Single) using MusicBrainz (free, no key) and, optionally, the Google Gemini API.
 
-Built as **pure HTML/CSS/JavaScript with zero build tools** for the web layer, wrapped with **Capacitor 8 + a hand-written native Java plugin** for the Android app.
+Built as **pure HTML/CSS/JavaScript with zero build tools** for the web layer, wrapped with **Capacitor 8 and a hand-written native Java plugin** for Android.
+
+Tested against a real 15,000-song library.
+
+---
+
+## Screenshots
+
+<!-- Add screenshots here — Artists tab, Now Playing, and the tag editor make the strongest first impression. -->
 
 ---
 
 ## Features
 
 ### Playback
-- Full audio playback — play/pause, previous/next, seek bar, and playback speed control (0.5× – 2×)
-- Shuffle with Fisher-Yates reshuffling of the remaining queue; three repeat modes (off / one / all)
-- Gapless queue with crossfade support and drag-to-reorder
-- Sleep timer with adjustable countdown
-- Playback continues in the background via a foreground service — music keeps playing when the app is backgrounded or the screen is off
-- Lyrics and playback position automatically sync when you return to the app after backgrounding
+- Play/pause, previous/next, seek, and playback speed (0.5×–2×)
+- Shuffle with Fisher–Yates reshuffling of the remaining queue; repeat off / one / all
+- Gapless playback with optional crossfade
+- Queue panel — view what's next, add to queue, clear
+- 5-band equalizer with presets
+- Background playback via a foreground service; continues with the screen off
+- Synced lyrics and playback position restore correctly when you return to the app
 
 ### Library
-- **Artists** tab — virtual-scrolled list with circular album art mosaic; A–Z alphabet strip for instant jump; list / 2-column / 3-column grid view; multi-select for batch artist merge / edit
-- **Songs** tab — virtual-scrolled list (handles 15,000+ songs at 60 fps); sortable by Title / Artist / Date Added (newest first) / Most Played
-- **Albums** tab — 2-column virtual-scroll grid with square album art, bold name, artist and song count; filter chips (All / Albums / Mixtapes / EPs & Singles); A–Z alphabet strip
-- **Playlists** tab — manual and smart playlists (Favorites, Top Played, Recently Added, by Genre, by Year)
-- **Genres** tab — browse by genre with per-genre song counts
-- **Favorites** — heart any song; access favorites from the side drawer
+- **Artists** — virtual-scrolled list with a circular album-art mosaic, an A–Z jump strip, and list / 2-column / 3-column views
+- **Songs** — virtual-scrolled list handling 15,000+ songs at 60 fps; sort by title, artist, album, year, date added, most played, or duration
+- **Albums** — 2-column virtual-scroll grid with filter chips (All / Albums / Mixtapes / EPs & Singles) and an A–Z strip
+- **Playlists** — manual playlists plus smart ones that populate themselves (Favorites, Top Played, Recently Added, by Genre, by Year)
+- **Genres** — browse by genre with per-genre counts
+- **Favorites** — heart any song; available as its own view
+- **Search** — across songs, artists, albums, genre, and album artist
 
-### Now Playing Screen
-- Full-screen album art with ambient color breathing — art colors are sampled and pulse as animated radial gradients for a live feel
-- Blurred dark background that matches the album art
-- Tappable album name navigates to the full album; tappable artist name navigates to that artist's page
-- Synced lyrics (LRC format) with real-time line highlighting — visible in both portrait and landscape orientation
-- Lyrics resume at the correct position when you switch back to the app mid-song
-- Playback speed, repeat, and shuffle toggles
-- Portrait: large 72px play button with teal halo rings; landscape: scaled 64px play button with proportional halo, skip buttons sized to avoid overlap
+### Now Playing
+- Full-screen album art with ambient colour sampled from the art
+- Blurred background matched to the current cover
+- Tap the album or artist name to jump straight to that page
+- Synced lyrics (LRC) with live line highlighting, in portrait and landscape
+- Speed, repeat, and shuffle toggles
 
-### AI Auto-Tagging
-- **MusicBrainz lookup** (free, no key) — queries the open music database for year, genre, release type, and artist credit; results take priority over AI guesses
-- **Google Gemini** (optional, free tier available) — fills any gaps MusicBrainz didn't cover; identifies subgenre, featured artists, and release classification
-- **Album batch editor** — edit all songs in an album at once; AI fills artist, album artist, year, genre, and release type with one tap; album artist field starts blank when all songs are untagged so saving never overwrites correctly-tagged songs with "Unknown Artist"
-- **Song tag editor** — full per-song metadata editor with album art picker, AI fill, lyrics field (plain or LRC synced), and release type chips
-- **Album name cleaning** — strips underscores and filename artifacts (e.g. `Album_-_Nickel_Bag_Ep` → `Album - Nickel Bag Ep`)
-- **Year sanity filter** — suppresses the 1970 Unix-epoch default from corrupt ID3 tags in both MediaStore scanning and AI results
-- Release type classification: Album / Mixtape / EP / Single with colored chip selectors
+### Tagging
+- **MusicBrainz lookup** — free, no key; year, genre, release type, and artist credit. Results take priority over AI guesses.
+- **Google Gemini** (optional) — fills whatever MusicBrainz didn't, including subgenre and featured artists
+- **Album batch editor** — retag every song in an album at once. The album-artist field starts blank when songs are untagged, so saving never overwrites correct tags with "Unknown Artist".
+- **Per-song editor** — full metadata, album art picker, AI fill, and a lyrics field (plain or LRC)
+- **Album name cleaning** — `Album_-_Nickel_Bag_Ep` becomes `Album - Nickel Bag Ep`
+- **Year sanity filter** — suppresses the 1970 Unix-epoch default that corrupt ID3 tags produce
+- Custom album art applies everywhere it should: song rows, album grid, artist mosaic, and artist avatars
 
-### Tag Writing
-- Writes metadata directly into audio files on-device using jaudiotagger (MP3, FLAC, M4A, OGG, WAV, WMA, OPUS)
-- Correct MIME type served per file format when sharing via WiFi QR code
-- Album art embedded into files; existing art preserved when not changed
-- Written tags immediately reflected in Android MediaStore so other apps stay in sync
+### Backup and Restore
+- **Export** writes a JSON backup to your Downloads folder containing every manual edit, your playlists, favourites, profile name, and profile photo
+- **Import** merges a backup back in — safe to run repeatedly, and it never wipes what's already there
+- Designed so your tagging work survives reinstalling the app
 
-### WiFi File Sharing (QR Code)
-- Hosts an in-app HTTP server; displays a QR code any phone on the same WiFi can scan to download songs
-- Single-file and ZIP batch download (album or selection)
-- ZIP entries always closed properly so the archive is valid even when a read error occurs mid-file
-- Server thread exits cleanly when a new share session starts, preventing CPU spin
-
-### Android System Integration
-- **Media notification** — lock screen and notification shade controls (play/pause, previous, next, seek) via `MediaSession` + foreground service; teal accent matches the app theme
-- **Hardware and Bluetooth button support** — physical media keys and BT headset buttons routed through `MediaSession.Callback` to the JavaScript player
-- **MediaStore scanning** — reads all audio from device storage (internal + SD card) without copying files; uses the correct runtime permission per API level (`READ_MEDIA_AUDIO` on API 33+, `READ_EXTERNAL_STORAGE` on API 32 and below); pulls `DATE_ADDED` so the "New" sort shows genuinely newest files
-- **Album art** — decoded and downsampled natively (`BitmapFactory`) before being passed to JS as base64 JPEG, so large embedded art doesn't block the UI thread
-- **Background persistence** — library, queue, playback position, and edits saved to IndexedDB + localStorage and restored between sessions
-
-### Search
-- Global search across songs, artists, and albums
-- Tap any result to navigate directly to that artist, album, or song
-
-### Playlists
-- Create, rename, and delete playlists manually
-- Add individual songs or entire albums to a playlist in one tap
-- Smart playlists auto-populate: Favorites, Top 25, Recently Added, by Genre, by Year
-- Queue management — add to queue, view and reorder the current queue
-
-### Visual Design
-- Dark OLED-friendly theme with teal (`#00a89e`) accent
-- Tab bar with active pill glow and indicator underline
-- Mini player with rounded album art, teal play button, and a teal top glow line
-- Album grid: 2-column cards with square art, bold title, dimmed artist/count meta, ⋮ context menu, and A–Z alphabet strip on the right
-- Smooth fade-in transition on every navigation
-- Full landscape support: art panel on the left, controls on the right, synced lyrics visible alongside
+### Android Integration
+- **Media notification** — lock-screen and shade controls via `MediaSession` and a foreground service
+- **Hardware and Bluetooth buttons** routed through `MediaSession.Callback` into the web player
+- **MediaStore scanning** — reads every audio file on the device without copying anything, using the right runtime permission per API level (`READ_MEDIA_AUDIO` on API 33+, `READ_EXTERNAL_STORAGE` below). Includes files that Android does not flag as music, which is where most downloaded tracks land.
+- **Tag writing** — metadata written directly into files with jaudiotagger, then pushed back into MediaStore so other apps stay in sync
+- **Permanent delete** — removes the file through MediaStore with Android's own confirmation dialog, frees the space, and clears every trace from the library
+- **WiFi sharing** — an in-app HTTP server plus a QR code, so any phone on the same network can download a song, an album, or a ZIP selection
 
 ---
 
 ## Getting a Free Gemini API Key
 
-1. Go to **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)**
-2. Sign in with a Google account and create a free key
-3. In the app: open the side drawer → tap **Set Gemini API Key** → paste the key
+1. Visit **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)**
+2. Sign in and create a free key
+3. In the app: side drawer → **Set Gemini API Key** → paste
 
-The free tier provides enough quota for tagging a large collection. MusicBrainz lookups are always free and require no key.
+The free tier covers a large collection. MusicBrainz needs no key at all.
 
 ---
 
 ## Running in a Browser
 
-No build step required.
+No build step. The web layer runs unmodified in any Chromium browser — you just won't get the native features (MediaStore scanning, tag writing, delete).
 
 ```bash
 git clone https://github.com/dathaze20/music-player-tagger.git
-cd music-player-tagger
-# Open index.html directly, or serve with:
+cd music-player-tagger/www
 python3 -m http.server 8080
 ```
 
-Then open `http://localhost:8080` in Chrome or Edge. Tap **+** to import music files or a folder.
+Open `http://localhost:8080` and use **Select Music Files** to import.
 
 ---
 
 ## Building the Android APK
 
-The Android project lives in `android/` and is driven by Capacitor 8. GitHub Actions builds it automatically on every push — download the latest APK from the **Actions** tab → most recent workflow run → **Artifacts**.
+GitHub Actions builds on every push — grab the APK from the **Actions** tab → latest run → **Artifacts**.
 
 ### Local build
 
@@ -121,17 +104,17 @@ cd android
 ./gradlew assembleDebug
 ```
 
-Debug APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+Output: `android/app/build/outputs/apk/debug/app-debug.apk`
 
-### Signed release build
+### Signed release
 
-Set these environment variables (or GitHub Actions secrets) and run `./gradlew assembleRelease bundleRelease`:
+Set the following, then run `./gradlew assembleRelease bundleRelease`:
 
 | Variable | Description |
 |---|---|
-| `KEYSTORE_BASE64` | Base64-encoded keystore file |
+| `KEYSTORE_BASE64` | Base64-encoded keystore |
 | `STORE_PASSWORD` | Keystore password |
-| `KEY_ALIAS` | Key alias inside the keystore |
+| `KEY_ALIAS` | Key alias |
 | `KEY_PASSWORD` | Key password |
 
 ---
@@ -141,54 +124,67 @@ Set these environment variables (or GitHub Actions secrets) and run `./gradlew a
 | Layer | Technology |
 |---|---|
 | Frontend | Vanilla HTML/CSS/JavaScript — no framework, no bundler |
-| Storage | IndexedDB (art cache, edits, full library), localStorage (settings, fast-start preview) |
-| AI tagging | MusicBrainz API (free) + Google Gemini API (optional) |
-| Tag writing | jaudiotagger (MP3, FLAC, M4A, OGG, WAV, WMA, OPUS) |
-| Lyrics | LRC file parsing with time-aligned line highlighting |
+| Storage | IndexedDB (`muzio_library_idb` for the library and manual edits, `muzio_art` for the art cache); localStorage for settings and a fast-start preview |
+| Tagging | MusicBrainz API (free) + Google Gemini API (optional) |
+| Tag writing | jaudiotagger — MP3, FLAC, M4A, OGG, WAV, OPUS |
+| Lyrics | LRC parsing with time-aligned highlighting |
 | Mobile shell | Capacitor 8 |
-| Native Android | Java — `MediaStorePlugin.java` (MediaStore, permissions, art decoding, tag writing, WiFi server) |
-| Background audio | `MuzioPlaybackService.java` — foreground service with `MediaSession` and `Notification.MediaStyle` |
-| CI/CD | GitHub Actions — debug APK, release APK, and AAB on every push |
+| Native Android | `MediaStorePlugin.java` — scanning, permissions, art decoding, tag writing, delete, file save, WiFi server |
+| Background audio | `MuzioPlaybackService.java` — foreground service with `MediaSession` |
+| CI | GitHub Actions — lint, unit tests, and debug/release APK + AAB on every push |
 
 ---
 
 ## Architecture Notes
 
-**Why not a simple WebView wrapper?**
+**Why a native plugin instead of a plain WebView wrapper**
 
-The web layer uses the browser's File System Access API on desktop. Android can't use that — so instead of a weaker mobile experience, this repo includes a hand-written native plugin that:
+The web layer uses the File System Access API on desktop, which Android does not support. Rather than ship a weaker mobile experience, the repo includes a hand-written plugin that:
 
-- Queries `MediaStore` directly for every audio file on-device (no file copies); pulls `DATE_ADDED`, disc number, album artist, and genre in the same cursor pass
-- Requests the correct runtime permission per API level (API 33+ vs API 32 and below)
-- Decodes album art natively before handing it to JS as base64 JPEG
-- Writes metadata back into files using jaudiotagger via a temp-file copy → modify → write-back pattern so the original is never partially overwritten
-- Hosts a `MediaSession` + foreground service so playback continues in the background
-- Routes hardware/BT button presses back to JS via local broadcasts
+- Queries `MediaStore` directly for every audio file, pulling name, path, duration, disc, album artist, genre, size, and date added in a single cursor pass
+- Requests the correct runtime permission for the API level
+- Decodes album art natively with `BitmapFactory` before handing JS a base64 JPEG, so large embedded art never blocks the UI thread
+- Writes tags through a temp-file copy → modify → write-back pattern, so an interrupted write cannot corrupt the original
+- Runs a `MediaSession` and foreground service for background playback
+- Routes hardware and Bluetooth buttons back to JS via local broadcasts
 
-The same UI JavaScript runs unmodified in a desktop browser tab or as an installed Android app.
+The same UI JavaScript runs unchanged in a desktop browser tab and in the installed app.
 
 **Virtual scroll**
 
-Song, artist, and album lists use a virtual scroll implementation that renders only the visible window plus a small buffer, regardless of library size. A 15,000-song library scrolls at 60 fps because only ~80 DOM nodes exist at any time. The album grid version renders rows (2 cards each) rather than individual items, using a single `agRows` container positioned with `top` offset inside a fixed-height outer element.
+Song, artist, and album lists render only the visible window plus a small buffer. A 15,000-song library scrolls at 60 fps because roughly 80 DOM nodes exist at any moment. The album grid renders rows of two cards inside a single offset container rather than positioning each card.
 
 **Album art pipeline**
 
-Art is decoded by `BitmapFactory` on the Java side, scaled to ≤512px, and JPEG-compressed before crossing the bridge as base64. A three-level cache (in-memory LRU → IndexedDB → native decode) ensures each piece of art is decoded at most once per session. `IntersectionObserver` drives lazy loading so only visible cards trigger a decode.
+Art is decoded natively, scaled to ≤512px, and JPEG-compressed before crossing the bridge. A three-level cache — in-memory LRU, then IndexedDB, then native decode — means each cover is decoded at most once per session, and `IntersectionObserver` ensures only visible cards trigger a decode.
 
 **Edit persistence**
 
-User metadata edits are stored in a separate IndexedDB object store (`muzio_art`) and re-applied on top of every fresh MediaStore scan. This means edits survive a full library rescan and are never overwritten by Android's stale MediaStore cache.
+Manual edits live in their own IndexedDB store (`manual_edits`), keyed by content URI with a filename fallback, and are re-applied on top of every fresh MediaStore scan. Edits therefore survive a full rescan and are never clobbered by Android's stale metadata. Deleting a song also deletes its saved edits, so a file later downloaded under the same name does not silently inherit them.
+
+**Activity results**
+
+Capacitor routes an Android activity result to a plugin only if the request code is declared in the `requestCodes` element of `@CapacitorPlugin`, which defaults to empty. Every flow that needs a system dialog — delete, tag-write consent, storage access — declares its code there. Without it those calls hang forever with no error, since neither the success nor the failure path is ever reached.
 
 ---
 
-## Tests
+## Tests and Linting
 
 ```bash
 npm install
-npm test
+npm test     # vitest — filename parsing, LRC parsing, time formatting
+npm run lint # eslint over the shipped app in www/
 ```
 
-Unit tests cover filename parsing, LRC lyric parsing, and time formatting helpers — see `tests/`.
+Both run in CI on every push.
+
+---
+
+## Known Limitations
+
+- **SD card tag writing** is implemented natively but no UI triggers the permission request, so it cannot currently be used.
+- **Damaged audio files** cannot be played. The WebView uses Chromium's decoders, which reject some truncated or malformed downloads. The app reports the reason, including the file size when a download is incomplete, so a broken file is easy to tell apart from an unsupported format.
+- **Crossfade and the equalizer** rely on the Web Audio API and are unavailable on files the WebView cannot decode.
 
 ---
 
