@@ -53,49 +53,36 @@ jobs:
         run: |
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-36" "build-tools;36.0.0" 2>/dev/null || true
 
-      # The `env` context is not populated from step-level env in an `if:`, so the
-      # guard lives in the script instead — otherwise this step silently skipped
-      # even when the secrets were present.
-      - name: Decode release keystore
+      # The keystore lives in the repo AES-256 encrypted, so the only secret to
+      # configure is the passphrase. Pasting a 5,840-character base64 blob by hand
+      # proved unreliable; a 32-character passphrase does not have that problem.
+      - name: Decrypt release keystore
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_PASSPHRASE: ${{ secrets.KEYSTORE_PASSPHRASE }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "KEYSTORE_BASE64 not set — release build will be unsigned."
+          if [ -z "$KEYSTORE_PASSPHRASE" ]; then
+            echo "KEYSTORE_PASSPHRASE not set — release build will be unsigned."
             exit 0
           fi
-
-          # Strip whitespace before decoding. The secret is one very long line and
-          # copying it by hand, especially on a phone, tends to introduce line
-          # breaks that would otherwise fail the decode.
-          if ! printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' \
-               | base64 -d > "$RUNNER_TEMP/release.jks" 2>/dev/null; then
-            echo "::error::KEYSTORE_BASE64 is not valid base64. Re-copy the whole value."
-            exit 1
-          fi
-
-          # A truncated paste still decodes, so confirm the keystore really opens.
-          # This also tells us which of the three remaining secrets is wrong.
-          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
-                 -storepass "$STORE_PASSWORD" > /dev/null 2>&1; then
-            echo "::error::Keystore did not open. Either KEYSTORE_BASE64 is incomplete or STORE_PASSWORD is wrong."
+          if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+                 -in android/app/keystore.jks.enc \
+                 -out "$RUNNER_TEMP/release.jks" \
+                 -pass pass:"$KEYSTORE_PASSPHRASE" 2>/dev/null; then
+            echo "::error::Could not decrypt the keystore. KEYSTORE_PASSPHRASE is wrong."
             exit 1
           fi
           if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
-                 -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null 2>&1; then
-            echo "::error::KEY_ALIAS not found in the keystore."
+                 -storepass "$KEYSTORE_PASSPHRASE" -alias mymusic > /dev/null 2>&1; then
+            echo "::error::Keystore decrypted but would not open. Report this."
             exit 1
           fi
           {
             echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks"
-            echo "STORE_PASSWORD<<__EOF__"; echo "$STORE_PASSWORD"; echo "__EOF__"
-            echo "KEY_ALIAS<<__EOF__";      echo "$KEY_ALIAS";      echo "__EOF__"
-            echo "KEY_PASSWORD<<__EOF__";   echo "$KEY_PASSWORD";   echo "__EOF__"
+            echo "KEY_ALIAS=mymusic"
+            echo "STORE_PASSWORD<<__EOF__"; echo "$KEYSTORE_PASSPHRASE"; echo "__EOF__"
+            echo "KEY_PASSWORD<<__EOF__";   echo "$KEYSTORE_PASSPHRASE"; echo "__EOF__"
           } >> "$GITHUB_ENV"
-          echo "Signing key loaded."
+          echo "Signing key ready."
 
       - name: Build release APK + AAB
         run: |
