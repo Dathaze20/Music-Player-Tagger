@@ -1,0 +1,147 @@
+name: Publish Release
+
+# Push a tag like v1.2.0 and this builds the signed app and publishes a GitHub
+# Release with the APK attached. Unlike Actions artifacts, a release does not
+# expire and anyone can download it without a GitHub account.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. v1.2.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: ver
+        run: |
+          RAW="${{ github.event.inputs.version || github.ref_name }}"
+          NAME="${RAW#v}"
+          if ! echo "$NAME" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version must look like v1.2.0 (got '$RAW')."
+            exit 1
+          fi
+          # Pack major.minor.patch into a single ascending integer for Android.
+          MAJOR=$(echo "$NAME" | cut -d. -f1)
+          MINOR=$(echo "$NAME" | cut -d. -f2)
+          PATCH=$(echo "$NAME" | cut -d. -f3)
+          CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          {
+            echo "tag=v$NAME"
+            echo "name=$NAME"
+            echo "code=$CODE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing v$NAME (versionCode $CODE)"
+
+      - name: Set up JDK 21 (Zulu)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'zulu'
+          cache: 'gradle'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Patch @capacitor/filesystem kotlin extension collision
+        run: |
+          FILE="node_modules/@capacitor/filesystem/android/build.gradle"
+          sed -i "s/apply plugin: 'kotlin-android'/if (project.extensions.findByName('kotlin') == null) { apply plugin: 'kotlin-android' }/" "$FILE"
+
+      - name: Copy web assets to Android
+        run: |
+          mkdir -p android/app/src/main/assets/public
+          cp -r www/. android/app/src/main/assets/public/
+          cp capacitor.config.json android/app/src/main/assets/capacitor.config.json
+          echo '{"plugins":{}}' > android/app/src/main/assets/capacitor.plugins.json
+          mkdir -p android/app/src/main/res/xml
+          printf "<?xml version='1.0' encoding='utf-8'?>\n<widget version=\"1.0.0\" xmlns=\"http://www.w3.org/ns/widgets\" xmlns:cdv=\"http://cordova.apache.org/ns/1.0\">\n  <access origin=\"*\" />\n</widget>\n" > android/app/src/main/res/xml/config.xml
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Install Android SDK 36
+        run: |
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-36" "build-tools;36.0.0" 2>/dev/null || true
+
+      # A release must be signed. Unlike the normal build this fails outright
+      # rather than quietly producing an unsigned file nobody can install.
+      - name: Decrypt release keystore
+        env:
+          KEYSTORE_PASSPHRASE: ${{ secrets.KEYSTORE_PASSPHRASE }}
+        run: |
+          if [ -z "$KEYSTORE_PASSPHRASE" ]; then
+            echo "::error::KEYSTORE_PASSPHRASE is not set. A release cannot be published unsigned."
+            exit 1
+          fi
+          if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+                 -in android/app/keystore.jks.enc \
+                 -out "$RUNNER_TEMP/release.jks" \
+                 -pass pass:"$KEYSTORE_PASSPHRASE" 2>/dev/null; then
+            echo "::error::Could not decrypt the keystore. KEYSTORE_PASSPHRASE is wrong."
+            exit 1
+          fi
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
+                 -storepass "$KEYSTORE_PASSPHRASE" -alias mymusic > /dev/null 2>&1; then
+            echo "::error::Keystore decrypted but would not open."
+            exit 1
+          fi
+          {
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks"
+            echo "KEY_ALIAS=mymusic"
+            echo "STORE_PASSWORD<<__EOF__"; echo "$KEYSTORE_PASSPHRASE"; echo "__EOF__"
+            echo "KEY_PASSWORD<<__EOF__";   echo "$KEYSTORE_PASSPHRASE"; echo "__EOF__"
+          } >> "$GITHUB_ENV"
+
+      - name: Build signed APK and AAB
+        env:
+          APP_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          set -o pipefail
+          cd android && ./gradlew assembleRelease bundleRelease --no-daemon
+
+      # Refuse to publish anything that did not actually get signed.
+      - name: Confirm the APK is signed
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$APK" ]; then
+            echo "::error::No signed APK was produced."
+            exit 1
+          fi
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK" | head -20
+          mkdir -p dist
+          cp "$APK" "dist/MyMusic-${{ steps.ver.outputs.tag }}.apk"
+          cp android/app/build/outputs/bundle/release/app-release.aab \
+             "dist/MyMusic-${{ steps.ver.outputs.tag }}.aab"
+          ls -lh dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            dist/MyMusic-${{ steps.ver.outputs.tag }}.apk \
+            dist/MyMusic-${{ steps.ver.outputs.tag }}.aab \
+            --title "My Music ${{ steps.ver.outputs.tag }}" \
+            --generate-notes
