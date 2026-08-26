@@ -53,16 +53,28 @@ jobs:
         run: |
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-36" "build-tools;36.0.0" 2>/dev/null || true
 
+      # The `env` context is not populated from step-level env in an `if:`, so the
+      # guard lives in the script instead — otherwise this step silently skipped
+      # even when the secrets were present.
       - name: Decode release keystore
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > /tmp/mymusic-release.jks
-          echo "KEYSTORE_PATH=/tmp/mymusic-release.jks" >> $GITHUB_ENV
-          echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "KEYSTORE_BASE64 not set — release build will be unsigned."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          {
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks"
+            echo "STORE_PASSWORD<<__EOF__"; echo "$STORE_PASSWORD"; echo "__EOF__"
+            echo "KEY_ALIAS<<__EOF__";      echo "$KEY_ALIAS";      echo "__EOF__"
+            echo "KEY_PASSWORD<<__EOF__";   echo "$KEY_PASSWORD";   echo "__EOF__"
+          } >> "$GITHUB_ENV"
+          echo "Signing key loaded."
 
       - name: Build release APK + AAB
         run: |

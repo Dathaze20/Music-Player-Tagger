@@ -1,5 +1,21 @@
 apply plugin: 'com.android.application'
 
+// Release signing is configured entirely from the environment. Nothing secret is
+// stored in this repository.
+def releaseKeystorePath  = System.getenv('KEYSTORE_PATH')
+def releaseStorePassword = System.getenv('STORE_PASSWORD')
+def releaseKeyAlias      = System.getenv('KEY_ALIAS')
+def releaseKeyPassword   = System.getenv('KEY_PASSWORD')
+def hasReleaseKey = releaseKeystorePath?.trim() &&
+                    releaseStorePassword?.trim() &&
+                    releaseKeyAlias?.trim() &&
+                    releaseKeyPassword?.trim() &&
+                    file(releaseKeystorePath).exists()
+
+if (!hasReleaseKey) {
+    logger.lifecycle('No signing key in the environment — release will be unsigned, debug uses the debug key.')
+}
+
 android {
     namespace = "com.muzioai.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -14,25 +30,31 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Signing material comes from the environment, never from the repository.
+    // CI populates these from GitHub Secrets; for a local release build, export
+    // them in your shell first. When they are absent the release build is left
+    // unsigned and debug falls back to the standard debug key, so a plain
+    // `assembleDebug` still works for anyone who clones this.
     signingConfigs {
-        release {
-            // Stable key committed to repo — same cert on every build so Android
-            // never sees a "new" app and Play Protect warns only once.
-            storeFile file('muzio.keystore')
-            storePassword 'muzio2024'
-            keyAlias 'muzio_key'
-            keyPassword 'muzio2024'
+        if (hasReleaseKey) {
+            release {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            if (hasReleaseKey) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
         debug {
-            signingConfig signingConfigs.release
-            // Same package ID — APK installs over existing app without uninstalling
+            // Signing debug with the release key keeps the same package identity, so
+            // a debug APK installs over an existing install without uninstalling.
+            if (hasReleaseKey) signingConfig signingConfigs.release
         }
     }
 }
