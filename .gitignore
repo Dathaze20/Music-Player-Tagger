@@ -28,3 +28,8 @@ android/.idea/
 .turbo/
 npm-debug.log*
 push_instructions.txt
+
+# Signing material — never commit
+*.keystore
+*.jks
+keystore.properties
