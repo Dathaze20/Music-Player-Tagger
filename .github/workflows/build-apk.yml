@@ -67,7 +67,28 @@ jobs:
             echo "KEYSTORE_BASE64 not set — release build will be unsigned."
             exit 0
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+          # Strip whitespace before decoding. The secret is one very long line and
+          # copying it by hand, especially on a phone, tends to introduce line
+          # breaks that would otherwise fail the decode.
+          if ! printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' \
+               | base64 -d > "$RUNNER_TEMP/release.jks" 2>/dev/null; then
+            echo "::error::KEYSTORE_BASE64 is not valid base64. Re-copy the whole value."
+            exit 1
+          fi
+
+          # A truncated paste still decodes, so confirm the keystore really opens.
+          # This also tells us which of the three remaining secrets is wrong.
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
+                 -storepass "$STORE_PASSWORD" > /dev/null 2>&1; then
+            echo "::error::Keystore did not open. Either KEYSTORE_BASE64 is incomplete or STORE_PASSWORD is wrong."
+            exit 1
+          fi
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
+                 -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null 2>&1; then
+            echo "::error::KEY_ALIAS not found in the keystore."
+            exit 1
+          fi
           {
             echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks"
             echo "STORE_PASSWORD<<__EOF__"; echo "$STORE_PASSWORD"; echo "__EOF__"
