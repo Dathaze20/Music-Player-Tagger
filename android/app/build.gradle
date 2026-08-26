@@ -16,6 +16,12 @@ if (!hasReleaseKey) {
     logger.lifecycle('No signing key in the environment — release will be unsigned, debug uses the debug key.')
 }
 
+// A tagged release supplies its version; everyday builds keep the defaults.
+// Android decides whether an install is an upgrade by versionCode alone, so this
+// has to advance between releases or a newer APK will not install over an older one.
+def appVersionName = System.getenv('APP_VERSION_NAME') ?: '1.1'
+def appVersionCode = (System.getenv('APP_VERSION_CODE') ?: '2') as int
+
 android {
     namespace = "com.muzioai.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -23,8 +29,8 @@ android {
         applicationId "com.muzioai.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
