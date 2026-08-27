@@ -136,12 +136,55 @@ jobs:
              "dist/MyMusic-${{ steps.ver.outputs.tag }}.aab"
           ls -lh dist
 
+      # Auto-generated notes list every pull request in the project's history,
+      # which pushes the Assets section far below the fold — on the GitHub mobile
+      # app the download looks missing entirely. Short notes keep it reachable.
+      - name: Write the release notes
+        run: |
+          cat > dist/NOTES.md <<'NOTES'
+          A local music player for Android that tags your library for you.
+
+          ## Install
+
+          Download **MyMusic-${{ steps.ver.outputs.tag }}.apk** below and open it.
+
+          Android will warn that your browser is not allowed to install apps —
+          tap Settings, turn on "Allow from this source", go back, and tap
+          Install. That prompt appears for any app not from the Play Store.
+
+          On first launch, allow access to your music files.
+
+          Already have it installed? This installs straight over the top; nothing
+          is lost.
+
+          ## In this version
+
+          - Deleting a song now removes the file and frees the space, instead of
+            leaving it behind to reappear on the next scan
+          - Export Backup writes a real file to your Downloads folder
+          - Album art you choose shows everywhere: song rows, album grid, artist
+            pages and artist avatars
+          - Songs Android does not label as music, which is where most downloaded
+            tracks land, are picked up by the scanner
+          - Error messages say why a file will not play, including whether the
+            download is incomplete
+
+          Requires Android 7.0 or newer. iPhone is not supported.
+          NOTES
+          echo "notes written"
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.ver.outputs.tag }}" \
-            dist/MyMusic-${{ steps.ver.outputs.tag }}.apk \
-            dist/MyMusic-${{ steps.ver.outputs.tag }}.aab \
-            --title "My Music ${{ steps.ver.outputs.tag }}" \
-            --generate-notes
+          TAG="${{ steps.ver.outputs.tag }}"
+          # Re-runnable: update the release if the tag already has one.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "My Music $TAG" --notes-file dist/NOTES.md
+            gh release upload "$TAG" \
+              "dist/MyMusic-$TAG.apk" "dist/MyMusic-$TAG.aab" --clobber
+          else
+            gh release create "$TAG" \
+              "dist/MyMusic-$TAG.apk" "dist/MyMusic-$TAG.aab" \
+              --title "My Music $TAG" --notes-file dist/NOTES.md
+          fi
