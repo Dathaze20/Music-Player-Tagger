@@ -303,8 +303,23 @@ var NativeBridge = (function() {
     return plugin.saveToDownloads({ fileName: fileName, text: text, mimeType: mimeType || 'text/plain' });
   }
 
+  // Installed version, used to tell whether a published release is newer.
+  function getAppVersion() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.getAppVersion) return Promise.resolve(null);
+    return plugin.getAppVersion().catch(function() { return null; });
+  }
+
+  // Open a link in the browser. An APK link opened inside the WebView does nothing.
+  function openExternal(url) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.openExternal) return Promise.reject(new Error('openExternal not available'));
+    return plugin.openExternal({ url: url });
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
            saveToDownloads: saveToDownloads,
+           getAppVersion: getAppVersion, openExternal: openExternal,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
            readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
            vibrate: vibrate,

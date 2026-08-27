@@ -5950,6 +5950,122 @@ function _doImportBackup(file) {
   reader.readAsText(file);
 }
 
+// ─── Update check ───
+// Sideloaded apps get no automatic updates, so the app asks GitHub itself whether
+// a newer release exists and hands the APK to the browser to download.
+
+var GITHUB_REPO = 'Dathaze20/Music-Player-Tagger';
+var _appVersion = null; // { versionName, versionCode } once known
+
+// Turn "1.4.2" into the same ascending integer the release workflow builds, so a
+// tag can be compared against the installed versionCode without parsing rules
+// living in two places.
+function _versionCodeFromTag(tag) {
+  var m = /^v?(\d+)\.(\d+)\.(\d+)$/.exec((tag || '').trim());
+  if (!m) return null;
+  return (+m[1]) * 10000 + (+m[2]) * 100 + (+m[3]);
+}
+
+function _showAppVersion() {
+  var el = document.getElementById('drawerFooter');
+  if (!el) return;
+  el.textContent = _appVersion && _appVersion.versionName
+    ? 'My Music v' + _appVersion.versionName
+    : 'My Music';
+}
+
+function checkForUpdates() {
+  var btn   = document.getElementById('checkUpdateBtn');
+  var label = document.getElementById('checkUpdateLabel');
+  if (!label) return;
+  var reset = function(text) {
+    label.textContent = text || 'Check for Updates';
+    if (btn) btn.disabled = false;
+  };
+  if (btn) btn.disabled = true;
+  label.textContent = 'Checking…';
+
+  fetch('https://api.github.com/repos/' + GITHUB_REPO + '/releases/latest', {
+    headers: { 'Accept': 'application/vnd.github+json' }
+  }).then(function(res) {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }).then(function(rel) {
+    var latestCode = _versionCodeFromTag(rel.tag_name);
+    var mineCode   = _appVersion ? _appVersion.versionCode : null;
+    var apk = (rel.assets || []).filter(function(a) {
+      return /\.apk$/i.test(a.name || '');
+    })[0];
+
+    if (latestCode === null || mineCode === null) {
+      reset();
+      showToast('Could not compare versions — open the release page to check', 4000);
+      return;
+    }
+    if (latestCode <= mineCode) {
+      reset();
+      showToast('You are on the latest version (v' + _appVersion.versionName + ')', 3000);
+      return;
+    }
+    if (!apk) {
+      reset();
+      showToast(rel.tag_name + ' is out, but it has no APK attached yet', 4000);
+      return;
+    }
+    reset('Update to ' + rel.tag_name);
+    _promptUpdate(rel, apk);
+  }).catch(function() {
+    reset();
+    showToast('Could not reach GitHub — check your connection', 3500);
+  });
+}
+
+function _promptUpdate(rel, apk) {
+  var mb = apk.size ? (apk.size / 1048576).toFixed(1) + ' MB' : '';
+  var body = (rel.body || '').split('## In this version')[1] || '';
+  body = body.split('##')[0].trim().slice(0, 400);
+
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:400;';
+  var card = document.createElement('div');
+  card.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);'
+    + 'width:min(90vw,380px);max-height:80vh;overflow:auto;background:var(--bg-card);'
+    + 'border:1px solid var(--border);border-radius:18px;padding:20px;z-index:401;';
+  card.innerHTML =
+      '<div style="font-size:17px;font-weight:700;margin-bottom:4px;">Update available</div>'
+    + '<div style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">'
+    + escHtml(rel.tag_name) + (mb ? ' &bull; ' + mb : '')
+    + ' &bull; you have v' + escHtml(_appVersion.versionName) + '</div>'
+    + (body ? '<div style="font-size:13px;color:var(--text-dim);white-space:pre-wrap;'
+              + 'line-height:1.5;margin-bottom:16px;">' + escHtml(body) + '</div>' : '')
+    + '<div style="font-size:12px;color:var(--text-faint);line-height:1.5;margin-bottom:16px;">'
+    + 'Downloads in your browser. Open the file to install it over this one — '
+    + 'nothing is lost.</div>'
+    + '<div style="display:flex;gap:10px;">'
+    + '<button id="updLater" class="btn btn-secondary" style="flex:1;">Later</button>'
+    + '<button id="updNow" class="btn btn-primary" style="flex:1;">Download</button>'
+    + '</div>';
+
+  function close() { overlay.remove(); card.remove(); }
+  overlay.onclick = close;
+  document.body.appendChild(overlay);
+  document.body.appendChild(card);
+  card.querySelector('#updLater').onclick = close;
+  card.querySelector('#updNow').onclick = function() {
+    close();
+    var url = apk.browser_download_url;
+    if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+      NativeBridge.openExternal(url).catch(function() {
+        showToast('Could not open the browser', 3000);
+      });
+    } else {
+      window.open(url, '_blank');
+    }
+    showToast('Downloading… open the file when it finishes', 4000);
+  };
+}
+
 // Show native-only drawer items once Capacitor is ready
 function updateDrawerForPlatform() {
   var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
@@ -5957,7 +6073,23 @@ function updateDrawerForPlatform() {
   el = document.getElementById('rescanLibBtn');    if (el) el.classList.toggle('hidden', !isNat);
   el = document.getElementById('importFolderBtn'); if (el) el.classList.toggle('hidden', isNat);
   el = document.getElementById('importFilesBtn');  if (el) el.classList.toggle('hidden', isNat);
+  // Updating in place only applies to the installed app; in a browser tab there is
+  // nothing to update.
+  el = document.getElementById('checkUpdateBtn');  if (el) el.classList.toggle('hidden', !isNat);
+  if (isNat && !_appVersion) {
+    NativeBridge.getAppVersion().then(function(v) {
+      if (v) { _appVersion = v; _showAppVersion(); }
+    });
+  }
 }
+
+document.getElementById('checkUpdateBtn').onclick = function() {
+  if (!_appVersion) {
+    showToast('Still reading the app version — try again in a moment', 2500);
+    return;
+  }
+  checkForUpdates();
+};
 document.addEventListener('deviceready', updateDrawerForPlatform, false);
 setTimeout(updateDrawerForPlatform, 200);
 

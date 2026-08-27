@@ -174,6 +174,45 @@ public class MediaStorePlugin extends Plugin {
         getActivity().finishAffinity();
     }
 
+    /** The installed version, so the app can tell whether a release is newer than itself. */
+    @PluginMethod
+    public void getAppVersion(PluginCall call) {
+        try {
+            android.content.pm.PackageInfo info = getContext().getPackageManager()
+                .getPackageInfo(getContext().getPackageName(), 0);
+            long code = (Build.VERSION.SDK_INT >= 28)
+                ? info.getLongVersionCode()
+                : (long) info.versionCode;
+            JSObject r = new JSObject();
+            r.put("versionName", info.versionName == null ? "" : info.versionName);
+            r.put("versionCode", code);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("Could not read app version: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Hand a URL to the browser. The WebView registers no DownloadListener, so an APK
+     * link opened inside it goes nowhere; the browser has to do the downloading.
+     */
+    @PluginMethod
+    public void openExternal(PluginCall call) {
+        String url = call.getString("url", "");
+        if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) {
+            call.reject("Refusing to open a non-http(s) URL");
+            return;
+        }
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not open the link: " + e.getMessage());
+        }
+    }
+
     /**
      * Writes a text file into the public Downloads folder.
      *
