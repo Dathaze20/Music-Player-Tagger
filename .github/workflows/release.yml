@@ -22,6 +22,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Tags and history, so notes can fall back to the commits since the
+          # previous release when CHANGELOG.md has no section for this one.
+          fetch-depth: 0
 
       - name: Work out the version
         id: ver
@@ -139,14 +143,21 @@ jobs:
       # Auto-generated notes list every pull request in the project's history,
       # which pushes the Assets section far below the fold — on the GitHub mobile
       # app the download looks missing entirely. Short notes keep it reachable.
+      #
+      # What changed comes from CHANGELOG.md rather than being written here, so
+      # the notes describe the version being built. They used to be fixed text
+      # in this file, which meant every release repeated the same list however
+      # much had changed since.
       - name: Write the release notes
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          cat > dist/NOTES.md <<'NOTES'
+          cat > dist/NOTES.md <<NOTES
           A local music player for Android that tags your library for you.
 
           ## Install
 
-          Download **MyMusic-${{ steps.ver.outputs.tag }}.apk** below and open it.
+          Download **MyMusic-$TAG.apk** below and open it.
 
           Android will warn that your browser is not allowed to install apps —
           tap Settings, turn on "Allow from this source", go back, and tap
@@ -158,20 +169,36 @@ jobs:
           is lost.
 
           ## In this version
-
-          - Deleting a song now removes the file and frees the space, instead of
-            leaving it behind to reappear on the next scan
-          - Export Backup writes a real file to your Downloads folder
-          - Album art you choose shows everywhere: song rows, album grid, artist
-            pages and artist avatars
-          - Songs Android does not label as music, which is where most downloaded
-            tracks land, are picked up by the scanner
-          - Error messages say why a file will not play, including whether the
-            download is incomplete
-
-          Requires Android 7.0 or newer. iPhone is not supported.
           NOTES
-          echo "notes written"
+
+          # The section for this tag, up to the next heading.
+          awk -v tag="## $TAG" '
+            $0 == tag { grab = 1; next }
+            grab && /^## / { exit }
+            grab { print }
+          ' CHANGELOG.md > dist/section.md
+
+          if [ -s dist/section.md ]; then
+            cat dist/section.md >> dist/NOTES.md
+          else
+            # No section written for this version. Say so plainly and list the
+            # commits, rather than repeating another release's notes as if they
+            # described this one.
+            echo "::warning::No CHANGELOG.md section for $TAG; falling back to commit subjects."
+            PREV=$(git describe --tags --abbrev=0 --exclude="$TAG" 2>/dev/null || true)
+            {
+              echo ""
+              if [ -n "$PREV" ]; then
+                git log --no-merges --pretty='- %s' "$PREV"..HEAD | head -20
+              else
+                git log --no-merges --pretty='- %s' -10
+              fi
+            } >> dist/NOTES.md
+          fi
+
+          printf '\nRequires Android 7.0 or newer. iPhone is not supported.\n' >> dist/NOTES.md
+          echo "--- notes ---"
+          cat dist/NOTES.md
 
       - name: Publish the release
         env:
