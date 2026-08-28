@@ -1560,7 +1560,14 @@ var _geminiModel = localStorage.getItem('gemini_model') || '';
 // was the best available, it is simply chosen again.
 if (_geminiModel && !/gemini/i.test(_geminiModel)) {
   _geminiModel = '';
-  try { localStorage.removeItem('gemini_model'); } catch(e) {}
+  // The endpoint and request shape were learned for that model, not for
+  // whatever replaces it, so they go with it rather than being applied to a
+  // model that may well want the other endpoint.
+  try {
+    localStorage.removeItem('gemini_model');
+    localStorage.removeItem('gemini_transport');
+    localStorage.removeItem('gemini_body_idx');
+  } catch(e) {}
 }
 var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture. Research this release from your knowledge and return correct values for every field — do not leave fields blank if you know the answer.\n\n';
 var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre (e.g. "Trap", "Boom Bap", "Drill") not a broad category\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
@@ -4788,7 +4795,7 @@ function _geminiCall(model, key, text, wantJson, signal) {
     return value;
   }
 
-  function viaInteractions(bodyIdx) {
+  function viaInteractions(bodyIdx, mayFallBack) {
     var bodies = _geminiInteractionBodies(model, text);
     if (bodyIdx >= bodies.length) {
       var gone = new Error('The Interactions API would not accept any request this app knows how to make');
@@ -4804,14 +4811,18 @@ function _geminiCall(model, key, text, wantJson, signal) {
         }
         return { data: r.data, raw: r.raw };
       }
-      if (r.status === 400 && _geminiIsBodyComplaint(r.msg)) return viaInteractions(bodyIdx + 1);
+      if (r.status === 400 && _geminiIsBodyComplaint(r.msg)) return viaInteractions(bodyIdx + 1, mayFallBack);
+      // The remembered endpoint was learned from a different model. Ask the
+      // other one before calling this a failure, rather than holding a model
+      // to a choice that was never made for it.
+      if (mayFallBack && (r.status === 400 || r.status === 404)) return viaGenerateContent(false);
       var err = new Error(r.msg);
       err.status = r.status;
       throw err;
     });
   }
 
-  function viaGenerateContent() {
+  function viaGenerateContent(mayFallBack) {
     return post(_GEMINI_BASE + model + ':generateContent', {
       contents: [{ parts: [{ text: text }] }],
       generationConfig: { responseMimeType: wantJson ? 'application/json' : 'text/plain' }
@@ -4820,7 +4831,9 @@ function _geminiCall(model, key, text, wantJson, signal) {
         _geminiTransport = remember(_geminiTransport, 'generate', 'gemini_transport');
         return { data: r.data, raw: r.raw };
       }
-      if (/Interactions API/i.test(r.msg)) return viaInteractions(_geminiBodyIdx);
+      if (mayFallBack !== false && /Interactions API/i.test(r.msg)) {
+        return viaInteractions(_geminiBodyIdx, false);
+      }
       var err = new Error(r.msg);
       err.status = r.status;
       throw err;
@@ -4828,8 +4841,8 @@ function _geminiCall(model, key, text, wantJson, signal) {
   }
 
   return (_geminiTransport === 'interactions')
-    ? viaInteractions(_geminiBodyIdx)
-    : viaGenerateContent();
+    ? viaInteractions(_geminiBodyIdx, true)
+    : viaGenerateContent(true);
 }
 
 /**
