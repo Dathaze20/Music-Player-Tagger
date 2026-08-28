@@ -4691,8 +4691,36 @@ function aiFill(song) {
 // Ask the API which models this key can actually use, rather than guessing from a
 // hardcoded list that goes stale every time Google renames or retires one. The
 // list below is kept only as a fallback for when this call itself fails.
+/**
+ * Send a request to the Gemini API with the key attached the documented way.
+ *
+ * The key used to go on the URL as ?key=. Google is retiring that: keys issued
+ * by AI Studio since mid-2026 begin "AQ." instead of "AIza" and are refused on
+ * the query parameter outright, and standard AIza keys stop working in
+ * September 2026. The x-goog-api-key header carries both kinds.
+ *
+ * The query parameter survives only as a fallback. A custom header needs a CORS
+ * preflight, and if a WebView on some device cannot get one through, an older
+ * key should still work rather than the app simply stopping.
+ */
+function _geminiFetch(url, init, key) {
+  init = init || {};
+  var opts = {}, k;
+  for (k in init) opts[k] = init[k];
+  opts.headers = {};
+  for (k in (init.headers || {})) opts.headers[k] = init.headers[k];
+  opts.headers['x-goog-api-key'] = key;
+  return fetch(url, opts).catch(function(err) {
+    if (err && err.name === 'TypeError') {
+      var sep = url.indexOf('?') === -1 ? '?' : '&';
+      return fetch(url + sep + 'key=' + encodeURIComponent(key), init);
+    }
+    throw err;
+  });
+}
+
 function _geminiListModels(key) {
-  return fetch(_GEMINI_LIST + '?key=' + encodeURIComponent(key)).then(function(res) {
+  return _geminiFetch(_GEMINI_LIST, null, key).then(function(res) {
     return res.text().then(function(raw) {
       var d = null; try { d = JSON.parse(raw); } catch(e) {}
       if (!res.ok) {
@@ -4710,39 +4738,39 @@ function _geminiListModels(key) {
 // it. A key pasted on a phone is far more often truncated by the paste than
 // rejected by Google, and "cut short" is an answer the person can act on, where
 // Google's reply for the same mistake is only "API key not valid".
+// Both shapes of key Google issues. "AQ." keys are the new auth keys AI Studio
+// hands out now; "AIza" keys are the older standard ones, which Google retires
+// in September 2026. Anything else is not a key, and saying which is which is
+// the difference between a useful message and a wrong one.
+var _GEMINI_KEY_RE = /(AQ\.[0-9A-Za-z._-]{20,120}|AIza[0-9A-Za-z_-]{35})/;
+
+// Describe a key that cannot be one, before spending a network round trip on
+// it. This is only ever an observation: the key is sent to Google regardless,
+// because this app already once refused a perfectly good key for not matching
+// a shape Google had quietly changed.
 function _geminiKeyShapeProblem(key) {
   key = String(key || '');
   if (!key) return 'No key entered.';
-  if (key.indexOf('AIza') !== 0) {
-    // Say what is actually saved. "Not a valid key" sends someone off to check a
-    // key that is fine; "24 characters, starts with 7yLCcw" shows them at once
-    // that the copy caught only the end of it.
-    var head = key.substring(0, 8).replace(/[^\x20-\x7E]/g, '?');
-    // Too short says the front was clipped off; too long says something else
-    // entirely was copied. They are different mistakes with different fixes,
-    // so they get told apart rather than both called "not a valid key".
-    var cause = (key.length > 39)
-      ? 'This is a different string altogether, not a piece of a key — something else on the page got copied.'
-      : 'The copy caught only the end of it; the front was left behind.';
-    return 'This is not a Gemini key. What is saved is ' + key.length +
-      ' characters and starts with “' + head + '”, but a Gemini key is 39 characters and always starts with AIza. ' +
-      cause + ' On aistudio.google.com/apikey, press Create API key, then use the copy button beside the key itself.';
-  }
-  if (key.length < 35 || key.length > 45) {
-    return 'This key is ' + key.length + ' characters long; a Gemini key is 39. The copy was cut short — use the copy button beside the key on aistudio.google.com/apikey.';
-  }
-  return '';
+  if (/^AQ\.[0-9A-Za-z._-]{20,120}$/.test(key)) return '';
+  if (/^AIza[0-9A-Za-z_-]{35}$/.test(key)) return '';
+  var head = key.substring(0, 12).replace(/[^\x20-\x7E]/g, '?');
+  var cause = /^https?:/i.test(key)
+    ? 'That is a web address. A long-press copies the link of the row the key sits in rather than the key itself \u2014 use the copy button beside the key.'
+    : 'Copy it again with the copy button beside the key.';
+  return 'This does not look like a Gemini key. What is saved is ' + key.length +
+    ' characters starting with \u201c' + head + '\u201d. A key starts with either AQ. or AIza. ' + cause +
+    ' It will still be tried, in case Google has changed the format again.';
 }
 
 // Pull the key out of whatever was pasted. A paste made on a phone arrives with
 // a label around it, a stray quote, or an invisible formatting character that
-// trim() does not touch and that nobody can see in the box — any of which
-// would leave a perfectly good key looking like it does not start with AIza.
+// trim() does not touch and that nobody can see in the box \u2014 any of which
+// would leave a perfectly good key looking malformed.
 function _geminiCleanKey(raw) {
   var s = String(raw || '')
     .replace(/[\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060\uFEFF]/g, '')
     .replace(/\s+/g, '');
-  var m = /AIza[0-9A-Za-z_-]{35}/.exec(s);
+  var m = _GEMINI_KEY_RE.exec(s);
   return m ? m[0] : s;
 }
 
@@ -4754,9 +4782,11 @@ function _geminiExplain(err) {
     return 'Could not reach Google. Check WiFi or mobile data, then try again.';
   }
   var msg = err.message || String(err);
-  // Google answers "API key not valid" for anything it does not recognise. If
-  // the key was not shaped like a key either, that says far more about why.
-  if (err.shape && /API[_ ]key not valid|API_KEY_INVALID/i.test(msg)) return err.shape;
+  // Google answers "API key not valid" for anything it does not recognise. When
+  // what was saved was not shaped like a key either, that says more about why.
+  if (err.shape && /API[_ ]key not valid|API_KEY_INVALID/i.test(msg)) {
+    return err.shape + '\n\nGoogle also rejected it.';
+  }
   // "Requests from this Android client application are blocked" \u2014 the key
   // was locked to an app or a website in Google Cloud, and this app cannot
   // present the credentials it wants.
@@ -4847,9 +4877,11 @@ function _geminiFindWorkingModel(key) {
   return _geminiListModels(key).then(function(models) {
     return { cands: _geminiRankModels(models), listErr: null };
   }, function(err) {
-    // A key or project fault answers the whole question — no point probing ten
-    // models that will all be refused for the same reason.
-    if (_geminiIsKeyError(err.status, err.message)) {
+    // Only an unmistakably dead key ends things here. A 403 on the listing is
+    // not one: the new AQ. auth keys carry scoped permissions and may simply
+    // not be allowed to list models, and treating that as a verdict would
+    // abandon the check without ever asking the model itself.
+    if (/API[_ ]key not valid|API_KEY_INVALID|API key expired/i.test(err.message || '')) {
       if (shape) err.shape = shape;
       throw err;
     }
@@ -4866,14 +4898,14 @@ function _geminiFindWorkingModel(key) {
         return Promise.reject(lastErr || new Error('No usable model found for this key'));
       }
       var model = cands[i];
-      return fetch(_GEMINI_BASE + model + ':generateContent?key=' + encodeURIComponent(key), {
+      return _geminiFetch(_GEMINI_BASE + model + ':generateContent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'Reply with the single word: ready' }] }],
           generationConfig: { responseMimeType: 'text/plain' }
         })
-      }).then(function(res) {
+      }, key).then(function(res) {
         return res.text().then(function(raw) {
           if (res.status === 200) {
             _geminiModel = model;
@@ -4919,10 +4951,10 @@ function _geminiRequestFromList(prompt, modelIdx, _retried) {
   modelIdx = modelIdx || 0;
   if (modelIdx >= _GEMINI_MODELS.length) return Promise.reject(new Error('No working Gemini model found'));
   var model = _geminiModel || _GEMINI_MODELS[modelIdx];
-  var url = _GEMINI_BASE + model + ':generateContent?key=' + encodeURIComponent(apiKey);
+  var url = _GEMINI_BASE + model + ':generateContent';
   var ctrl = new AbortController();
   var tid = setTimeout(function() { ctrl.abort(); }, 60000);
-  return fetch(url, {
+  return _geminiFetch(url, {
     method: 'POST',
     signal: ctrl.signal,
     headers: { 'Content-Type': 'application/json' },
@@ -4930,7 +4962,7 @@ function _geminiRequestFromList(prompt, modelIdx, _retried) {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { responseMimeType: 'application/json' }
     })
-  }).then(function(res) {
+  }, apiKey).then(function(res) {
     clearTimeout(tid);
     return res.text().then(function(raw) {
       var data = null; try { data = JSON.parse(raw); } catch(e) {}
@@ -6015,13 +6047,13 @@ function openApiKeyModal() {
       '<ol class="ak-steps">' +
         '<li>Open Google AI Studio below.</li>' +
         '<li>Press <b>Create API key</b>.</li>' +
-        '<li>Press the <b>copy icon</b> next to the key. Do not select it by hand — that is how the start gets left behind.</li>' +
+        '<li>Press the <b>copy button</b> next to the key. Do not long-press it — that copies the link of the row instead of the key.</li>' +
         '<li>Come back here and press <b>Paste</b>.</li>' +
       '</ol>' +
       '<button class="ak-open" id="akOpen">Open Google AI Studio</button>' +
       '<div class="edit-field" style="margin-top:16px;">' +
         '<label>Your key</label>' +
-        '<textarea id="akInput" class="ak-input" rows="3" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="AIza…"></textarea>' +
+        '<textarea id="akInput" class="ak-input" rows="3" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="AQ.… or AIza…"></textarea>' +
       '</div>' +
       '<button class="ak-open ak-paste" id="akPaste">Paste from clipboard</button>' +
       '<div class="ak-verdict" id="akVerdict"></div>' +
@@ -6052,7 +6084,8 @@ function openApiKeyModal() {
       verdict.textContent = problem;
       verdict.className = 'ak-verdict bad';
     } else {
-      verdict.textContent = 'Looks right — 39 characters, starts with AIza. Press Save & check.';
+      verdict.textContent = 'Looks right — ' + key.length + ' characters, starts with ' +
+        (key.indexOf('AQ.') === 0 ? 'AQ.' : 'AIza') + '. Press Save & check.';
       verdict.className = 'ak-verdict good';
     }
   }
@@ -6076,9 +6109,9 @@ function openApiKeyModal() {
       var head = txt.trim().substring(0, 16).replace(/[^\x20-\x7E]/g, '?');
       verdict.textContent = 'What is on your clipboard is not a key: ' + txt.trim().length +
         ' characters starting with “' + head + '”. ' +
-        (/^https?:|^AQ\./i.test(txt.trim())
-          ? 'That is a link. A long-press on the key copies the link of the row it sits in — use the small copy icon beside the key instead.'
-          : 'Copy the key again with the copy icon beside it.');
+        (/^https?:/i.test(txt.trim())
+          ? 'That is a web address. A long-press copies the link of the row the key sits in — use the copy button beside the key instead.'
+          : 'Copy the key again with the copy button beside it.');
       verdict.className = 'ak-verdict bad';
     }).catch(function() { /* nothing readable; the box still works by hand */ });
   }
