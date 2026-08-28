@@ -1542,6 +1542,7 @@ var _GEMINI_LIST = 'https://generativelanguage.googleapis.com/v1beta/models';
 // and answer here instead. Which one a model wants is remembered once found.
 var _GEMINI_INTERACTIONS = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 var _geminiTransport = localStorage.getItem('gemini_transport') || '';
+var _geminiBodyIdx = parseInt(localStorage.getItem('gemini_body_idx') || '0', 10) || 0;
 // Ordered by preference — first working model is cached in localStorage so we stop retrying
 var _GEMINI_MODELS = [
   'gemini-2.5-flash-latest',
@@ -4725,6 +4726,30 @@ function _geminiFetch(url, init, key) {
 }
 
 /**
+ * The shapes the Interactions API might want its request in.
+ *
+ * This endpoint is new enough that it is absent from Google's published
+ * discovery document, so its exact field names cannot be confirmed from
+ * anywhere authoritative. Rather than commit to one guess and ship a break,
+ * the plausible shapes are tried in order: Google names the field it did not
+ * like, which is how a wrong guess is told apart from a real failure, and the
+ * shape it accepts is remembered.
+ */
+function _geminiInteractionBodies(model, text) {
+  return [
+    { model: model, input: text },
+    { model: model, input: [{ role: 'user', content: [{ type: 'text', text: text }] }] },
+    { model: model, contents: [{ parts: [{ text: text }] }] }
+  ];
+}
+
+// Google complaining about the request body, rather than about the key, the
+// model, or the quota. Only this means "try the next shape".
+function _geminiIsBodyComplaint(msg) {
+  return /Invalid JSON payload|Unknown name|Cannot find field|Invalid value at|is required|Proto field/i.test(msg || '');
+}
+
+/**
  * Ask one model for text, over whichever endpoint it will answer on.
  *
  * :generateContent is tried first because it is what every existing model
@@ -4733,37 +4758,70 @@ function _geminiFetch(url, init, key) {
  * endpoint that worked is remembered so the refusal is paid for only once.
  */
 function _geminiCall(model, key, text, wantJson, signal) {
-  function send(viaInteractions) {
-    var req = viaInteractions
-      ? { url: _GEMINI_INTERACTIONS, body: { model: model, input: text } }
-      : { url: _GEMINI_BASE + model + ':generateContent',
-          body: { contents: [{ parts: [{ text: text }] }],
-                  generationConfig: { responseMimeType: wantJson ? 'application/json' : 'text/plain' } } };
-    return _geminiFetch(req.url, {
+  function post(url, body) {
+    return _geminiFetch(url, {
       method: 'POST',
       signal: signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body)
+      body: JSON.stringify(body)
     }, key).then(function(res) {
       return res.text().then(function(raw) {
         var d = null; try { d = JSON.parse(raw); } catch(e) {}
-        if (res.status === 200) {
-          var t = viaInteractions ? 'interactions' : 'generate';
-          if (_geminiTransport !== t) {
-            _geminiTransport = t;
-            try { localStorage.setItem('gemini_transport', t); } catch(e) {}
-          }
-          return { data: d, raw: raw };
-        }
+        // The interactions endpoint answers with a single-element array.
+        if (Array.isArray(d)) d = d[0];
         var msg = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 200);
-        if (!viaInteractions && /Interactions API/i.test(msg)) return send(true);
-        var err = new Error(msg);
-        err.status = res.status;
-        throw err;
+        return { status: res.status, data: d, raw: raw, msg: msg };
       });
     });
   }
-  return send(_geminiTransport === 'interactions');
+
+  function remember(name, value, key2) {
+    if (name !== value) { try { localStorage.setItem(key2, value); } catch(e) {} }
+    return value;
+  }
+
+  function viaInteractions(bodyIdx) {
+    var bodies = _geminiInteractionBodies(model, text);
+    if (bodyIdx >= bodies.length) {
+      var gone = new Error('The Interactions API would not accept any request this app knows how to make');
+      gone.status = 400;
+      return Promise.reject(gone);
+    }
+    return post(_GEMINI_INTERACTIONS, bodies[bodyIdx]).then(function(r) {
+      if (r.status === 200) {
+        _geminiTransport = remember(_geminiTransport, 'interactions', 'gemini_transport');
+        if (_geminiBodyIdx !== bodyIdx) {
+          _geminiBodyIdx = bodyIdx;
+          try { localStorage.setItem('gemini_body_idx', String(bodyIdx)); } catch(e) {}
+        }
+        return { data: r.data, raw: r.raw };
+      }
+      if (r.status === 400 && _geminiIsBodyComplaint(r.msg)) return viaInteractions(bodyIdx + 1);
+      var err = new Error(r.msg);
+      err.status = r.status;
+      throw err;
+    });
+  }
+
+  function viaGenerateContent() {
+    return post(_GEMINI_BASE + model + ':generateContent', {
+      contents: [{ parts: [{ text: text }] }],
+      generationConfig: { responseMimeType: wantJson ? 'application/json' : 'text/plain' }
+    }).then(function(r) {
+      if (r.status === 200) {
+        _geminiTransport = remember(_geminiTransport, 'generate', 'gemini_transport');
+        return { data: r.data, raw: r.raw };
+      }
+      if (/Interactions API/i.test(r.msg)) return viaInteractions(_geminiBodyIdx);
+      var err = new Error(r.msg);
+      err.status = r.status;
+      throw err;
+    });
+  }
+
+  return (_geminiTransport === 'interactions')
+    ? viaInteractions(_geminiBodyIdx)
+    : viaGenerateContent();
 }
 
 /**
