@@ -4704,46 +4704,91 @@ function _geminiListModels(key) {
   });
 }
 
-// Prefer a flash model: fast, and the free tier allows far more of them.
-function _geminiChooseModel(models) {
+// Rank the models a key can use, best first. Flash models are preferred: they are
+// fast and the free tier allows far more of them.
+function _geminiRankModels(models) {
   var usable = models.filter(function(m) {
     return m.supportedGenerationMethods &&
            m.supportedGenerationMethods.indexOf('generateContent') !== -1;
   }).map(function(m) {
     return String(m.name || '').replace(/^models\//, '');
   }).filter(function(n) {
-    return n && !/embedding|aqa|vision|image|tts|audio/i.test(n);
+    return n && !/embedding|aqa|vision|image|tts|audio|live|realtime|native/i.test(n);
   });
-  if (!usable.length) return '';
   function score(n) {
     var s = 0;
-    if (/flash/i.test(n))          s += 1000;
-    if (/lite/i.test(n))           s -= 300;
+    if (/flash/i.test(n))                s += 1000;
+    if (/lite/i.test(n))                 s -= 300;
     if (/preview|exp|thinking/i.test(n)) s -= 200;
     var v = /(\d+)[._-](\d+)/.exec(n);
     if (v) s += (+v[1]) * 10 + (+v[2]);
     return s;
   }
   usable.sort(function(a, b) { return score(b) - score(a); });
-  return usable[0];
+  return usable;
 }
 
-// Resolves to a usable model name, remembering it so discovery runs once.
-function _geminiResolveModel(key) {
+// A key is rejected outright, rather than blamed on the model, so an invalid key
+// is not reported as "no usable model" after pointlessly probing every candidate.
+function _geminiIsKeyError(status, msg) {
+  if (status === 401 || status === 403) return true;
+  return /API[_ ]key not valid|API_KEY_INVALID|permission|unregistered callers/i.test(msg || '');
+}
+
+/**
+ * Find a model that genuinely answers generateContent for this key.
+ *
+ * The listing cannot be taken at its word: models advertise support for
+ * generateContent and then refuse it — "This model only supports Interactions
+ * API" — so each candidate is proved with a real request and the first that
+ * answers is remembered.
+ */
+function _geminiFindWorkingModel(key) {
   if (_geminiModel) return Promise.resolve(_geminiModel);
   return _geminiListModels(key).then(function(models) {
-    var pick = _geminiChooseModel(models);
-    if (!pick) return Promise.reject(new Error('This key has no models that support generateContent'));
-    _geminiModel = pick;
-    try { localStorage.setItem('gemini_model', pick); } catch(e) {}
-    return pick;
+    var cands = _geminiRankModels(models);
+    if (!cands.length) return Promise.reject(new Error('This key has no models that can generate text'));
+    var lastErr = null;
+
+    function attempt(i) {
+      if (i >= cands.length) {
+        return Promise.reject(lastErr || new Error('No usable model found for this key'));
+      }
+      var model = cands[i];
+      return fetch(_GEMINI_BASE + model + ':generateContent?key=' + encodeURIComponent(key), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Reply with the single word: ready' }] }],
+          generationConfig: { responseMimeType: 'text/plain' }
+        })
+      }).then(function(res) {
+        return res.text().then(function(raw) {
+          if (res.status === 200) {
+            _geminiModel = model;
+            try { localStorage.setItem('gemini_model', model); } catch(e) {}
+            return model;
+          }
+          var d = null; try { d = JSON.parse(raw); } catch(e) {}
+          var msg = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 140);
+          if (_geminiIsKeyError(res.status, msg)) {
+            return Promise.reject(new Error(msg));
+          }
+          lastErr = new Error('HTTP ' + res.status + ': ' + msg);
+          // 400 and 404 mean this particular model will not serve us — move on.
+          if (res.status === 400 || res.status === 404) return attempt(i + 1);
+          return Promise.reject(lastErr);
+        });
+      });
+    }
+    return attempt(0);
   });
 }
 
 function _geminiRequest(prompt, modelIdx, _retried) {
   if (!apiKey) return Promise.resolve(null);
   if (_geminiModel || modelIdx) return _geminiRequestFromList(prompt, modelIdx, _retried);
-  return _geminiResolveModel(apiKey)
+  return _geminiFindWorkingModel(apiKey)
     .then(function() { return _geminiRequestFromList(prompt, 0, _retried); })
     .catch(function() { return _geminiRequestFromList(prompt, 0, _retried); });
 }
@@ -4769,7 +4814,10 @@ function _geminiRequestFromList(prompt, modelIdx, _retried) {
     return res.text().then(function(raw) {
       var data = null; try { data = JSON.parse(raw); } catch(e) {}
       // Deprecation or not-found — try next model
+      // A model can advertise generateContent and still refuse it, answering 400
+      // "This model only supports Interactions API" — treat that like a 404.
       if (res.status === 404 || (res.status === 400 && raw.indexOf('deprecated') !== -1) ||
+          (raw.indexOf('only supports') !== -1) ||
           (raw.indexOf('no longer available') !== -1) || (raw.indexOf('Please update') !== -1)) {
         if (!_geminiModel) return _geminiRequestFromList(prompt, modelIdx + 1, _retried);
       }
@@ -5739,27 +5787,14 @@ document.getElementById('setApiKeyBtn').onclick = function() {
     // so forget any previously chosen one and discover again before pinging.
     _geminiModel = '';
     try { localStorage.removeItem('gemini_model'); } catch(e) {}
-    _geminiResolveModel(val).then(function(model) {
-      return fetch(_GEMINI_BASE + model + ':generateContent?key=' + encodeURIComponent(val), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Reply with the single word: ready' }] }],
-          generationConfig: { responseMimeType: 'text/plain' }
-        })
-      }).then(function(res) {
-        return res.text().then(function(raw) {
-          if (res.status === 200) {
-            showToast('\u2713 Key works \u2014 using ' + model, 4000);
-            return;
-          }
-          var data = null; try { data = JSON.parse(raw); } catch(e) {}
-          var msg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 120);
-          showToast('Key test failed \u2014 HTTP ' + res.status + ': ' + msg, 6000);
-        });
-      });
+    // Finding a model already proves it answers, so there is nothing further to
+    // test here — reaching this callback means tagging will work.
+    _geminiFindWorkingModel(val).then(function(model) {
+      showToast('\u2713 Key works \u2014 using ' + model, 4000);
     }).catch(function(err) {
-      var msg = (err && err.name === 'TypeError') ? 'No internet — check WiFi or mobile data' : (err && err.message ? err.message : String(err));
+      var msg = (err && err.name === 'TypeError')
+        ? 'No internet — check WiFi or mobile data'
+        : (err && err.message ? err.message : String(err));
       showToast('Key test failed: ' + msg, 6000);
     });
   } else {
