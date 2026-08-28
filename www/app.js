@@ -4718,9 +4718,15 @@ function _geminiKeyShapeProblem(key) {
     // key that is fine; "24 characters, starts with 7yLCcw" shows them at once
     // that the copy caught only the end of it.
     var head = key.substring(0, 8).replace(/[^\x20-\x7E]/g, '?');
-    return 'This is not a whole Gemini key. What is saved is ' + key.length +
+    // Too short says the front was clipped off; too long says something else
+    // entirely was copied. They are different mistakes with different fixes,
+    // so they get told apart rather than both called "not a valid key".
+    var cause = (key.length > 39)
+      ? 'This is a different string altogether, not a piece of a key — something else on the page got copied.'
+      : 'The copy caught only the end of it; the front was left behind.';
+    return 'This is not a Gemini key. What is saved is ' + key.length +
       ' characters and starts with “' + head + '”, but a Gemini key is 39 characters and always starts with AIza. ' +
-      'The copy caught only part of it. On aistudio.google.com/apikey use the copy button beside the key — selecting a long key by hand on a phone almost always misses the start.';
+      cause + ' On aistudio.google.com/apikey, press Create API key, then use the copy button beside the key itself.';
   }
   if (key.length < 35 || key.length > 45) {
     return 'This key is ' + key.length + ' characters long; a Gemini key is 39. The copy was cut short — use the copy button beside the key on aistudio.google.com/apikey.';
@@ -4748,6 +4754,9 @@ function _geminiExplain(err) {
     return 'Could not reach Google. Check WiFi or mobile data, then try again.';
   }
   var msg = err.message || String(err);
+  // Google answers "API key not valid" for anything it does not recognise. If
+  // the key was not shaped like a key either, that says far more about why.
+  if (err.shape && /API[_ ]key not valid|API_KEY_INVALID/i.test(msg)) return err.shape;
   // "Requests from this Android client application are blocked" \u2014 the key
   // was locked to an app or a website in Google Cloud, and this app cannot
   // present the credentials it wants.
@@ -4829,15 +4838,21 @@ function _geminiIsKeyError(status, msg) {
  */
 function _geminiFindWorkingModel(key) {
   if (_geminiModel) return Promise.resolve(_geminiModel);
+  // What the key looks like is advice, not a verdict. The key is always sent to
+  // Google, because the day Google issues a key in a different shape this check
+  // would otherwise refuse a working one with no way to overrule it. The
+  // observation is kept only to explain a refusal Google words unhelpfully.
   var shape = _geminiKeyShapeProblem(key);
-  if (shape) return Promise.reject(new Error(shape));
 
   return _geminiListModels(key).then(function(models) {
     return { cands: _geminiRankModels(models), listErr: null };
   }, function(err) {
     // A key or project fault answers the whole question — no point probing ten
     // models that will all be refused for the same reason.
-    if (_geminiIsKeyError(err.status, err.message)) throw err;
+    if (_geminiIsKeyError(err.status, err.message)) {
+      if (shape) err.shape = shape;
+      throw err;
+    }
     return { cands: [], listErr: err };
   }).then(function(r) {
     var cands = r.cands.slice();
@@ -4870,6 +4885,7 @@ function _geminiFindWorkingModel(key) {
           if (_geminiIsKeyError(res.status, msg)) {
             var keyErr = new Error(msg);
             keyErr.status = res.status;
+            if (shape) keyErr.shape = shape;
             return Promise.reject(keyErr);
           }
           // The first failure is the one worth reporting. Later candidates come
@@ -5968,37 +5984,110 @@ function _saveGeminiKey(val) {
   _testGeminiKey(val);
 }
 
+// Setting the key used to be a one-line prompt() box. A 39-character key does
+// not fit in it, so there was no way to see whether what landed there was the
+// whole key, and for several rounds the wrong string was pasted with nothing on
+// screen to show it. This puts the key somewhere it can be read, says what is
+// wrong with it as it is typed, and offers the clipboard rather than asking for
+// a hand-made selection, which is what kept going wrong.
+function openApiKeyModal() {
+  var overlay = document.getElementById('editOverlay');
+  var modal = document.getElementById('editModal');
+  modal.innerHTML =
+    '<div class="edit-modal-header">' +
+      '<div><h3>Gemini API Key</h3><p>Free — powers the auto-tagging</p></div>' +
+      '<button id="akClose">&times;</button>' +
+    '</div>' +
+    '<div class="edit-modal-body">' +
+      '<ol class="ak-steps">' +
+        '<li>Open Google AI Studio below.</li>' +
+        '<li>Press <b>Create API key</b>.</li>' +
+        '<li>Press the <b>copy icon</b> next to the key. Do not select it by hand — that is how the start gets left behind.</li>' +
+        '<li>Come back here and press <b>Paste</b>.</li>' +
+      '</ol>' +
+      '<button class="ak-open" id="akOpen">Open Google AI Studio</button>' +
+      '<div class="edit-field" style="margin-top:16px;">' +
+        '<label>Your key</label>' +
+        '<textarea id="akInput" class="ak-input" rows="3" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="AIza…"></textarea>' +
+      '</div>' +
+      '<button class="ak-open ak-paste" id="akPaste">Paste from clipboard</button>' +
+      '<div class="ak-verdict" id="akVerdict"></div>' +
+    '</div>' +
+    '<div class="edit-modal-footer">' +
+      '<button class="btn-cancel" id="akCancel">Cancel</button>' +
+      '<button class="btn-save" id="akSave">Save &amp; check</button>' +
+    '</div>';
+  overlay.classList.remove('hidden');
+  modal.classList.remove('hidden');
+
+  var input = modal.querySelector('#akInput');
+  var verdict = modal.querySelector('#akVerdict');
+  input.value = apiKey || '';
+
+  function review() {
+    var raw = input.value;
+    if (!raw.trim()) {
+      verdict.textContent = '';
+      verdict.className = 'ak-verdict';
+      return;
+    }
+    var key = _geminiCleanKey(raw);
+    var problem = _geminiKeyShapeProblem(key);
+    if (problem) {
+      verdict.textContent = problem;
+      verdict.className = 'ak-verdict bad';
+    } else {
+      verdict.textContent = 'Looks right — 39 characters, starts with AIza. Press Save & check.';
+      verdict.className = 'ak-verdict good';
+    }
+  }
+  input.oninput = review;
+  review();
+
+  function close() {
+    modal.classList.add('hidden');
+    overlay.classList.add('hidden');
+    modal.innerHTML = '';
+  }
+  modal.querySelector('#akClose').onclick = close;
+  modal.querySelector('#akCancel').onclick = close;
+
+  modal.querySelector('#akOpen').onclick = function() {
+    var url = 'https://aistudio.google.com/apikey';
+    if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
+      NativeBridge.openExternal(url).catch(function() {
+        showToast('Could not open the browser', 3000);
+      });
+    } else {
+      window.open(url, '_blank');
+    }
+  };
+
+  modal.querySelector('#akPaste').onclick = function() {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      showToast('Long-press the box above and choose Paste', 4000);
+      input.focus();
+      return;
+    }
+    navigator.clipboard.readText().then(function(txt) {
+      input.value = _geminiCleanKey(txt);
+      review();
+    }).catch(function() {
+      showToast('Long-press the box above and choose Paste', 4000);
+      input.focus();
+    });
+  };
+
+  modal.querySelector('#akSave').onclick = function() {
+    var val = input.value;
+    close();
+    _saveGeminiKey(val);
+  };
+}
+
 document.getElementById('setApiKeyBtn').onclick = function() {
   toggleDrawer(false);
-  // With a key already saved, offer to re-check it rather than forcing a retype.
-  // This is the same choice whether the last check passed or failed: a failed
-  // key is far more often a project that needs a moment than a wrong key.
-  if (apiKey) {
-    var status = localStorage.getItem('gemini_key_status');
-    // Nothing is gained by re-checking a key that is not shaped like a key: the
-    // answer cannot change until a different one is entered.
-    if (_geminiKeyShapeProblem(apiKey)) {
-      var fresh = prompt('That key is incomplete. Paste the whole key from aistudio.google.com/apikey:', '');
-      if (fresh === null) return;
-      _saveGeminiKey(fresh);
-      return;
-    }
-    var head = (status === 'ok')
-      ? 'Gemini key is working.'
-      : 'Gemini key \u2026' + apiKey.slice(-6) + ' is not working.';
-    if (confirm(head + '\n\nOK to check it again, or Cancel to enter a different key.')) {
-      _testGeminiKey(apiKey);
-      return;
-    }
-    var replacement = prompt('Enter a different Gemini API key:', apiKey);
-    if (replacement === null) return;
-    _saveGeminiKey(replacement);
-    return;
-  }
-
-  var val = prompt('Enter your Gemini API key (free at aistudio.google.com/apikey):', '');
-  if (val === null) return;
-  _saveGeminiKey(val);
+  openApiKeyModal();
 };
 
 // Restore the last known state on launch, so the menu still answers the question
