@@ -3,6 +3,8 @@ package com.muzioai.app;
 import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -172,6 +174,35 @@ public class MediaStorePlugin extends Plugin {
     public void exitApp(PluginCall call) {
         call.resolve();
         getActivity().finishAffinity();
+    }
+
+    /**
+     * The clipboard's text.
+     *
+     * navigator.clipboard.readText() is not implemented in an Android WebView,
+     * so the only way for the app to see what was copied is to ask Android.
+     * Reading it is what lets the key setup screen say "what you copied is a
+     * link, not the key" instead of leaving someone to paste blind.
+     */
+    @PluginMethod
+    public void readClipboard(PluginCall call) {
+        try {
+            ClipboardManager cm = (ClipboardManager) getContext()
+                .getSystemService(Context.CLIPBOARD_SERVICE);
+            String text = "";
+            if (cm != null && cm.hasPrimaryClip()) {
+                ClipData clip = cm.getPrimaryClip();
+                if (clip != null && clip.getItemCount() > 0) {
+                    CharSequence cs = clip.getItemAt(0).coerceToText(getContext());
+                    if (cs != null) text = cs.toString();
+                }
+            }
+            JSObject r = new JSObject();
+            r.put("text", text);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("Could not read the clipboard: " + e.getMessage());
+        }
     }
 
     /** The installed version, so the app can tell whether a release is newer than itself. */

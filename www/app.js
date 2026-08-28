@@ -5990,6 +5990,19 @@ function _saveGeminiKey(val) {
 // screen to show it. This puts the key somewhere it can be read, says what is
 // wrong with it as it is typed, and offers the clipboard rather than asking for
 // a hand-made selection, which is what kept going wrong.
+// Android's clipboard, asked for natively first: an Android WebView does not
+// implement navigator.clipboard.readText(), so the web API is only useful when
+// this same page is opened in a real browser.
+function _readClipboard() {
+  if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative() && NativeBridge.readClipboard) {
+    return NativeBridge.readClipboard();
+  }
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    return navigator.clipboard.readText();
+  }
+  return Promise.reject(new Error('No clipboard access'));
+}
+
 function openApiKeyModal() {
   var overlay = document.getElementById('editOverlay');
   var modal = document.getElementById('editModal');
@@ -6022,7 +6035,9 @@ function openApiKeyModal() {
 
   var input = modal.querySelector('#akInput');
   var verdict = modal.querySelector('#akVerdict');
-  input.value = apiKey || '';
+  // A key already known to be malformed is not offered back. Putting it in the
+  // box invites Save to be pressed on the very string that does not work.
+  input.value = (apiKey && !_geminiKeyShapeProblem(apiKey)) ? apiKey : '';
 
   function review() {
     var raw = input.value;
@@ -6044,6 +6059,30 @@ function openApiKeyModal() {
   input.oninput = review;
   review();
 
+  // Look at the clipboard as soon as the screen opens and say what is on it.
+  // Pasting was the step that kept going wrong, and until now nobody could see
+  // what had been copied — naming it turns guesswork into a readout.
+  if (!input.value) {
+    _readClipboard().then(function(txt) {
+      if (!txt) return;
+      var found = _geminiCleanKey(txt);
+      if (!_geminiKeyShapeProblem(found)) {
+        input.value = found;
+        review();
+        verdict.textContent = 'Found a key on your clipboard and filled it in. Press Save & check.';
+        verdict.className = 'ak-verdict good';
+        return;
+      }
+      var head = txt.trim().substring(0, 16).replace(/[^\x20-\x7E]/g, '?');
+      verdict.textContent = 'What is on your clipboard is not a key: ' + txt.trim().length +
+        ' characters starting with “' + head + '”. ' +
+        (/^https?:|^AQ\./i.test(txt.trim())
+          ? 'That is a link. A long-press on the key copies the link of the row it sits in — use the small copy icon beside the key instead.'
+          : 'Copy the key again with the copy icon beside it.');
+      verdict.className = 'ak-verdict bad';
+    }).catch(function() { /* nothing readable; the box still works by hand */ });
+  }
+
   function close() {
     modal.classList.add('hidden');
     overlay.classList.add('hidden');
@@ -6064,12 +6103,11 @@ function openApiKeyModal() {
   };
 
   modal.querySelector('#akPaste').onclick = function() {
-    if (!navigator.clipboard || !navigator.clipboard.readText) {
-      showToast('Long-press the box above and choose Paste', 4000);
-      input.focus();
-      return;
-    }
-    navigator.clipboard.readText().then(function(txt) {
+    _readClipboard().then(function(txt) {
+      if (!txt) {
+        showToast('Nothing on the clipboard yet', 3000);
+        return;
+      }
       input.value = _geminiCleanKey(txt);
       review();
     }).catch(function() {

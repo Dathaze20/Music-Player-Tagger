@@ -317,8 +317,16 @@ var NativeBridge = (function() {
     return plugin.openExternal({ url: url });
   }
 
+  // What is on the clipboard. navigator.clipboard.readText() is not implemented
+  // in an Android WebView, so Android has to be asked directly.
+  function readClipboard() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.readClipboard) return Promise.reject(new Error('readClipboard not available'));
+    return plugin.readClipboard().then(function(r) { return (r && r.text) || ''; });
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
-           saveToDownloads: saveToDownloads,
+           saveToDownloads: saveToDownloads, readClipboard: readClipboard,
            getAppVersion: getAppVersion, openExternal: openExternal,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
            readAlbumArt: readAlbumArt, writeFileTags: writeFileTags,
