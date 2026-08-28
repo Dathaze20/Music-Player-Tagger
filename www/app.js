@@ -1536,6 +1536,7 @@ var queue = [];
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
 var _GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
+var _GEMINI_LIST = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Ordered by preference — first working model is cached in localStorage so we stop retrying
 var _GEMINI_MODELS = [
   'gemini-2.5-flash-latest',
@@ -1547,7 +1548,6 @@ var _GEMINI_MODELS = [
   'gemini-1.5-flash-latest'
 ];
 var _geminiModel = localStorage.getItem('gemini_model') || '';
-var _GEMINI_URL = _GEMINI_BASE + (_geminiModel || _GEMINI_MODELS[0]) + ':generateContent';
 var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture. Research this release from your knowledge and return correct values for every field — do not leave fields blank if you know the answer.\n\n';
 var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre (e.g. "Trap", "Boom Bap", "Drill") not a broad category\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
 var sortMode = 'title';
@@ -4688,7 +4688,67 @@ function aiFill(song) {
 }
 
 // Try each model in _GEMINI_MODELS order; cache the first one that responds successfully.
+// Ask the API which models this key can actually use, rather than guessing from a
+// hardcoded list that goes stale every time Google renames or retires one. The
+// list below is kept only as a fallback for when this call itself fails.
+function _geminiListModels(key) {
+  return fetch(_GEMINI_LIST + '?key=' + encodeURIComponent(key)).then(function(res) {
+    return res.text().then(function(raw) {
+      var d = null; try { d = JSON.parse(raw); } catch(e) {}
+      if (!res.ok) {
+        var m = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 160);
+        return Promise.reject(new Error('HTTP ' + res.status + ': ' + m));
+      }
+      return (d && d.models) || [];
+    });
+  });
+}
+
+// Prefer a flash model: fast, and the free tier allows far more of them.
+function _geminiChooseModel(models) {
+  var usable = models.filter(function(m) {
+    return m.supportedGenerationMethods &&
+           m.supportedGenerationMethods.indexOf('generateContent') !== -1;
+  }).map(function(m) {
+    return String(m.name || '').replace(/^models\//, '');
+  }).filter(function(n) {
+    return n && !/embedding|aqa|vision|image|tts|audio/i.test(n);
+  });
+  if (!usable.length) return '';
+  function score(n) {
+    var s = 0;
+    if (/flash/i.test(n))          s += 1000;
+    if (/lite/i.test(n))           s -= 300;
+    if (/preview|exp|thinking/i.test(n)) s -= 200;
+    var v = /(\d+)[._-](\d+)/.exec(n);
+    if (v) s += (+v[1]) * 10 + (+v[2]);
+    return s;
+  }
+  usable.sort(function(a, b) { return score(b) - score(a); });
+  return usable[0];
+}
+
+// Resolves to a usable model name, remembering it so discovery runs once.
+function _geminiResolveModel(key) {
+  if (_geminiModel) return Promise.resolve(_geminiModel);
+  return _geminiListModels(key).then(function(models) {
+    var pick = _geminiChooseModel(models);
+    if (!pick) return Promise.reject(new Error('This key has no models that support generateContent'));
+    _geminiModel = pick;
+    try { localStorage.setItem('gemini_model', pick); } catch(e) {}
+    return pick;
+  });
+}
+
 function _geminiRequest(prompt, modelIdx, _retried) {
+  if (!apiKey) return Promise.resolve(null);
+  if (_geminiModel || modelIdx) return _geminiRequestFromList(prompt, modelIdx, _retried);
+  return _geminiResolveModel(apiKey)
+    .then(function() { return _geminiRequestFromList(prompt, 0, _retried); })
+    .catch(function() { return _geminiRequestFromList(prompt, 0, _retried); });
+}
+
+function _geminiRequestFromList(prompt, modelIdx, _retried) {
   if (!apiKey) return Promise.resolve(null);
   modelIdx = modelIdx || 0;
   if (modelIdx >= _GEMINI_MODELS.length) return Promise.reject(new Error('No working Gemini model found'));
@@ -4711,7 +4771,7 @@ function _geminiRequest(prompt, modelIdx, _retried) {
       // Deprecation or not-found — try next model
       if (res.status === 404 || (res.status === 400 && raw.indexOf('deprecated') !== -1) ||
           (raw.indexOf('no longer available') !== -1) || (raw.indexOf('Please update') !== -1)) {
-        if (!_geminiModel) return _geminiRequest(prompt, modelIdx + 1, _retried);
+        if (!_geminiModel) return _geminiRequestFromList(prompt, modelIdx + 1, _retried);
       }
       if (res.status === 429) {
         if (_retried) {
@@ -4719,7 +4779,7 @@ function _geminiRequest(prompt, modelIdx, _retried) {
           return Promise.reject(new Error('HTTP 429: ' + retryMsg));
         }
         return new Promise(function(resolve) { setTimeout(resolve, 22000); })
-          .then(function() { return _geminiRequest(prompt, modelIdx, true); });
+          .then(function() { return _geminiRequestFromList(prompt, modelIdx, true); });
       }
       if (res.status >= 400) {
         var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 200);
@@ -5675,23 +5735,28 @@ document.getElementById('setApiKeyBtn').onclick = function() {
     localStorage.setItem('gemini_api_key', val);
     document.getElementById('apiKeyLabel').textContent = 'Gemini Key: …' + val.slice(-6);
     showToast('Testing key…', 2000);
-    // Fire a trivial Gemini ping to validate the key immediately
-    fetch(_GEMINI_URL + '?key=' + encodeURIComponent(val), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: 'Reply with the single word: ready' }] }],
-        generationConfig: { responseMimeType: 'text/plain' }
-      })
-    }).then(function(res) {
-      return res.text().then(function(raw) {
-        if (res.status === 200) {
-          showToast('✓ Key works — Gemini is connected', 4000);
-        } else {
+    // A new key may belong to a different project with a different set of models,
+    // so forget any previously chosen one and discover again before pinging.
+    _geminiModel = '';
+    try { localStorage.removeItem('gemini_model'); } catch(e) {}
+    _geminiResolveModel(val).then(function(model) {
+      return fetch(_GEMINI_BASE + model + ':generateContent?key=' + encodeURIComponent(val), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Reply with the single word: ready' }] }],
+          generationConfig: { responseMimeType: 'text/plain' }
+        })
+      }).then(function(res) {
+        return res.text().then(function(raw) {
+          if (res.status === 200) {
+            showToast('\u2713 Key works \u2014 using ' + model, 4000);
+            return;
+          }
           var data = null; try { data = JSON.parse(raw); } catch(e) {}
           var msg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 120);
-          showToast('Key test failed — HTTP ' + res.status + ': ' + msg, 6000);
-        }
+          showToast('Key test failed \u2014 HTTP ' + res.status + ': ' + msg, 6000);
+        });
       });
     }).catch(function(err) {
       var msg = (err && err.name === 'TypeError') ? 'No internet — check WiFi or mobile data' : (err && err.message ? err.message : String(err));
