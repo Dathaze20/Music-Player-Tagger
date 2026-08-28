@@ -692,6 +692,18 @@ body {
 }
 .drawer-item:active { background: var(--bg-secondary); }
 .drawer-item .icon { color: var(--primary); font-size: 20px; }
+/* Explains a drawer row that needs explaining. Sits in the menu rather than in
+   a tooltip so it can be read, and screenshotted, on a phone. */
+.drawer-note {
+  padding: 0 24px 10px 60px;
+  margin-top: -6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
 .drawer-footer {
   padding: 16px;
   border-top: 1px solid var(--border);
