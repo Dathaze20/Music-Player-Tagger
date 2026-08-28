@@ -1554,6 +1554,14 @@ var _GEMINI_MODELS = [
   'gemini-1.5-flash-latest'
 ];
 var _geminiModel = localStorage.getItem('gemini_model') || '';
+// A model picked before the ranking was fixed can be something that is not a
+// Gemini model at all, chosen because a date in its name read as a very high
+// version number. Forgetting it once lets a better one be found; if it really
+// was the best available, it is simply chosen again.
+if (_geminiModel && !/gemini/i.test(_geminiModel)) {
+  _geminiModel = '';
+  try { localStorage.removeItem('gemini_model'); } catch(e) {}
+}
 var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture. Research this release from your knowledge and return correct values for every field — do not leave fields blank if you know the answer.\n\n';
 var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre (e.g. "Trap", "Boom Bap", "Drill") not a broad category\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
 var sortMode = 'title';
@@ -4997,11 +5005,22 @@ function _geminiRankModels(models) {
   });
   function score(n) {
     var s = 0;
-    if (/flash/i.test(n))                s += 1000;
-    if (/lite/i.test(n))                 s -= 300;
-    if (/preview|exp|thinking/i.test(n)) s -= 200;
-    var v = /(\d+)[._-](\d+)/.exec(n);
-    if (v) s += (+v[1]) * 10 + (+v[2]);
+    // A Gemini model is what is being asked for. Whatever else sits on an
+    // account — a research preview, another family entirely — is a worse bet
+    // for tagging a whole library, however new it looks.
+    if (/gemini/i.test(n))  s += 2000;
+    if (/flash/i.test(n))   s += 1000;
+    if (/lite/i.test(n))    s -= 300;
+    if (/preview|experiment|thinking|[-_]exp(?:[-_]|$)/i.test(n)) s -= 800;
+    // The version, and only the version. A date in a name — "05-2026" — used
+    // to be read as version 5.2026 and scored above everything else on the
+    // account, which is how a dated preview beat gemini-2.5-flash outright.
+    var v = /(\d+)\.(\d+)/.exec(n);
+    if (v) s += Math.min((+v[1]) * 10 + (+v[2]), 99);
+    else {
+      var major = /gemini-(\d+)/i.exec(n);
+      if (major) s += Math.min((+major[1]) * 10, 99);
+    }
     return s;
   }
   usable.sort(function(a, b) { return score(b) - score(a); });
