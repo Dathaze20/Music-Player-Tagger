@@ -5772,43 +5772,109 @@ document.getElementById('drawerOverlay').onclick = function() { toggleDrawer(fal
 
 
 
+// The key's state is kept in the menu rather than announced in a toast that
+// disappears. Whether tagging is ready should be answerable at a glance, and by
+// a screenshot, without having to catch a message.
+function _setGeminiStatus(state, detail) {
+  var lbl = document.getElementById('apiKeyLabel');
+  try { localStorage.setItem('gemini_key_status', state); } catch(e) {}
+  if (!lbl) return;
+  if (state === 'none') {
+    lbl.textContent = 'Set Gemini API Key';
+    lbl.style.color = '';
+    return;
+  }
+  var tail = apiKey ? ' \u2026' + apiKey.slice(-6) : '';
+  if (state === 'testing') {
+    lbl.textContent = 'Gemini Key' + tail + ' \u2014 checking\u2026';
+    lbl.style.color = 'var(--text-dim)';
+  } else if (state === 'ok') {
+    lbl.textContent = 'Gemini Key \u2713 ready' + tail;
+    lbl.style.color = 'var(--primary)';
+  } else {
+    lbl.textContent = 'Gemini Key \u26a0 not working' + tail;
+    lbl.style.color = 'var(--amber, #e0a030)';
+  }
+  if (detail) lbl.title = detail;
+}
+
+function _testGeminiKey(val) {
+  _setGeminiStatus('testing');
+  showToast('Checking key\u2026', 2000);
+  // A new key can belong to a different project exposing a different set of
+  // models, so any remembered choice is discarded before checking.
+  _geminiModel = '';
+  try { localStorage.removeItem('gemini_model'); } catch(e) {}
+  return _geminiFindWorkingModel(val).then(function(model) {
+    _setGeminiStatus('ok', 'Using ' + model);
+    showToast('\u2713 Key works \u2014 using ' + model, 4000);
+  }).catch(function(err) {
+    var msg = (err && err.name === 'TypeError')
+      ? 'No internet — check WiFi or mobile data'
+      : (err && err.message ? err.message : String(err));
+    _setGeminiStatus('fail', msg);
+    showToast('Key check failed: ' + msg, 6000);
+  });
+}
+
 document.getElementById('setApiKeyBtn').onclick = function() {
   toggleDrawer(false);
-  var current = apiKey ? 'Current key: …' + apiKey.slice(-6) + '\n\n' : '';
+  // With a key already saved, offer to re-check it rather than forcing a retype.
+  if (apiKey && localStorage.getItem('gemini_key_status') === 'ok') {
+    if (!confirm('Gemini key is working.\n\nOK to check it again, or Cancel to replace it.')) {
+      var replacement = prompt('Enter a different Gemini API key:', apiKey);
+      if (replacement === null) return;
+      replacement = replacement.trim();
+      apiKey = replacement;
+      if (!replacement) {
+        localStorage.removeItem('gemini_api_key');
+        _setGeminiStatus('none');
+        showToast('API key cleared');
+        return;
+      }
+      localStorage.setItem('gemini_api_key', replacement);
+      _testGeminiKey(replacement);
+      return;
+    }
+    _testGeminiKey(apiKey);
+    return;
+  }
+
+  var current = apiKey ? 'Current key: \u2026' + apiKey.slice(-6) + '\n\n' : '';
   var val = prompt(current + 'Enter your Gemini API key (free at aistudio.google.com):', apiKey || '');
   if (val === null) return;
   val = val.trim();
   apiKey = val;
   if (val) {
     localStorage.setItem('gemini_api_key', val);
-    document.getElementById('apiKeyLabel').textContent = 'Gemini Key: …' + val.slice(-6);
-    showToast('Testing key…', 2000);
-    // A new key may belong to a different project with a different set of models,
-    // so forget any previously chosen one and discover again before pinging.
-    _geminiModel = '';
-    try { localStorage.removeItem('gemini_model'); } catch(e) {}
-    // Finding a model already proves it answers, so there is nothing further to
-    // test here — reaching this callback means tagging will work.
-    _geminiFindWorkingModel(val).then(function(model) {
-      showToast('\u2713 Key works \u2014 using ' + model, 4000);
-    }).catch(function(err) {
-      var msg = (err && err.name === 'TypeError')
-        ? 'No internet — check WiFi or mobile data'
-        : (err && err.message ? err.message : String(err));
-      showToast('Key test failed: ' + msg, 6000);
-    });
+    _testGeminiKey(val);
   } else {
     localStorage.removeItem('gemini_api_key');
-    document.getElementById('apiKeyLabel').textContent = 'Set Gemini API Key';
+    _setGeminiStatus('none');
     showToast('API key cleared');
   }
 };
 
-// Init the key label if a key is already set
+// Restore the last known state on launch, so the menu still answers the question
+// after a restart. A key saved before this existed is re-checked in the
+// background so it does not sit on an unknown state.
 (function() {
-  var lbl = document.getElementById('apiKeyLabel');
-  if (lbl && apiKey) lbl.textContent = 'Gemini Key: …' + apiKey.slice(-6);
+  if (!apiKey) { _setGeminiStatus('none'); return; }
+  var saved = localStorage.getItem('gemini_key_status');
+  if (saved === 'ok' || saved === 'fail') { _setGeminiStatus(saved); return; }
+  _setGeminiStatus('testing');
+  setTimeout(function() { _testGeminiKeyQuietly(); }, 1500);
 })();
+
+// Same check without the toasts, for the automatic one on launch.
+function _testGeminiKeyQuietly() {
+  if (!apiKey) return;
+  _geminiFindWorkingModel(apiKey).then(function(model) {
+    _setGeminiStatus('ok', 'Using ' + model);
+  }).catch(function(err) {
+    _setGeminiStatus('fail', (err && err.message) ? err.message : String(err));
+  });
+}
 
 document.getElementById('clearLibBtn').onclick = function() {
   toggleDrawer(false);
