@@ -4696,12 +4696,68 @@ function _geminiListModels(key) {
     return res.text().then(function(raw) {
       var d = null; try { d = JSON.parse(raw); } catch(e) {}
       if (!res.ok) {
-        var m = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 160);
-        return Promise.reject(new Error('HTTP ' + res.status + ': ' + m));
+        var m = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 200);
+        var err = new Error(m);
+        err.status = res.status;
+        return Promise.reject(err);
       }
       return (d && d.models) || [];
     });
   });
+}
+
+// Reject a key that cannot possibly work before spending a network round trip on
+// it. A key pasted on a phone is far more often truncated by the paste than
+// rejected by Google, and "cut short" is an answer the person can act on, where
+// Google's reply for the same mistake is only "API key not valid".
+function _geminiKeyShapeProblem(key) {
+  key = String(key || '');
+  if (!key) return 'No key entered.';
+  if (key.indexOf('AIza') !== 0) {
+    return 'That is not a Gemini API key — they all start with AIza. Copy the key itself from aistudio.google.com/apikey, not the page link.';
+  }
+  if (key.length < 35 || key.length > 45) {
+    return 'That key is ' + key.length + ' characters long; a Gemini key is 39. The copy was cut short — copy it again.';
+  }
+  return '';
+}
+
+// Turn Google's wording into something that names the actual next step. The raw
+// text is still shown underneath, so nothing is hidden by this.
+function _geminiExplain(err) {
+  if (!err) return 'Unknown error.';
+  if (err.name === 'TypeError' || err.name === 'AbortError') {
+    return 'Could not reach Google. Check WiFi or mobile data, then try again.';
+  }
+  var msg = err.message || String(err);
+  // "Requests from this Android client application are blocked" \u2014 the key
+  // was locked to an app or a website in Google Cloud, and this app cannot
+  // present the credentials it wants.
+  if (/Requests from this|client application|referer|IP address/i.test(msg)) {
+    return 'This key is locked to a particular app or website, so it will not answer here. Make a plain key at aistudio.google.com/apikey with "Create API key", and do not add any restrictions to it.';
+  }
+  if (/has not been used in project|SERVICE_DISABLED|is disabled|are blocked|is blocked/i.test(msg)) {
+    return 'The key is fine, but its Google project does not have the Gemini API switched on. Easiest fix: go to aistudio.google.com/apikey, press "Create API key", and let it make its own project rather than picking one of yours.';
+  }
+  if (/API[_ ]key not valid|API_KEY_INVALID/i.test(msg)) {
+    return 'Google rejected this key. Copy it again from aistudio.google.com/apikey — press the copy button, do not select it by hand.';
+  }
+  if (/API key expired|key.*expired/i.test(msg)) {
+    return 'This key has expired. Create a new one at aistudio.google.com/apikey.';
+  }
+  if (/restrict/i.test(msg)) {
+    return 'This key is restricted to certain apps or websites, so it will not answer here. Make a plain key at aistudio.google.com/apikey instead.';
+  }
+  if (/quota|RESOURCE_EXHAUSTED/i.test(msg) || err.status === 429) {
+    return 'This key has used up its free requests for now. It should work again later.';
+  }
+  if (/billing|consumer.*not.*enabled/i.test(msg)) {
+    return 'Google is asking for billing on this key’s project. A key made at aistudio.google.com/apikey uses the free tier and does not need it.';
+  }
+  if (/unregistered callers|without established identity/i.test(msg)) {
+    return 'The key did not reach Google with the request. Set the key again from the menu.';
+  }
+  return msg;
 }
 
 // Rank the models a key can use, best first. Flash models are preferred: they are
@@ -4732,7 +4788,11 @@ function _geminiRankModels(models) {
 // is not reported as "no usable model" after pointlessly probing every candidate.
 function _geminiIsKeyError(status, msg) {
   if (status === 401 || status === 403) return true;
-  return /API[_ ]key not valid|API_KEY_INVALID|permission|unregistered callers/i.test(msg || '');
+  // Matched on the phrases Google actually uses for a key or project fault. A
+  // bare /permission/ once matched here too, which quietly swallowed errors
+  // about one model and reported them as a dead key.
+  return /API[_ ]key not valid|API_KEY_INVALID|API key expired|PERMISSION_DENIED|SERVICE_DISABLED|has not been used in project|unregistered callers/i
+    .test(msg || '');
 }
 
 /**
@@ -4742,13 +4802,31 @@ function _geminiIsKeyError(status, msg) {
  * generateContent and then refuse it — "This model only supports Interactions
  * API" — so each candidate is proved with a real request and the first that
  * answers is remembered.
+ *
+ * The listing is an aid, not a requirement. It used to be the only source of
+ * candidates, which made one failed request — a blocked network, a project with
+ * the API switched off — end the whole check without a single model ever being
+ * tried. Its models now go in front of the built-in list rather than replacing
+ * it, so the check still runs when the listing does not.
  */
 function _geminiFindWorkingModel(key) {
   if (_geminiModel) return Promise.resolve(_geminiModel);
+  var shape = _geminiKeyShapeProblem(key);
+  if (shape) return Promise.reject(new Error(shape));
+
   return _geminiListModels(key).then(function(models) {
-    var cands = _geminiRankModels(models);
-    if (!cands.length) return Promise.reject(new Error('This key has no models that can generate text'));
-    var lastErr = null;
+    return { cands: _geminiRankModels(models), listErr: null };
+  }, function(err) {
+    // A key or project fault answers the whole question — no point probing ten
+    // models that will all be refused for the same reason.
+    if (_geminiIsKeyError(err.status, err.message)) throw err;
+    return { cands: [], listErr: err };
+  }).then(function(r) {
+    var cands = r.cands.slice();
+    _GEMINI_MODELS.forEach(function(m) {
+      if (cands.indexOf(m) === -1) cands.push(m);
+    });
+    var lastErr = r.listErr;
 
     function attempt(i) {
       if (i >= cands.length) {
@@ -4770,15 +4848,24 @@ function _geminiFindWorkingModel(key) {
             return model;
           }
           var d = null; try { d = JSON.parse(raw); } catch(e) {}
-          var msg = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 140);
+          var msg = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 200);
           if (_geminiIsKeyError(res.status, msg)) {
-            return Promise.reject(new Error(msg));
+            var keyErr = new Error(msg);
+            keyErr.status = res.status;
+            return Promise.reject(keyErr);
           }
-          lastErr = new Error('HTTP ' + res.status + ': ' + msg);
+          // The first failure is the one worth reporting. Later candidates come
+          // from the built-in list and answer "model not found", which says
+          // nothing about why the key itself did not work.
+          if (!lastErr) { lastErr = new Error(msg); lastErr.status = res.status; }
           // 400 and 404 mean this particular model will not serve us — move on.
           if (res.status === 400 || res.status === 404) return attempt(i + 1);
           return Promise.reject(lastErr);
         });
+      }, function(netErr) {
+        // A dropped connection on one probe is not a verdict on the key.
+        if (!lastErr) lastErr = netErr;
+        return attempt(i + 1);
       });
     }
     return attempt(0);
@@ -5777,7 +5864,30 @@ document.getElementById('drawerOverlay').onclick = function() { toggleDrawer(fal
 // a screenshot, without having to catch a message.
 function _setGeminiStatus(state, detail) {
   var lbl = document.getElementById('apiKeyLabel');
-  try { localStorage.setItem('gemini_key_status', state); } catch(e) {}
+  var note = document.getElementById('apiKeyDetail');
+  try {
+    localStorage.setItem('gemini_key_status', state);
+    // A re-check keeps the previous note on screen until it has an answer.
+    if (state !== 'testing') {
+      if (detail) localStorage.setItem('gemini_key_note', detail);
+      else localStorage.removeItem('gemini_key_note');
+    }
+  } catch(e) {}
+
+  if (note && state !== 'testing') {
+    // The reason is printed into the menu rather than a title attribute. There
+    // is nothing to hover with on a phone, so a tooltip is invisible on the
+    // only device this app runs on: the failure could be neither read nor
+    // screenshotted, which is exactly what was needed to diagnose it.
+    if (detail && state !== 'none') {
+      note.textContent = detail;
+      note.classList.remove('hidden');
+    } else {
+      note.textContent = '';
+      note.classList.add('hidden');
+    }
+  }
+
   if (!lbl) return;
   if (state === 'none') {
     lbl.textContent = 'Set Gemini API Key';
@@ -5795,7 +5905,15 @@ function _setGeminiStatus(state, detail) {
     lbl.textContent = 'Gemini Key \u26a0 not working' + tail;
     lbl.style.color = 'var(--amber, #e0a030)';
   }
-  if (detail) lbl.title = detail;
+}
+
+// What went wrong, in words worth acting on, with Google's own text kept
+// underneath so the real cause is never lost behind the friendly version.
+function _geminiFailNote(err) {
+  var plain = _geminiExplain(err);
+  var raw = (err && err.message) ? err.message : String(err);
+  var code = (err && err.status) ? 'HTTP ' + err.status + ' — ' : '';
+  return (raw && raw !== plain) ? (plain + '\n\n' + code + raw) : (code + plain);
 }
 
 function _testGeminiKey(val) {
@@ -5806,53 +5924,55 @@ function _testGeminiKey(val) {
   _geminiModel = '';
   try { localStorage.removeItem('gemini_model'); } catch(e) {}
   return _geminiFindWorkingModel(val).then(function(model) {
-    _setGeminiStatus('ok', 'Using ' + model);
+    _setGeminiStatus('ok', 'Auto-tagging is on, using ' + model + '.');
     showToast('\u2713 Key works \u2014 using ' + model, 4000);
   }).catch(function(err) {
-    var msg = (err && err.name === 'TypeError')
-      ? 'No internet — check WiFi or mobile data'
-      : (err && err.message ? err.message : String(err));
-    _setGeminiStatus('fail', msg);
-    showToast('Key check failed: ' + msg, 6000);
+    _setGeminiStatus('fail', _geminiFailNote(err));
+    showToast('Key check failed \u2014 the reason is in this menu', 5000);
   });
+}
+
+// A key is never stored with whitespace in it. Copying one on a phone picks up
+// a trailing newline or a space often enough that it is worth removing rather
+// than reporting back as an invalid key.
+function _saveGeminiKey(val) {
+  val = String(val || '').replace(/\s+/g, '');
+  apiKey = val;
+  if (!val) {
+    localStorage.removeItem('gemini_api_key');
+    localStorage.removeItem('gemini_model');
+    _geminiModel = '';
+    _setGeminiStatus('none');
+    showToast('API key cleared');
+    return;
+  }
+  localStorage.setItem('gemini_api_key', val);
+  _testGeminiKey(val);
 }
 
 document.getElementById('setApiKeyBtn').onclick = function() {
   toggleDrawer(false);
   // With a key already saved, offer to re-check it rather than forcing a retype.
-  if (apiKey && localStorage.getItem('gemini_key_status') === 'ok') {
-    if (!confirm('Gemini key is working.\n\nOK to check it again, or Cancel to replace it.')) {
-      var replacement = prompt('Enter a different Gemini API key:', apiKey);
-      if (replacement === null) return;
-      replacement = replacement.trim();
-      apiKey = replacement;
-      if (!replacement) {
-        localStorage.removeItem('gemini_api_key');
-        _setGeminiStatus('none');
-        showToast('API key cleared');
-        return;
-      }
-      localStorage.setItem('gemini_api_key', replacement);
-      _testGeminiKey(replacement);
+  // This is the same choice whether the last check passed or failed: a failed
+  // key is far more often a project that needs a moment than a wrong key.
+  if (apiKey) {
+    var status = localStorage.getItem('gemini_key_status');
+    var head = (status === 'ok')
+      ? 'Gemini key is working.'
+      : 'Gemini key \u2026' + apiKey.slice(-6) + ' is not working.';
+    if (confirm(head + '\n\nOK to check it again, or Cancel to enter a different key.')) {
+      _testGeminiKey(apiKey);
       return;
     }
-    _testGeminiKey(apiKey);
+    var replacement = prompt('Enter a different Gemini API key:', apiKey);
+    if (replacement === null) return;
+    _saveGeminiKey(replacement);
     return;
   }
 
-  var current = apiKey ? 'Current key: \u2026' + apiKey.slice(-6) + '\n\n' : '';
-  var val = prompt(current + 'Enter your Gemini API key (free at aistudio.google.com):', apiKey || '');
+  var val = prompt('Enter your Gemini API key (free at aistudio.google.com/apikey):', '');
   if (val === null) return;
-  val = val.trim();
-  apiKey = val;
-  if (val) {
-    localStorage.setItem('gemini_api_key', val);
-    _testGeminiKey(val);
-  } else {
-    localStorage.removeItem('gemini_api_key');
-    _setGeminiStatus('none');
-    showToast('API key cleared');
-  }
+  _saveGeminiKey(val);
 };
 
 // Restore the last known state on launch, so the menu still answers the question
@@ -5861,8 +5981,16 @@ document.getElementById('setApiKeyBtn').onclick = function() {
 (function() {
   if (!apiKey) { _setGeminiStatus('none'); return; }
   var saved = localStorage.getItem('gemini_key_status');
-  if (saved === 'ok' || saved === 'fail') { _setGeminiStatus(saved); return; }
-  _setGeminiStatus('testing');
+  if (saved === 'ok') {
+    _setGeminiStatus('ok', localStorage.getItem('gemini_key_note') || '');
+    return;
+  }
+  // A failure is shown straight away so the menu is never blank, and then
+  // checked again anyway. A check that failed once \u2014 no signal, a project
+  // still warming up \u2014 used to be remembered forever, leaving a key that
+  // had started working reported as broken until it was set again by hand.
+  if (saved === 'fail') _setGeminiStatus('fail', localStorage.getItem('gemini_key_note') || '');
+  else _setGeminiStatus('testing');
   setTimeout(function() { _testGeminiKeyQuietly(); }, 1500);
 })();
 
@@ -5870,9 +5998,9 @@ document.getElementById('setApiKeyBtn').onclick = function() {
 function _testGeminiKeyQuietly() {
   if (!apiKey) return;
   _geminiFindWorkingModel(apiKey).then(function(model) {
-    _setGeminiStatus('ok', 'Using ' + model);
+    _setGeminiStatus('ok', 'Auto-tagging is on, using ' + model + '.');
   }).catch(function(err) {
-    _setGeminiStatus('fail', (err && err.message) ? err.message : String(err));
+    _setGeminiStatus('fail', _geminiFailNote(err));
   });
 }
 
