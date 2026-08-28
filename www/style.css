@@ -800,6 +800,57 @@ body {
 .btn-cancel { background: var(--bg-secondary); color: var(--text-dim); }
 .btn-save { background: var(--primary); color: var(--primary-fg); }
 
+/* Gemini key setup. The key gets a box it actually fits in, and a verdict that
+   updates as it is typed, so a paste that caught the wrong thing is visible
+   before it is saved rather than after a failed check. */
+.ak-steps {
+  margin: 0 0 16px 18px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.ak-steps li { margin-bottom: 6px; }
+.ak-steps b { color: var(--text); }
+.ak-open {
+  width: 100%;
+  padding: 11px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(0,168,158,0.18);
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ak-open:active { background: rgba(0,168,158,0.3); }
+.ak-paste { background: var(--bg-secondary); color: var(--text); font-weight: 500; }
+.ak-paste:active { background: var(--border); }
+.ak-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: none;
+  border-radius: 12px;
+  color: var(--text);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+.ak-input:focus { box-shadow: 0 0 0 2px rgba(0,168,158,0.4); }
+.ak-verdict {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.ak-verdict.good { color: var(--primary); }
+.ak-verdict.bad { color: var(--amber); }
+
 /* FAB */
 .fab {
   position: absolute;
