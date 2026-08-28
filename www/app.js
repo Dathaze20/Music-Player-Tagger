@@ -4714,12 +4714,30 @@ function _geminiKeyShapeProblem(key) {
   key = String(key || '');
   if (!key) return 'No key entered.';
   if (key.indexOf('AIza') !== 0) {
-    return 'That is not a Gemini API key — they all start with AIza. Copy the key itself from aistudio.google.com/apikey, not the page link.';
+    // Say what is actually saved. "Not a valid key" sends someone off to check a
+    // key that is fine; "24 characters, starts with 7yLCcw" shows them at once
+    // that the copy caught only the end of it.
+    var head = key.substring(0, 8).replace(/[^\x20-\x7E]/g, '?');
+    return 'This is not a whole Gemini key. What is saved is ' + key.length +
+      ' characters and starts with “' + head + '”, but a Gemini key is 39 characters and always starts with AIza. ' +
+      'The copy caught only part of it. On aistudio.google.com/apikey use the copy button beside the key — selecting a long key by hand on a phone almost always misses the start.';
   }
   if (key.length < 35 || key.length > 45) {
-    return 'That key is ' + key.length + ' characters long; a Gemini key is 39. The copy was cut short — copy it again.';
+    return 'This key is ' + key.length + ' characters long; a Gemini key is 39. The copy was cut short — use the copy button beside the key on aistudio.google.com/apikey.';
   }
   return '';
+}
+
+// Pull the key out of whatever was pasted. A paste made on a phone arrives with
+// a label around it, a stray quote, or an invisible formatting character that
+// trim() does not touch and that nobody can see in the box — any of which
+// would leave a perfectly good key looking like it does not start with AIza.
+function _geminiCleanKey(raw) {
+  var s = String(raw || '')
+    .replace(/[\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060\uFEFF]/g, '')
+    .replace(/\s+/g, '');
+  var m = /AIza[0-9A-Za-z_-]{35}/.exec(s);
+  return m ? m[0] : s;
 }
 
 // Turn Google's wording into something that names the actual next step. The raw
@@ -5932,11 +5950,11 @@ function _testGeminiKey(val) {
   });
 }
 
-// A key is never stored with whitespace in it. Copying one on a phone picks up
-// a trailing newline or a space often enough that it is worth removing rather
-// than reporting back as an invalid key.
+// A key is never stored as it arrived. Copying one on a phone picks up a
+// newline, a label, or an invisible character often enough that it is worth
+// pulling the key out of the paste rather than handing it back as invalid.
 function _saveGeminiKey(val) {
-  val = String(val || '').replace(/\s+/g, '');
+  val = _geminiCleanKey(val);
   apiKey = val;
   if (!val) {
     localStorage.removeItem('gemini_api_key');
@@ -5957,6 +5975,14 @@ document.getElementById('setApiKeyBtn').onclick = function() {
   // key is far more often a project that needs a moment than a wrong key.
   if (apiKey) {
     var status = localStorage.getItem('gemini_key_status');
+    // Nothing is gained by re-checking a key that is not shaped like a key: the
+    // answer cannot change until a different one is entered.
+    if (_geminiKeyShapeProblem(apiKey)) {
+      var fresh = prompt('That key is incomplete. Paste the whole key from aistudio.google.com/apikey:', '');
+      if (fresh === null) return;
+      _saveGeminiKey(fresh);
+      return;
+    }
     var head = (status === 'ok')
       ? 'Gemini key is working.'
       : 'Gemini key \u2026' + apiKey.slice(-6) + ' is not working.';
@@ -5980,6 +6006,13 @@ document.getElementById('setApiKeyBtn').onclick = function() {
 // background so it does not sit on an unknown state.
 (function() {
   if (!apiKey) { _setGeminiStatus('none'); return; }
+  // Repair a key stored before it was being cleaned, so an invisible character
+  // picked up while copying does not need a retype to shake off.
+  var tidy = _geminiCleanKey(apiKey);
+  if (tidy && tidy !== apiKey) {
+    apiKey = tidy;
+    try { localStorage.setItem('gemini_api_key', tidy); } catch(e) {}
+  }
   var saved = localStorage.getItem('gemini_key_status');
   if (saved === 'ok') {
     _setGeminiStatus('ok', localStorage.getItem('gemini_key_note') || '');
