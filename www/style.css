@@ -1597,8 +1597,11 @@ body {
   flex-direction: column;
   -webkit-box-align: center;
   align-items: center;
-  -webkit-box-pack: center;
-  justify-content: center;
+  /* Spread the letters over the strip's full height. Centring them bunched a
+     short alphabet into the middle of the screen, so the letter you pressed
+     did not line up with the part of the list it jumps to. */
+  -webkit-box-pack: justify;
+  justify-content: space-between;
   padding: 6px 0;
   z-index: 120;
   pointer-events: auto;
