@@ -1537,6 +1537,11 @@ var apiKey = localStorage.getItem('gemini_api_key') || '';
 var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
 var _GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 var _GEMINI_LIST = 'https://generativelanguage.googleapis.com/v1beta/models';
+// Google's newer endpoint. Models issued alongside the AQ. auth keys refuse
+// :generateContent outright — "This model only supports Interactions API" —
+// and answer here instead. Which one a model wants is remembered once found.
+var _GEMINI_INTERACTIONS = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+var _geminiTransport = localStorage.getItem('gemini_transport') || '';
 // Ordered by preference — first working model is cached in localStorage so we stop retrying
 var _GEMINI_MODELS = [
   'gemini-2.5-flash-latest',
@@ -4719,6 +4724,108 @@ function _geminiFetch(url, init, key) {
   });
 }
 
+/**
+ * Ask one model for text, over whichever endpoint it will answer on.
+ *
+ * :generateContent is tried first because it is what every existing model
+ * takes. A model that refuses it says so by name — "This model only supports
+ * Interactions API" — and the same request goes to /interactions instead. The
+ * endpoint that worked is remembered so the refusal is paid for only once.
+ */
+function _geminiCall(model, key, text, wantJson, signal) {
+  function send(viaInteractions) {
+    var req = viaInteractions
+      ? { url: _GEMINI_INTERACTIONS, body: { model: model, input: text } }
+      : { url: _GEMINI_BASE + model + ':generateContent',
+          body: { contents: [{ parts: [{ text: text }] }],
+                  generationConfig: { responseMimeType: wantJson ? 'application/json' : 'text/plain' } } };
+    return _geminiFetch(req.url, {
+      method: 'POST',
+      signal: signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body)
+    }, key).then(function(res) {
+      return res.text().then(function(raw) {
+        var d = null; try { d = JSON.parse(raw); } catch(e) {}
+        if (res.status === 200) {
+          var t = viaInteractions ? 'interactions' : 'generate';
+          if (_geminiTransport !== t) {
+            _geminiTransport = t;
+            try { localStorage.setItem('gemini_transport', t); } catch(e) {}
+          }
+          return { data: d, raw: raw };
+        }
+        var msg = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 200);
+        if (!viaInteractions && /Interactions API/i.test(msg)) return send(true);
+        var err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      });
+    });
+  }
+  return send(_geminiTransport === 'interactions');
+}
+
+/**
+ * The generated text, wherever this response happens to keep it.
+ *
+ * The two endpoints answer in different shapes, and rather than hardcode one
+ * and break on the next change, the known paths are tried in turn and a plain
+ * walk over the response is the last resort.
+ */
+function _geminiExtractText(data) {
+  if (!data || typeof data !== 'object') return '';
+  if (typeof data.output_text === 'string' && data.output_text) return data.output_text;
+
+  var c = data.candidates && data.candidates[0];
+  if (c && c.content && c.content.parts) {
+    var joined = c.content.parts.map(function(part) {
+      return (part && typeof part.text === 'string') ? part.text : '';
+    }).join('');
+    if (joined) return joined;
+  }
+
+  var steps = data.steps || (data.interaction && data.interaction.steps);
+  if (Array.isArray(steps)) {
+    var acc = '';
+    steps.forEach(function(st) {
+      if (!st) return;
+      var content = st.content || st.model_output || st.modelOutput;
+      if (!content) return;
+      (Array.isArray(content) ? content : [content]).forEach(function(item) {
+        if (item && typeof item.text === 'string' && (!item.type || /text/i.test(item.type))) {
+          acc += item.text;
+        }
+      });
+    });
+    if (acc) return acc;
+  }
+
+  var found = [];
+  (function walk(node, depth) {
+    if (!node || depth > 8 || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(function(n) { walk(n, depth + 1); }); return; }
+    if (typeof node.text === 'string' && node.text) found.push(node.text);
+    Object.keys(node).forEach(function(k) {
+      if (k !== 'text' && node[k] && typeof node[k] === 'object') walk(node[k], depth + 1);
+    });
+  })(data, 0);
+  return found.join('');
+}
+
+// The interactions endpoint is not asked for a JSON mime type, so its answer
+// can arrive wrapped in a markdown fence or with a sentence around it.
+function _geminiParseJson(text) {
+  var t = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  try { return JSON.parse(t); } catch(e) {}
+  var first = t.search(/[[{]/);
+  var last = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']'));
+  if (first !== -1 && last > first) {
+    try { return JSON.parse(t.substring(first, last + 1)); } catch(e2) {}
+  }
+  return null;
+}
+
 function _geminiListModels(key) {
   return _geminiFetch(_GEMINI_LIST, null, key).then(function(res) {
     return res.text().then(function(raw) {
@@ -4826,7 +4933,9 @@ function _geminiRankModels(models) {
   }).map(function(m) {
     return String(m.name || '').replace(/^models\//, '');
   }).filter(function(n) {
-    return n && !/embedding|aqa|vision|image|tts|audio|live|realtime|native/i.test(n);
+    // deep-research models answer only on the interactions endpoint and take
+    // minutes to reply; they are the wrong tool for tagging one song.
+    return n && !/embedding|aqa|vision|image|tts|audio|live|realtime|native|deep.?research|computer.?use|robotics/i.test(n);
   });
   function score(n) {
     var s = 0;
@@ -4892,46 +5001,37 @@ function _geminiFindWorkingModel(key) {
       if (cands.indexOf(m) === -1) cands.push(m);
     });
     var lastErr = r.listErr;
+    var tried = 0;
 
     function attempt(i) {
       if (i >= cands.length) {
-        return Promise.reject(lastErr || new Error('No usable model found for this key'));
+        var done = lastErr || new Error('No usable model found for this key');
+        if (tried > 1) done.message = done.message + ' (tried ' + tried + ' models)';
+        return Promise.reject(done);
       }
       var model = cands[i];
-      return _geminiFetch(_GEMINI_BASE + model + ':generateContent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Reply with the single word: ready' }] }],
-          generationConfig: { responseMimeType: 'text/plain' }
-        })
-      }, key).then(function(res) {
-        return res.text().then(function(raw) {
-          if (res.status === 200) {
-            _geminiModel = model;
-            try { localStorage.setItem('gemini_model', model); } catch(e) {}
-            return model;
-          }
-          var d = null; try { d = JSON.parse(raw); } catch(e) {}
-          var msg = (d && d.error && d.error.message) ? d.error.message : raw.substring(0, 200);
-          if (_geminiIsKeyError(res.status, msg)) {
-            var keyErr = new Error(msg);
-            keyErr.status = res.status;
-            if (shape) keyErr.shape = shape;
-            return Promise.reject(keyErr);
-          }
-          // The first failure is the one worth reporting. Later candidates come
-          // from the built-in list and answer "model not found", which says
-          // nothing about why the key itself did not work.
-          if (!lastErr) { lastErr = new Error(msg); lastErr.status = res.status; }
-          // 400 and 404 mean this particular model will not serve us — move on.
-          if (res.status === 400 || res.status === 404) return attempt(i + 1);
-          return Promise.reject(lastErr);
-        });
-      }, function(netErr) {
-        // A dropped connection on one probe is not a verdict on the key.
-        if (!lastErr) lastErr = netErr;
-        return attempt(i + 1);
+      tried++;
+      return _geminiCall(model, key, 'Reply with the single word: ready', false).then(function() {
+        _geminiModel = model;
+        try { localStorage.setItem('gemini_model', model); } catch(e) {}
+        return model;
+      }, function(err) {
+        if (err && err.name === 'TypeError') {
+          // A dropped connection on one probe is not a verdict on the key.
+          if (!lastErr) lastErr = err;
+          return attempt(i + 1);
+        }
+        if (_geminiIsKeyError(err.status, err.message)) {
+          if (shape) err.shape = shape;
+          return Promise.reject(err);
+        }
+        // The first failure is the one worth reporting. Later candidates come
+        // from the built-in list and answer "model not found", which says
+        // nothing about why the key itself did not work.
+        if (!lastErr) lastErr = err;
+        // 400 and 404 mean this particular model will not serve us — move on.
+        if (err.status === 400 || err.status === 404) return attempt(i + 1);
+        return Promise.reject(err);
       });
     }
     return attempt(0);
@@ -4951,57 +5051,43 @@ function _geminiRequestFromList(prompt, modelIdx, _retried) {
   modelIdx = modelIdx || 0;
   if (modelIdx >= _GEMINI_MODELS.length) return Promise.reject(new Error('No working Gemini model found'));
   var model = _geminiModel || _GEMINI_MODELS[modelIdx];
-  var url = _GEMINI_BASE + model + ':generateContent';
   var ctrl = new AbortController();
   var tid = setTimeout(function() { ctrl.abort(); }, 60000);
-  return _geminiFetch(url, {
-    method: 'POST',
-    signal: ctrl.signal,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' }
-    })
-  }, apiKey).then(function(res) {
+
+  return _geminiCall(model, apiKey, prompt, true, ctrl.signal).then(function(res) {
     clearTimeout(tid);
-    return res.text().then(function(raw) {
-      var data = null; try { data = JSON.parse(raw); } catch(e) {}
-      // Deprecation or not-found — try next model
-      // A model can advertise generateContent and still refuse it, answering 400
-      // "This model only supports Interactions API" — treat that like a 404.
-      if (res.status === 404 || (res.status === 400 && raw.indexOf('deprecated') !== -1) ||
-          (raw.indexOf('only supports') !== -1) ||
-          (raw.indexOf('no longer available') !== -1) || (raw.indexOf('Please update') !== -1)) {
-        if (!_geminiModel) return _geminiRequestFromList(prompt, modelIdx + 1, _retried);
-      }
-      if (res.status === 429) {
-        if (_retried) {
-          var retryMsg = (data && data.error && data.error.message) ? data.error.message : 'Daily quota reached — get a fresh key at aistudio.google.com';
-          return Promise.reject(new Error('HTTP 429: ' + retryMsg));
-        }
-        return new Promise(function(resolve) { setTimeout(resolve, 22000); })
-          .then(function() { return _geminiRequestFromList(prompt, modelIdx, true); });
-      }
-      if (res.status >= 400) {
-        var errMsg = (data && data.error && data.error.message) ? data.error.message : raw.substring(0, 200);
-        return Promise.reject(new Error('HTTP ' + res.status + ': ' + errMsg));
-      }
-      if (!data || !data.candidates || !data.candidates[0]) {
-        var blocked = data && data.promptFeedback && data.promptFeedback.blockReason;
-        return Promise.reject(new Error(blocked ? ('Blocked: ' + blocked) : 'No response candidates'));
-      }
-      var cand = data.candidates[0];
-      var part = cand.content && cand.content.parts && cand.content.parts[0];
-      if (!part || !part.text) return Promise.reject(new Error('Empty response (finish: ' + (cand.finishReason || '?') + ')'));
-      // This model works — cache it so we skip the discovery next time
-      if (!_geminiModel) { _geminiModel = model; localStorage.setItem('gemini_model', model); }
-      try { return JSON.parse(part.text); }
-      catch(e) { return Promise.reject(new Error('Bad JSON: ' + part.text.substring(0, 80))); }
-    });
-  }).catch(function(err) {
+    var text = _geminiExtractText(res.data);
+    if (!text) {
+      var cand = res.data && res.data.candidates && res.data.candidates[0];
+      var blocked = res.data && res.data.promptFeedback && res.data.promptFeedback.blockReason;
+      if (blocked) return Promise.reject(new Error('Blocked: ' + blocked));
+      return Promise.reject(new Error('Empty response (finish: ' +
+        ((cand && cand.finishReason) || '?') + ')'));
+    }
+    // This model works — cache it so we skip the discovery next time.
+    if (!_geminiModel) { _geminiModel = model; localStorage.setItem('gemini_model', model); }
+    var parsed = _geminiParseJson(text);
+    if (parsed === null) return Promise.reject(new Error('Bad JSON: ' + text.substring(0, 80)));
+    return parsed;
+  }, function(err) {
     clearTimeout(tid);
     if (err && err.name === 'AbortError') return Promise.reject(new Error('Timed out after 60s — check internet connection'));
     if (err && err.name === 'TypeError') return Promise.reject(new Error('Network error — can\'t reach Gemini. Is mobile data/WiFi on?'));
+
+    var msg = err.message || String(err);
+    // A model that is gone, renamed, or will not serve this key is not a
+    // failure of the request — try the next one, unless one is already known
+    // to work, in which case the error is real.
+    if (!_geminiModel && (err.status === 404 ||
+        /deprecated|only supports|no longer available|Please update|not found/i.test(msg))) {
+      return _geminiRequestFromList(prompt, modelIdx + 1, _retried);
+    }
+    if (err.status === 429) {
+      if (_retried) return Promise.reject(new Error('HTTP 429: ' + msg));
+      return new Promise(function(resolve) { setTimeout(resolve, 22000); })
+        .then(function() { return _geminiRequestFromList(prompt, modelIdx, true); });
+    }
+    if (err.status) return Promise.reject(new Error('HTTP ' + err.status + ': ' + msg));
     return Promise.reject(err);
   });
 }
