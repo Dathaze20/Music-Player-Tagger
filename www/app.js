@@ -1629,12 +1629,21 @@ function getArtists() {
   return list;
 }
 
+// The album-artist a song's album is filed under. A featured artist is stripped,
+// so "Artist feat. Someone" files under "Artist" rather than starting an album
+// of its own. Every album lookup must derive the key this same way: if two of
+// them disagree, an album quietly splits in half.
+function albumArtistKeyOf(song) {
+  return String((song && (song.albumArtist || song.artist)) || '')
+    .replace(/\s*(feat?\.?|ft\.?|featuring)\s+.+$/i, '').trim();
+}
+
 function getAlbums(filter) {
   if (_albumsCache && !filter) return _albumsCache;
   if (_albumsCache && filter === 'all') return _albumsCache;
   var map = {};
   songs.forEach(function(s) {
-    var artistKey = (s.albumArtist || s.artist).replace(/\s*(feat?\.?|ft\.?|featuring)\s+.+$/i, '').trim();
+    var artistKey = albumArtistKeyOf(s);
     var key = s.album + '|||' + artistKey;
     var art = safeArtUrl(s.art);
     if (!map[key]) map[key] = { artist: artistKey, year: s.year, art: art, count: 0, type: s.type || 'Album', albumArtUri: '', genre: s.genre || '' };
@@ -1662,10 +1671,25 @@ function getAlbumSongs(albumName, artistName) {
   return _albumSongsCache[albumName + '|||' + artistName] || [];
 }
 
-// Find the album-artist cache key (artist string) for the album with the most songs.
-// Prevents featured-artist songs from pointing to a single-song sub-cache instead of the full album.
-function getBestAlbumArtistKey(albumName) {
+/**
+ * The album-artist cache key for an album name, for the song that asked.
+ *
+ * The song's own album artist wins whenever that album exists. Two artists can
+ * release albums with the same title — Tracy Chapman's "New Beginning" and
+ * SWV's — and choosing purely by which had more songs sent every one of them to
+ * the larger album, so playing one artist and tapping the album title opened
+ * somebody else's record.
+ *
+ * Falling back to the largest match is still right when the song's own key has
+ * no album under that name, which is what happens to a featured-artist track
+ * filed away from the album it belongs to.
+ */
+function getBestAlbumArtistKey(albumName, song) {
   if (!_albumSongsCache) _buildSongCaches();
+  if (song) {
+    var own = albumArtistKeyOf(song);
+    if (own && _albumSongsCache[albumName + '|||' + own]) return own;
+  }
   var prefix = albumName + '|||';
   var bestKey = null;
   var bestCount = 0;
@@ -1698,7 +1722,7 @@ function _buildSongCaches() {
   songs.forEach(function(s) {
     if (!ac[s.artist]) ac[s.artist] = [];
     ac[s.artist].push(s);
-    var albumArtistKey = (s.albumArtist || s.artist).replace(/\s*(feat?\.?|ft\.?|featuring)\s+.+$/i, '').trim();
+    var albumArtistKey = albumArtistKeyOf(s);
     var k = s.album + '|||' + albumArtistKey;
     if (!bc[k]) bc[k] = [];
     bc[k].push(s);
@@ -3819,7 +3843,7 @@ function renderNowPlaying() {
         var npEl = document.getElementById('nowPlaying');
         if (npEl) npEl.classList.add('hidden');
         _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
-        var _tapArtist = getBestAlbumArtistKey(_tapAlbum);
+        var _tapArtist = getBestAlbumArtistKey(_tapAlbum, currentSong);
         selectedAlbum  = { name: _tapAlbum, artist: _tapArtist };
         selectedArtist = null;
         _prevTab = currentTab; // remember which tab to return to on back
