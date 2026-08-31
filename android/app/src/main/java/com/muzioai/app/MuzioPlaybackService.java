@@ -35,6 +35,10 @@ public class MuzioPlaybackService extends Service {
     // Intent actions used between the plugin and this service
     static final String ACTION_UPDATE = "com.muzioai.app.SVC_UPDATE";
     static final String ACTION_HIDE   = "com.muzioai.app.SVC_HIDE";
+    // Position-only refresh. Separate from ACTION_UPDATE because that one
+    // carries the artwork as base64 and decodes a bitmap; re-sending it every
+    // couple of seconds just to move a progress bar would be wasteful.
+    static final String ACTION_POSITION = "com.muzioai.app.SVC_POSITION";
 
     // Notification broadcast actions (shared with MediaStorePlugin's receiver)
     private static final String ACTION_PREV       = "com.muzioai.app.ACTION_PREV";
@@ -70,6 +74,15 @@ public class MuzioPlaybackService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        if (intent != null && ACTION_POSITION.equals(intent.getAction())) {
+            updatePlaybackState(
+                intent.getBooleanExtra("playing", false),
+                intent.getLongExtra("position", 0L),
+                intent.getLongExtra("duration", 0L),
+                intent.getFloatExtra("speed", 1.0f)
+            );
+            return START_STICKY;
+        }
         // ACTION_UPDATE (or null = re-delivery after process restart)
         String  title    = intent != null ? intent.getStringExtra("title")   : "";
         String  artist   = intent != null ? intent.getStringExtra("artist")  : "";
@@ -78,12 +91,13 @@ public class MuzioPlaybackService extends Service {
         boolean playing  = intent != null && intent.getBooleanExtra("playing",  false);
         long    position = intent != null ? intent.getLongExtra("position",  0L) : 0L;
         long    duration = intent != null ? intent.getLongExtra("duration",  0L) : 0L;
+        float   speed    = intent != null ? intent.getFloatExtra("speed", 1.0f)  : 1.0f;
         updateForeground(
             title   != null ? title   : "",
             artist  != null ? artist  : "",
             album   != null ? album   : "",
             art     != null ? art     : "",
-            playing, position, duration
+            playing, position, duration, speed
         );
         return START_STICKY;
     }
@@ -187,11 +201,45 @@ public class MuzioPlaybackService extends Service {
         sendBroadcast(i);
     }
 
+    /**
+     * Publish where the track actually is.
+     *
+     * The system draws the lock-screen scrubber by extrapolating from the last
+     * position, the rate, and when it was set. Both of those inputs used to be
+     * wrong: the state was published once per song and never again, so nothing
+     * re-anchored it after a seek or a stall, and the rate was hardcoded to 1.0
+     * even at 0.75x or 2x, and even while paused — where a non-zero rate leaves
+     * the bar creeping forward on a track that is not playing.
+     */
+    private void updatePlaybackState(boolean playing, long positionMs,
+                                     long durationMs, float speed) {
+        if (mediaSession == null) return;
+        try {
+            long actions = PlaybackState.ACTION_PLAY
+                         | PlaybackState.ACTION_PAUSE
+                         | PlaybackState.ACTION_SKIP_TO_NEXT
+                         | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                         | PlaybackState.ACTION_STOP
+                         | PlaybackState.ACTION_SEEK_TO;
+            if (positionMs < 0) positionMs = 0;
+            if (durationMs > 0 && positionMs > durationMs) positionMs = durationMs;
+            mediaSession.setPlaybackState(new PlaybackState.Builder()
+                .setActions(actions)
+                .setState(
+                    playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
+                    positionMs,
+                    playing ? (speed > 0 ? speed : 1.0f) : 0f)
+                .build());
+        } catch (Exception e) {
+            Log.e(TAG, "PlaybackState update: " + e.getMessage(), e);
+        }
+    }
+
     // ── Core notification update ─────────────────────────────────────────────
 
     private void updateForeground(String title, String artist, String album,
                                   String artData, boolean playing,
-                                  long positionMs, long durationMs) {
+                                  long positionMs, long durationMs, float speed) {
         // Decode album art
         Bitmap artBmp = null;
         if (!artData.isEmpty()) {
@@ -222,22 +270,10 @@ public class MuzioPlaybackService extends Service {
                 }
                 mediaSession.setMetadata(meta.build());
 
-                long actions = PlaybackState.ACTION_PLAY
-                             | PlaybackState.ACTION_PAUSE
-                             | PlaybackState.ACTION_SKIP_TO_NEXT
-                             | PlaybackState.ACTION_SKIP_TO_PREVIOUS
-                             | PlaybackState.ACTION_STOP
-                             | PlaybackState.ACTION_SEEK_TO;
-                // Real position + rate=1.0 lets the system interpolate the seek bar forward
-                mediaSession.setPlaybackState(new PlaybackState.Builder()
-                    .setActions(actions)
-                    .setState(
-                        playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
-                        positionMs, 1.0f)
-                    .build());
             } catch (Exception e) {
                 Log.e(TAG, "MediaSession update: " + e.getMessage(), e);
             }
+            updatePlaybackState(playing, positionMs, durationMs, speed);
         }
 
         // Build notification
