@@ -1300,6 +1300,34 @@ public class MediaStorePlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * Refresh only where the track is, without touching the artwork.
+     *
+     * This runs every couple of seconds while playing, so it deliberately does
+     * not go through updateMediaNotification: that one carries base64 artwork
+     * and decodes a bitmap, which is far too much work to repeat just to move
+     * a progress bar.
+     */
+    @PluginMethod
+    public void updatePlaybackPosition(PluginCall call) {
+        if (!MuzioPlaybackService.isRunning) { call.resolve(); return; }
+        Double posD = call.getDouble("position", 0.0);
+        Double durD = call.getDouble("duration", 0.0);
+        Double spdD = call.getDouble("speed", 1.0);
+        Intent i = new Intent(getContext(), MuzioPlaybackService.class);
+        i.setAction(MuzioPlaybackService.ACTION_POSITION);
+        i.putExtra("playing",  Boolean.TRUE.equals(call.getBoolean("playing", false)));
+        i.putExtra("position", posD != null ? posD.longValue() : 0L);
+        i.putExtra("duration", durD != null ? durD.longValue() : 0L);
+        i.putExtra("speed",    spdD != null ? spdD.floatValue() : 1.0f);
+        try {
+            getContext().startService(i);
+        } catch (Exception e) {
+            Log.w(TAG, "position update: " + e.getMessage());
+        }
+        call.resolve();
+    }
+
     @PermissionCallback
     private void notifPermissionCallback(PluginCall call) {
         // Proceed regardless — if denied, the service's startForeground() silently no-ops

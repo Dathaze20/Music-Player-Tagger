@@ -3875,6 +3875,7 @@ function renderNowPlaying() {
     var idx = SPEEDS.indexOf(playbackRate);
     playbackRate = SPEEDS[(idx + 1) % SPEEDS.length];
     audio.playbackRate = playbackRate;
+    pushPlaybackPosition(true);
     var btn = document.getElementById('npSpeed');
     if (btn) { btn.textContent = playbackRate + 'x'; btn.classList.toggle('active', playbackRate !== 1.0); }
     if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && duration > 0) {
@@ -4434,6 +4435,7 @@ function togglePlay() {
     isPlaying = true;
     audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
   }
+  pushPlaybackPosition(true);
   syncPlaybackUI();
 }
 
@@ -4511,6 +4513,7 @@ audio.addEventListener('timeupdate', function() {
     if (_npTime0El) _npTime0El.textContent = fmtTime(currentTime);
     updateSyncedLyrics(currentTime);
   }
+  pushPlaybackPosition(false);
   // Update lock screen position state every ~2 seconds
   if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && duration > 0 && Math.floor(currentTime) % 2 === 0) {
     try { navigator.mediaSession.setPositionState({ duration: duration, playbackRate: playbackRate, position: Math.min(currentTime, duration) }); } catch(e) {}
@@ -4588,9 +4591,35 @@ function reportUnplayable(song) {
   showToast('Can\u2019t play \u2014 ' + reason + '. Tap \u22ee to delete it.', 4500);
 }
 
+/**
+ * Tell the lock screen where the track actually is.
+ *
+ * The system draws its scrubber by extrapolating from the last position it was
+ * given. That position used to be sent once per song and never again, so the
+ * bar worked from an anchor that went stale the moment anything did not go
+ * exactly to plan — a seek, a stall, or playing at anything but 1x.
+ */
+var _lastPosPush = 0;
+function pushPlaybackPosition(force) {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  if (!NativeBridge.updatePlaybackPosition || !currentSong) return;
+  var now = Date.now();
+  if (!force && now - _lastPosPush < 2000) return;
+  _lastPosPush = now;
+  NativeBridge.updatePlaybackPosition({
+    playing:  isPlaying,
+    position: Math.round(currentTime * 1000),
+    duration: Math.round((duration || 0) * 1000),
+    speed:    playbackRate
+  });
+}
+
 function seekTo(seconds) {
   currentTime = seconds;
   audio.currentTime = seconds;
+  // Re-anchor at once: a seek is exactly the moment an extrapolated position
+  // stops matching the track.
+  pushPlaybackPosition(true);
 }
 
 // ─── File Import ───

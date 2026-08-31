@@ -325,7 +325,16 @@ var NativeBridge = (function() {
     return plugin.readClipboard().then(function(r) { return (r && r.text) || ''; });
   }
 
+  // Position-only refresh for the lock-screen scrubber. Cheap by design: no
+  // artwork crosses the bridge, so it is safe to call every couple of seconds.
+  function updatePlaybackPosition(opts) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.updatePlaybackPosition) return Promise.resolve();
+    return plugin.updatePlaybackPosition(opts).catch(function() {});
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
+           updatePlaybackPosition: updatePlaybackPosition,
            saveToDownloads: saveToDownloads, readClipboard: readClipboard,
            getAppVersion: getAppVersion, openExternal: openExternal,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,
