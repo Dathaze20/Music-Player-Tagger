@@ -4230,6 +4230,43 @@ function initAudioCtx() {
   } catch(e) { _audioCtx = null; }
 }
 
+/**
+ * Make the audio path able to actually produce sound, and say whether it is
+ * safe to crossfade.
+ *
+ * The <audio> element is routed through the Web Audio graph by
+ * createMediaElementSource, so audio.play() advancing currentTime says nothing
+ * about whether anything reaches the speakers. That is the "seek bar moves but
+ * there is no sound" state. Two things silence the graph and both used to
+ * stick until the app was restarted:
+ *
+ *  - The gain was written in exactly two places, both behind `crossfadeDur > 0`.
+ *    Code only ever dropped it to 0; the only thing that raised it was a
+ *    scheduled ramp completing. Nothing — play, pause, seek, track change —
+ *    ever put it back, so a fade that did not finish left it at 0 for good.
+ *
+ *  - Android suspends the AudioContext on audio-focus loss without pausing the
+ *    element, so `_systemPaused` stayed false and neither resume handler fired.
+ *    A suspended context also has a frozen clock, so scheduling a fade against
+ *    it pinned the gain at 0 and the ramp never ran.
+ *
+ * Pass `wantFade` when about to crossfade. A false return means the caller must
+ * not schedule one — the gain has already been set to full instead.
+ */
+function prepareAudioOutput(wantFade) {
+  initAudioCtx();
+  if (!_audioCtx || !_gainMain) return false;
+  if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(function(){});
+  // Only a running context has a moving clock. Fading against a frozen one is
+  // what left the gain at zero with the track playing on inaudibly.
+  if (!wantFade || _audioCtx.state !== 'running') {
+    _gainMain.gain.cancelScheduledValues(_audioCtx.currentTime);
+    _gainMain.gain.setValueAtTime(1, _audioCtx.currentTime);
+    return false;
+  }
+  return true;
+}
+
 function applyEqGains() {
   if (!_eqNodes.length) return;
   _eqNodes.forEach(function(node, i) { node.gain.value = eqGains[i]; });
@@ -4347,8 +4384,7 @@ function playSong(song, songList) {
   duration = song.dur || 0;
   if (song.url) {
     isPlaying = true;
-    initAudioCtx();
-    if (_gainMain && crossfadeDur > 0 && _audioCtx) {
+    if (prepareAudioOutput(crossfadeDur > 0)) {
       _gainMain.gain.cancelScheduledValues(_audioCtx.currentTime);
       _gainMain.gain.setValueAtTime(0, _audioCtx.currentTime);
       _gainMain.gain.linearRampToValueAtTime(1, _audioCtx.currentTime + crossfadeDur);
@@ -4394,7 +4430,7 @@ function togglePlay() {
     isPlaying = false;
   } else {
     _systemPaused = false;
-    initAudioCtx();
+    prepareAudioOutput(false);
     isPlaying = true;
     audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
   }
@@ -4423,7 +4459,9 @@ function handleNext() {
     duration = song.dur || 0;
     isPlaying = true;
     _miniLastSongId = '';
-    if (_gainMain && crossfadeDur > 0 && _audioCtx) {
+    // This path used to touch neither the context nor the gain, so a handoff
+    // into a suspended context played on in silence with nothing to recover it.
+    if (prepareAudioOutput(crossfadeDur > 0)) {
       _gainMain.gain.cancelScheduledValues(_audioCtx.currentTime);
       _gainMain.gain.setValueAtTime(0, _audioCtx.currentTime);
       _gainMain.gain.linearRampToValueAtTime(1, _audioCtx.currentTime + crossfadeDur);
@@ -4459,6 +4497,12 @@ function handlePrev() {
 
 audio.addEventListener('timeupdate', function() {
   currentTime = audio.currentTime;
+  // A track advancing through a suspended context is the silent-playback state.
+  // Catching it here means it recovers on its own within a second, whatever
+  // suspended it, instead of waiting to be noticed and restarted.
+  if (isPlaying && _audioCtx && _audioCtx.state === 'suspended') {
+    _audioCtx.resume().catch(function(){});
+  }
   // Trigger gapless preload 8 seconds before track ends
   if (duration > 0 && currentTime > 0 && (duration - currentTime) < 8) maybePreloadNext();
   if (showNowPlaying) {
@@ -7137,9 +7181,15 @@ document.addEventListener('muzioMediaAction', function(e) {
 
 // ─── Resume after audio interruption (call, BT, other app) ───
 document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'visible' && _systemPaused && currentSong && currentSong.url) {
+  if (document.visibilityState !== 'visible') return;
+  // Resume the graph whether or not the element was paused too. Android can
+  // suspend the AudioContext on its own, and _systemPaused is only ever set
+  // from the element's pause event, so gating this on it left a suspended
+  // context running silently with no way back.
+  if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume().catch(function(){});
+  if (_systemPaused && currentSong && currentSong.url) {
     _systemPaused = false;
-    initAudioCtx();
+    prepareAudioOutput(false);
     isPlaying = true;
     audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
     syncPlaybackUI();
@@ -7148,9 +7198,10 @@ document.addEventListener('visibilitychange', function() {
 
 if (typeof window.Capacitor !== 'undefined') {
   document.addEventListener('resume', function() {
+    if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume().catch(function(){});
     if (_systemPaused && currentSong && currentSong.url) {
       _systemPaused = false;
-      initAudioCtx();
+      prepareAudioOutput(false);
       isPlaying = true;
       audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
       syncPlaybackUI();
