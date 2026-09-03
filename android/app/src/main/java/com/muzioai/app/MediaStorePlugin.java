@@ -103,8 +103,6 @@ public class MediaStorePlugin extends Plugin {
     private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
     private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
     private static final String ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
-    private static final String ACTION_FOCUS_LOST = "com.muzioai.app.ACTION_FOCUS_LOST";
-    private static final String ACTION_FOCUS_GAIN = "com.muzioai.app.ACTION_FOCUS_GAIN";
 
     // Saved state for async activity callbacks
     private PluginCall savedWriteCall;
@@ -1374,8 +1372,6 @@ public class MediaStorePlugin extends Plugin {
                 if      (ACTION_PREV.equals(action))       { ev = "prev";      seekMs = -1; }
                 else if (ACTION_PLAY_PAUSE.equals(action)) { ev = "playPause"; seekMs = -1; }
                 else if (ACTION_NEXT.equals(action))       { ev = "next";      seekMs = -1; }
-                else if (ACTION_FOCUS_LOST.equals(action)) { ev = "focusLost"; seekMs = -1; }
-                else if (ACTION_FOCUS_GAIN.equals(action)) { ev = "focusGain"; seekMs = -1; }
                 else if (ACTION_CLOSE.equals(action)) {
                     stopService();
                     ev = "close"; seekMs = -1;
@@ -1403,8 +1399,6 @@ public class MediaStorePlugin extends Plugin {
         filter.addAction(ACTION_NEXT);
         filter.addAction(ACTION_CLOSE);
         filter.addAction(ACTION_SEEK);
-        filter.addAction(ACTION_FOCUS_LOST);
-        filter.addAction(ACTION_FOCUS_GAIN);
         // Use Application context — receiver must outlive Activity (service stays alive)
         Context appCtx = getContext().getApplicationContext();
         if (Build.VERSION.SDK_INT >= 33) {
