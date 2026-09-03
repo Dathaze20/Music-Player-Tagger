@@ -4614,6 +4614,46 @@ function pushPlaybackPosition(force) {
   });
 }
 
+/**
+ * Make the song left over from last time actually playable.
+ *
+ * Restoring used to set currentSong, currentTime and duration and stop there.
+ * The <audio> element was never given a source and never seeked, so the app
+ * showed the track and its position while the element held nothing: pressing
+ * play rejected immediately and the song would not start, let alone carry on
+ * where it left off.
+ *
+ * It runs again once the library scan has run, because loading from IndexedDB
+ * clears every url and only the scan puts them back.
+ */
+var _restoreSongFn = null;
+var _restoreSongTime = 0;
+function primeRestoredSong() {
+  if (!_restoreSongFn) return;
+  var match = null;
+  for (var i = 0; i < songs.length; i++) {
+    if (songs[i].fn === _restoreSongFn) { match = songs[i]; break; }
+  }
+  if (!match) return;
+  currentSong = match;
+  currentTime = _restoreSongTime;
+  duration    = match.dur || 0;
+  // Never disturb playback that has already started.
+  if (isPlaying || audio.src) { _restoreSongFn = null; return; }
+  if (!match.url) return;          // scan has not handed out urls yet — try later
+  _restoreSongFn = null;
+  audio.src = match.url;
+  audio.playbackRate = playbackRate;
+  var target = _restoreSongTime;
+  if (target > 0) {
+    // currentTime only sticks once the element knows how long the track is.
+    audio.addEventListener('loadedmetadata', function once() {
+      audio.removeEventListener('loadedmetadata', once);
+      try { audio.currentTime = target; } catch (e) {}
+    });
+  }
+}
+
 function seekTo(seconds) {
   currentTime = seconds;
   audio.currentTime = seconds;
@@ -6920,12 +6960,9 @@ function restoreUIState() {
     if (state.speed && SPEEDS.indexOf(state.speed) !== -1) { playbackRate = state.speed; audio.playbackRate = playbackRate; }
 
     if (state.songFn) {
-      var match = songs.find(function(s) { return s.fn === state.songFn; });
-      if (match) {
-        currentSong = match;
-        currentTime = state.time || 0;
-        duration = match.dur || 0;
-      }
+      _restoreSongFn   = state.songFn;
+      _restoreSongTime = state.time || 0;
+      primeRestoredSong();
     }
 
     if (state.tab && state.tab !== 'artists') {
@@ -7157,6 +7194,7 @@ function nativeAutoScan() {
     });
 
     applyEditsToSongs(); // restore manual edits on top of fresh scan data
+    primeRestoredSong();  // urls exist now, so the leftover song can be played
     saveLibrary();
     render();
     backgroundLoadAllArt();
@@ -7196,6 +7234,22 @@ document.addEventListener('muzioMediaAction', function(e) {
       audio.currentTime = posMs / 1000;
       _lastNotifKey = ''; // force position update on next updateMediaSession call
       updateMediaSession();
+    }
+  } else if (action === 'focusLost') {
+    // Another app took the audio output. The WebView pauses the element itself,
+    // so this only has to record that the stop was not ours — that is what lets
+    // the resume paths know there is something to pick back up.
+    if (isPlaying) { _systemPaused = true; isPlaying = false; syncPlaybackUI(); }
+  } else if (action === 'focusGain') {
+    // Focus came back after a temporary interruption. Nothing used to listen
+    // for this, which is why switching apps stopped the music for good.
+    if (_systemPaused && currentSong && currentSong.url) {
+      _systemPaused = false;
+      prepareAudioOutput(false);
+      isPlaying = true;
+      audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
+      pushPlaybackPosition(true);
+      syncPlaybackUI();
     }
   } else if (action === 'close') {
     if (isPlaying) togglePlay();
