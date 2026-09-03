@@ -3659,6 +3659,14 @@ function heartSvg(filled, size) {
  * untouched either way, so tapping still shows and hides the lyrics.
  */
 var _npArtSwiped = false;
+// Where the current touch on the Now Playing panel began.
+//
+// These lived inside renderNowPlaying, so changing track rebuilt the panel
+// mid-gesture and handed touchend a fresh closure with both set to zero. The
+// swipe was then measured from the corner of the screen instead of from the
+// finger: a swipe left read as mostly downward and closed the panel, and a
+// swipe right read as a big rightward drag and skipped back a second time.
+var _swipeX = 0, _swipeY = 0, _swipeBlocked = false;
 function initNpArtSwipe(el) {
   var startX = 0, startY = 0, dx = 0;
   var decided = false, horizontal = false;
@@ -3992,7 +4000,6 @@ function renderNowPlaying() {
   }
 
   // Swipe gestures: down to close, left/right to skip (but not in lyrics scroll)
-  var _swipeX = 0, _swipeY = 0, _swipeBlocked = false;
   np.ontouchstart = function(e) {
     // The album art has its own gesture handler, which decides direction as the
     // finger moves rather than from the start and end points alone. Letting
@@ -7374,22 +7381,6 @@ document.addEventListener('muzioMediaAction', function(e) {
       audio.currentTime = posMs / 1000;
       _lastNotifKey = ''; // force position update on next updateMediaSession call
       updateMediaSession();
-    }
-  } else if (action === 'focusLost') {
-    // Another app took the audio output. The WebView pauses the element itself,
-    // so this only has to record that the stop was not ours — that is what lets
-    // the resume paths know there is something to pick back up.
-    if (isPlaying) { _systemPaused = true; isPlaying = false; syncPlaybackUI(); }
-  } else if (action === 'focusGain') {
-    // Focus came back after a temporary interruption. Nothing used to listen
-    // for this, which is why switching apps stopped the music for good.
-    if (_systemPaused && currentSong && currentSong.url) {
-      _systemPaused = false;
-      prepareAudioOutput(false);
-      isPlaying = true;
-      audio.play().catch(function(err) { _playRejected(err); });
-      pushPlaybackPosition(true);
-      syncPlaybackUI();
     }
   } else if (action === 'close') {
     if (isPlaying) togglePlay();

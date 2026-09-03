@@ -11,8 +11,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -48,9 +46,6 @@ public class MuzioPlaybackService extends Service {
     private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
     private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
     static final String         ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
-    // Audio focus, reported to the WebView so it can pause and pick back up.
-    static final String         ACTION_FOCUS_LOST = "com.muzioai.app.ACTION_FOCUS_LOST";
-    static final String         ACTION_FOCUS_GAIN = "com.muzioai.app.ACTION_FOCUS_GAIN";
     static final String         EXTRA_SEEK_MS     = "seek_ms";
 
     private static final String NOTIF_CHANNEL_ID = "muzio_playback";
@@ -62,99 +57,19 @@ public class MuzioPlaybackService extends Service {
     private NotificationManager notifMgr;
     private MediaSession        mediaSession;
 
-    // ── Audio focus ──────────────────────────────────────────────────────────
-    // Nothing here ever asked Android for audio focus. Playback was therefore
-    // not registered as this app owning the audio output: another app taking
-    // focus made the WebView pause the <audio> element, and because no focus
-    // listener existed, nothing ever heard that focus had come back. Switching
-    // to another app stopped the music and it stayed stopped.
-    private AudioManager      audioMgr;
-    private Object            focusRequest;      // AudioFocusRequest on API 26+
-    private boolean           haveFocus = false;
-    private boolean           resumeOnFocusGain = false;
-
-    private final AudioManager.OnAudioFocusChangeListener focusListener =
-        new AudioManager.OnAudioFocusChangeListener() {
-            @Override
-            public void onAudioFocusChange(int change) {
-                switch (change) {
-                    case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                    case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                        // Something borrowed the output. Expect it back.
-                        resumeOnFocusGain = true;
-                        broadcastLocal(ACTION_FOCUS_LOST);
-                        break;
-                    case AudioManager.AUDIOFOCUS_LOSS:
-                        // Given away for good — another player started. Do not
-                        // fight it by resuming later.
-                        resumeOnFocusGain = false;
-                        haveFocus = false;
-                        broadcastLocal(ACTION_FOCUS_LOST);
-                        break;
-                    case AudioManager.AUDIOFOCUS_GAIN:
-                        haveFocus = true;
-                        if (resumeOnFocusGain) {
-                            resumeOnFocusGain = false;
-                            broadcastLocal(ACTION_FOCUS_GAIN);
-                        }
-                        break;
-                    default:
-                        break;
-                }
-            }
-        };
-
-    private void broadcastLocal(String action) {
-        try {
-            sendBroadcast(new Intent(action).setPackage(getPackageName()));
-        } catch (Exception e) {
-            Log.w(TAG, "focus broadcast: " + e.getMessage());
-        }
-    }
-
-    private void acquireAudioFocus() {
-        if (haveFocus) return;
-        if (audioMgr == null) audioMgr = (AudioManager) getSystemService(AUDIO_SERVICE);
-        if (audioMgr == null) return;
-        try {
-            int result;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                AudioFocusRequest req = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build())
-                    .setOnAudioFocusChangeListener(focusListener)
-                    .setWillPauseWhenDucked(false)
-                    .build();
-                focusRequest = req;
-                result = audioMgr.requestAudioFocus(req);
-            } else {
-                //noinspection deprecation
-                result = audioMgr.requestAudioFocus(focusListener,
-                    AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-            }
-            haveFocus = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
-        } catch (Exception e) {
-            Log.w(TAG, "requestAudioFocus: " + e.getMessage());
-        }
-    }
-
-    private void releaseAudioFocus() {
-        if (audioMgr == null || !haveFocus) return;
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && focusRequest != null) {
-                audioMgr.abandonAudioFocusRequest((AudioFocusRequest) focusRequest);
-            } else {
-                //noinspection deprecation
-                audioMgr.abandonAudioFocus(focusListener);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "abandonAudioFocus: " + e.getMessage());
-        }
-        haveFocus = false;
-        resumeOnFocusGain = false;
-    }
+    /*
+     * No audio focus request here, deliberately.
+     *
+     * Playback happens in the WebView, and Chromium already requests focus for
+     * the media element it is playing. Requesting a second time from this
+     * service meant one app holding two focus requests: granting ours revoked
+     * Chromium's, Chromium pauses its element on focus loss, and the track
+     * stopped the instant it started. Pressing play looked like pressing it
+     * twice and left the button on pause.
+     *
+     * Whoever owns playback owns the focus. Here that is the WebView, so this
+     * service only mirrors state into the MediaSession and the notification.
+     */
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -213,7 +128,6 @@ public class MuzioPlaybackService extends Service {
     @Override
     public void onDestroy() {
         isRunning = false;
-        releaseAudioFocus();
         if (Build.VERSION.SDK_INT >= 33) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {
@@ -375,7 +289,7 @@ public class MuzioPlaybackService extends Service {
             }
             updatePlaybackState(playing, positionMs, durationMs, speed);
         }
-        if (playing) acquireAudioFocus();
+
 
         // Build notification
         int piFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;

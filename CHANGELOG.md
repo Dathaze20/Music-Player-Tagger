@@ -7,6 +7,13 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.1
+
+- The play button works again. It was starting the song and stopping it in the
+  same press, and staying on pause
+- Swiping the album art forward changes song instead of dropping back to the
+  mini player, and swiping back moves exactly one song
+
 ## v1.6.0
 
 - **Updates download inside the app.** Press Update and it fetches the new
