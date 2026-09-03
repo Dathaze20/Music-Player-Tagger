@@ -3666,6 +3666,10 @@ function initNpArtSwipe(el) {
   var TRIGGER = 55;   // travel needed to actually change track
 
   el.addEventListener('touchstart', function(e) {
+    // Clear it here rather than trusting a click to consume it: preventing the
+    // default on touchmove usually means no click follows at all, and a flag
+    // left set swallowed the next real tap on the artwork.
+    _npArtSwiped = false;
     if (e.touches.length !== 1) { decided = true; horizontal = false; return; }
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
@@ -3990,7 +3994,14 @@ function renderNowPlaying() {
   // Swipe gestures: down to close, left/right to skip (but not in lyrics scroll)
   var _swipeX = 0, _swipeY = 0, _swipeBlocked = false;
   np.ontouchstart = function(e) {
-    _swipeBlocked = !!(e.target.closest('.synced-lyrics-scroll') || e.target.closest('.plain-lyrics-scroll') || e.target.closest('input[type=range]'));
+    // The album art has its own gesture handler, which decides direction as the
+    // finger moves rather than from the start and end points alone. Letting
+    // this one run as well fired handleNext twice for one swipe, and a sideways
+    // swipe that drifted downward finished with |dy| > |dx| here and closed the
+    // panel — which is how a skip ended up dropping back to the mini player.
+    _swipeBlocked = !!(e.target.closest('#npArtImg')
+      || e.target.closest('.synced-lyrics-scroll') || e.target.closest('.plain-lyrics-scroll')
+      || e.target.closest('input[type=range]'));
     _swipeX = e.touches[0].clientX;
     _swipeY = e.touches[0].clientY;
   };
@@ -4466,7 +4477,7 @@ function playSong(song, songList) {
     }
     audio.src = song.url;
     audio.playbackRate = playbackRate;
-    audio.play().catch(function() { isPlaying = false; render(); });
+    audio.play().catch(function(err) { _playRejected(err, render); });
     updateMediaSession();
   } else {
     isPlaying = false;
@@ -4507,7 +4518,7 @@ function togglePlay() {
     _systemPaused = false;
     prepareAudioOutput(false);
     isPlaying = true;
-    audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
+    audio.play().catch(function(err) { _playRejected(err); });
   }
   pushPlaybackPosition(true);
   syncPlaybackUI();
@@ -4518,7 +4529,7 @@ function handleNext() {
   _haptic([14, 25, 14]);
   if (repeatMode === 'one') {
     audio.currentTime = 0;
-    audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
+    audio.play().catch(function(err) { _playRejected(err); });
     return;
   }
   var idx = queue.findIndex(function(s) { return s.id === currentSong.id; });
@@ -4637,7 +4648,10 @@ audio.addEventListener('error', function() {
         audio.src = freshUrl;
         audio.playbackRate = playbackRate;
         isPlaying = true;
-        audio.play().catch(function() { reportUnplayable(currentSong); });
+        audio.play().catch(function(err) {
+          if (err && err.name === 'AbortError') return;
+          reportUnplayable(currentSong);
+        });
         return;
       }
     } catch(e) {}
@@ -4726,6 +4740,21 @@ function primeRestoredSong() {
       try { audio.currentTime = target; } catch (e) {}
     });
   }
+}
+
+/**
+ * Handle a rejected audio.play().
+ *
+ * play() rejects with AbortError when a newer load replaces the one it was
+ * waiting on, which is exactly what skipping tracks quickly does. The newer
+ * track is playing perfectly well, so treating that as a failure and clearing
+ * isPlaying left the button showing paused over audio that was running.
+ */
+function _playRejected(err, onRealFailure) {
+  if (err && err.name === 'AbortError') return;
+  isPlaying = false;
+  if (onRealFailure) onRealFailure();
+  else syncPlaybackUI();
 }
 
 function seekTo(seconds) {
@@ -7321,7 +7350,7 @@ document.addEventListener('muzioMediaAction', function(e) {
       _systemPaused = false;
       prepareAudioOutput(false);
       isPlaying = true;
-      audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
+      audio.play().catch(function(err) { _playRejected(err); });
       pushPlaybackPosition(true);
       syncPlaybackUI();
     }
@@ -7348,7 +7377,7 @@ document.addEventListener('visibilitychange', function() {
     _systemPaused = false;
     prepareAudioOutput(false);
     isPlaying = true;
-    audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
+    audio.play().catch(function(err) { _playRejected(err); });
     syncPlaybackUI();
   }
 });
@@ -7360,7 +7389,7 @@ if (typeof window.Capacitor !== 'undefined') {
       _systemPaused = false;
       prepareAudioOutput(false);
       isPlaying = true;
-      audio.play().catch(function() { isPlaying = false; syncPlaybackUI(); });
+      audio.play().catch(function(err) { _playRejected(err); });
       syncPlaybackUI();
     }
   });
