@@ -7,6 +7,13 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.5.10
+
+- Swiping the album art moves one song, not two, and no longer drops you back
+  to the mini player when the swipe drifts downward
+- The play button no longer shows paused over music that is playing, after
+  skipping tracks quickly
+
 ## v1.5.9
 
 - Swipe across the album art to move to the next or previous song. Swiping up
