@@ -3650,6 +3650,76 @@ function heartSvg(filled, size) {
     + '</svg>';
 }
 
+/**
+ * Swipe the album art sideways to change track.
+ *
+ * The lyrics sit on top of the art and scroll vertically, so the direction has
+ * to be settled before anything is claimed: once a drag is going up or down it
+ * is left entirely alone, and only a clearly sideways one is taken. A tap is
+ * untouched either way, so tapping still shows and hides the lyrics.
+ */
+var _npArtSwiped = false;
+function initNpArtSwipe(el) {
+  var startX = 0, startY = 0, dx = 0;
+  var decided = false, horizontal = false;
+  var SLOP = 10;      // movement before a direction is called
+  var TRIGGER = 55;   // travel needed to actually change track
+
+  el.addEventListener('touchstart', function(e) {
+    if (e.touches.length !== 1) { decided = true; horizontal = false; return; }
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    dx = 0;
+    decided = false;
+    horizontal = false;
+    el.style.transition = '';
+  }, { passive: true });
+
+  el.addEventListener('touchmove', function(e) {
+    if (decided && !horizontal) return;
+    if (e.touches.length !== 1) return;
+    var tdx = e.touches[0].clientX - startX;
+    var tdy = e.touches[0].clientY - startY;
+    if (!decided) {
+      if (Math.abs(tdx) < SLOP && Math.abs(tdy) < SLOP) return;
+      decided = true;
+      // Ties go to the lyrics. Scrolling them is the more common intent, and a
+      // stolen scroll is far more annoying than a swipe that needs repeating.
+      horizontal = Math.abs(tdx) > Math.abs(tdy);
+      if (!horizontal) return;
+    }
+    dx = tdx;
+    // Only now claim the gesture, so the lyrics keep their vertical scrolling.
+    if (e.cancelable) e.preventDefault();
+    el.style.transform = 'translateX(' + (dx * 0.35) + 'px)';
+  }, { passive: false });
+
+  function settle() {
+    el.style.transition = 'transform 0.18s ease';
+    el.style.transform = '';
+    setTimeout(function() { el.style.transition = ''; }, 200);
+  }
+
+  el.addEventListener('touchend', function() {
+    if (!horizontal) { decided = false; return; }
+    var travelled = dx;
+    decided = false;
+    horizontal = false;
+    settle();
+    if (Math.abs(travelled) < TRIGGER) return;
+    _npArtSwiped = true;
+    _haptic([14, 25, 14]);
+    if (travelled < 0) handleNext();
+    else handlePrev();
+  }, { passive: true });
+
+  el.addEventListener('touchcancel', function() {
+    decided = false;
+    horizontal = false;
+    settle();
+  }, { passive: true });
+}
+
 function renderNowPlaying() {
   if (!currentSong) return;
   var np = document.getElementById('nowPlaying');
@@ -3773,10 +3843,14 @@ function renderNowPlaying() {
   var npArtEl = document.getElementById('npArtImg');
   if (npArtEl) {
     npArtEl.onclick = function() {
+      // A swipe ends in a click too, so a gesture that changed track must not
+      // also toggle the lyrics on its way out.
+      if (_npArtSwiped) { _npArtSwiped = false; return; }
       var ov = document.getElementById('npArtLyrics');
       if (ov) ov.classList.toggle('np-art-lyrics-hidden');
     };
     npArtEl.style.cursor = 'pointer';
+    initNpArtSwipe(npArtEl);
   }
   document.getElementById('npPlay').onclick = togglePlay;
   document.getElementById('npPrev').onclick = handlePrev;

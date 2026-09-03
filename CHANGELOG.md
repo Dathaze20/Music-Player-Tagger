@@ -7,6 +7,36 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.5.9
+
+- Swipe across the album art to move to the next or previous song. Swiping up
+  and down still scrolls the lyrics, and tapping still shows and hides them
+
+## v1.5.8
+
+- Music no longer stops for good when you switch to another app. The app now
+  claims the speaker properly and picks the song back up when a temporary
+  interruption ends. Opening another music app still hands it over for good,
+  as it should
+- Coming back after Android has cleared the app from memory, the song is ready
+  to play again from where it left off, instead of showing a song that would
+  not start
+
+## v1.5.7
+
+- The lock-screen progress bar follows the song instead of standing still. It
+  also holds position while paused, and keeps up at other playback speeds
+
+## v1.5.6
+
+- Playback no longer goes silent while the song appears to keep running. If
+  anything interrupts the audio it now recovers by itself within a second
+
+## v1.5.5
+
+- Tapping the album name opens that artist's album, not another artist's album
+  that happens to share the title
+
 ## v1.5.4
 
 - The app no longer gets stuck on the wrong Google endpoint. It remembers which
