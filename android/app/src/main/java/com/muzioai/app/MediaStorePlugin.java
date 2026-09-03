@@ -54,9 +54,11 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.net.URL;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -176,6 +178,141 @@ public class MediaStorePlugin extends Plugin {
     public void exitApp(PluginCall call) {
         call.resolve();
         getActivity().finishAffinity();
+    }
+
+    /**
+     * Download an update and hand it to Android's installer.
+     *
+     * Updating used to open the browser. Chrome holds an APK at 100% while it
+     * waits on a Safe Browsing verdict, and every new release is by definition
+     * a file nothing has seen before, so updates stalled there behind a step no
+     * ordinary person would think to go looking for. Fetching it here skips the
+     * browser altogether.
+     *
+     * Progress arrives as apkDownloadProgress events; the call resolves once
+     * the installer has been offered.
+     */
+    @PluginMethod
+    public void downloadAndInstallApk(PluginCall call) {
+        final String url = call.getString("url", "");
+        final String fileName = nvl(call.getString("fileName", "update.apk"));
+        if (url == null || !url.startsWith("https://")) {
+            call.reject("An update must be fetched over https");
+            return;
+        }
+        // Android refuses to let an app install anything until this is granted,
+        // and the switch lives in Settings rather than a permission dialog.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && !getContext().getPackageManager().canRequestPackageInstalls()) {
+            JSObject r = new JSObject();
+            r.put("needsPermission", true);
+            call.resolve(r);
+            return;
+        }
+        // No setKeepAlive here: this resolves exactly once, and progress goes
+        // out as events rather than as repeated resolves. Keeping it alive
+        // would leave the call sitting in the bridge's map after it finished.
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                File dir = new File(getContext().getCacheDir(), "updates");
+                if (!dir.exists() && !dir.mkdirs()) throw new Exception("could not make room for it");
+                // Keep only one update on disk, so a half-finished earlier
+                // attempt can never be mistaken for a complete file.
+                File[] stale = dir.listFiles();
+                if (stale != null) {
+                    for (File f : stale) {
+                        if (!f.delete()) Log.w(TAG, "stale update left behind: " + f.getName());
+                    }
+                }
+                File out = new File(dir, fileName.replaceAll("[^A-Za-z0-9._-]", "_"));
+
+                String current = url;
+                int hops = 0;
+                while (true) {
+                    conn = (HttpURLConnection) new URL(current).openConnection();
+                    conn.setInstanceFollowRedirects(false);
+                    conn.setConnectTimeout(30000);
+                    conn.setReadTimeout(60000);
+                    conn.setRequestProperty("Accept", "application/octet-stream, */*");
+                    int code = conn.getResponseCode();
+                    // GitHub answers with a redirect to its asset host, and
+                    // HttpURLConnection will not follow one across hosts itself.
+                    if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                        String next = conn.getHeaderField("Location");
+                        conn.disconnect();
+                        conn = null;
+                        if (next == null || ++hops > 5) throw new Exception("too many redirects");
+                        current = next;
+                        continue;
+                    }
+                    if (code != 200) throw new Exception("the server answered " + code);
+                    break;
+                }
+
+                long total = conn.getContentLength();
+                long done  = 0;
+                int lastPct = -1;
+                try (InputStream in = new BufferedInputStream(conn.getInputStream());
+                     FileOutputStream fos = new FileOutputStream(out)) {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        fos.write(buf, 0, n);
+                        done += n;
+                        if (total > 0) {
+                            int pct = (int) (done * 100 / total);
+                            if (pct != lastPct) {
+                                lastPct = pct;
+                                JSObject ev = new JSObject();
+                                ev.put("percent", pct);
+                                ev.put("bytes", done);
+                                ev.put("total", total);
+                                notifyListeners("apkDownloadProgress", ev);
+                            }
+                        }
+                    }
+                    fos.flush();
+                }
+                // A truncated download must never reach the installer.
+                if (total > 0 && out.length() != total) {
+                    throw new Exception("it arrived cut short, "
+                        + out.length() + " of " + total + " bytes");
+                }
+
+                Uri apkUri = androidx.core.content.FileProvider.getUriForFile(
+                    getContext(), getContext().getPackageName() + ".fileprovider", out);
+                Intent install = new Intent(Intent.ACTION_VIEW);
+                install.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(install);
+
+                JSObject r = new JSObject();
+                r.put("installed", true);
+                r.put("bytes", out.length());
+                call.resolve(r);
+            } catch (Exception e) {
+                call.reject("Update failed \u2014 " + e.getMessage());
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }).start();
+    }
+
+    /** Opens the settings screen where installing from this app is allowed. */
+    @PluginMethod
+    public void openInstallPermissionSettings(PluginCall call) {
+        try {
+            Intent i = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                ? new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + getContext().getPackageName()))
+                : new Intent(Settings.ACTION_SECURITY_SETTINGS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not open settings: " + e.getMessage());
+        }
     }
 
     /**

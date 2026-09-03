@@ -333,7 +333,37 @@ var NativeBridge = (function() {
     return plugin.updatePlaybackPosition(opts).catch(function() {});
   }
 
+  // Fetch an update and hand it to Android's installer, without going out to a
+  // browser. onProgress receives {percent, bytes, total} as it downloads.
+  function downloadAndInstallApk(url, fileName, onProgress) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.downloadAndInstallApk) {
+      return Promise.reject(new Error('downloadAndInstallApk not available'));
+    }
+    var handle = null;
+    if (onProgress && plugin.addListener) {
+      try { handle = plugin.addListener('apkDownloadProgress', onProgress); } catch (e) {}
+    }
+    function done() {
+      if (!handle) return;
+      Promise.resolve(handle).then(function(h) {
+        if (h && h.remove) h.remove();
+      }).catch(function() {});
+      handle = null;
+    }
+    return plugin.downloadAndInstallApk({ url: url, fileName: fileName })
+      .then(function(r) { done(); return r; }, function(e) { done(); throw e; });
+  }
+
+  function openInstallPermissionSettings() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.openInstallPermissionSettings) return Promise.resolve();
+    return plugin.openInstallPermissionSettings().catch(function() {});
+  }
+
   return { isNative: isNative, scanAllMusic: scanAllMusic, toSong: toSong,
+           downloadAndInstallApk: downloadAndInstallApk,
+           openInstallPermissionSettings: openInstallPermissionSettings,
            updatePlaybackPosition: updatePlaybackPosition,
            saveToDownloads: saveToDownloads, readClipboard: readClipboard,
            getAppVersion: getAppVersion, openExternal: openExternal,
