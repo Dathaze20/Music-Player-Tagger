@@ -7,6 +7,14 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.0
+
+- **Updates download inside the app.** Press Update and it fetches the new
+  version itself, shows the progress, and opens the installer. No browser, so
+  no more downloads stuck at 100%
+- The first update will ask you to allow My Music to install apps. That is a
+  one-time Android switch; after that updating is two taps
+
 ## v1.5.10
 
 - Swiping the album art moves one song, not two, and no longer drops you back

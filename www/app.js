@@ -6942,10 +6942,15 @@ function _promptUpdate(rel, apk) {
     + ' &bull; you have v' + escHtml(_appVersion.versionName) + '</div>'
     + (body ? '<div style="font-size:13px;color:var(--text-dim);white-space:pre-wrap;'
               + 'line-height:1.5;margin-bottom:16px;">' + escHtml(body) + '</div>' : '')
-    + '<div style="font-size:12px;color:var(--text-faint);line-height:1.5;margin-bottom:16px;">'
-    + 'Downloads in your browser. Open the file to install it over this one — '
-    + 'nothing is lost.</div>'
-    + '<div style="display:flex;gap:10px;">'
+    + '<div style="font-size:12px;color:var(--text-faint);line-height:1.5;margin-bottom:16px;" id="updHint">'
+    + 'Installs straight over this one — nothing is lost.</div>'
+    + '<div id="updProgressWrap" class="hidden" style="margin-bottom:16px;">'
+    +   '<div style="height:6px;border-radius:3px;background:var(--bg-secondary);overflow:hidden;">'
+    +     '<div id="updProgressBar" style="height:100%;width:0%;background:var(--primary);transition:width 0.2s;"></div>'
+    +   '</div>'
+    +   '<div id="updProgressText" style="font-size:12px;color:var(--text-dim);margin-top:8px;">Starting…</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:10px;" id="updButtons">'
     + '<button id="updLater" class="btn btn-secondary" style="flex:1;">Later</button>'
     + '<button id="updNow" class="btn btn-primary" style="flex:1;">Download</button>'
     + '</div>';
@@ -6956,16 +6961,48 @@ function _promptUpdate(rel, apk) {
   document.body.appendChild(card);
   card.querySelector('#updLater').onclick = close;
   card.querySelector('#updNow').onclick = function() {
-    close();
     var url = apk.browser_download_url;
-    if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
-      NativeBridge.openExternal(url).catch(function() {
-        showToast('Could not open the browser', 3000);
-      });
-    } else {
+    var native = typeof NativeBridge !== 'undefined' && NativeBridge.isNative()
+              && NativeBridge.downloadAndInstallApk;
+    if (!native) {
+      // A browser tab has nothing to install into; the link is all there is.
+      close();
       window.open(url, '_blank');
+      return;
     }
-    showToast('Downloading… open the file when it finishes', 4000);
+
+    // Fetch it here rather than handing off to the browser. Chrome stalls an
+    // APK at 100% waiting on a Safe Browsing verdict it may never get, and
+    // getting past that is not something anyone should have to work out.
+    var wrap = card.querySelector('#updProgressWrap');
+    var bar  = card.querySelector('#updProgressBar');
+    var text = card.querySelector('#updProgressText');
+    var hint = card.querySelector('#updHint');
+    card.querySelector('#updButtons').classList.add('hidden');
+    wrap.classList.remove('hidden');
+    if (hint) hint.textContent = 'Keep this open until it finishes.';
+    overlay.onclick = null;   // a stray tap must not cancel a download
+
+    NativeBridge.downloadAndInstallApk(url, apk.name || 'MyMusic-update.apk', function(p) {
+      var pct = (p && typeof p.percent === 'number') ? p.percent : 0;
+      bar.style.width = pct + '%';
+      text.textContent = pct + '%  ·  ' + ((p.bytes || 0) / 1048576).toFixed(1)
+        + ' of ' + ((p.total || 0) / 1048576).toFixed(1) + ' MB';
+    }).then(function(r) {
+      if (r && r.needsPermission) {
+        close();
+        showToast('Allow My Music to install apps, then press Update again', 6000);
+        NativeBridge.openInstallPermissionSettings();
+        return;
+      }
+      text.textContent = 'Downloaded — opening the installer…';
+      setTimeout(close, 1500);
+    }).catch(function(err) {
+      wrap.classList.add('hidden');
+      card.querySelector('#updButtons').classList.remove('hidden');
+      overlay.onclick = close;
+      if (hint) hint.textContent = (err && err.message) ? err.message : 'Update failed.';
+    });
   };
 }
 

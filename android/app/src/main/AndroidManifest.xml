@@ -73,4 +73,8 @@
     <!-- Required for navigator.vibrate() to work in the WebView -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Lets the app hand a downloaded update straight to Android's installer,
+         so updating never has to go out to a browser. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
 </manifest>
