@@ -1,0 +1,86 @@
+name: Grocery Pricer Android
+
+# Builds and tests the Grocery Pricer Android app and publishes an installable
+# debug APK as a downloadable artifact on every run.
+on:
+  push:
+    paths:
+      - 'grocery-pricer/**'
+      - '.github/workflows/grocery-pricer-android.yml'
+  pull_request:
+    paths:
+      - 'grocery-pricer/**'
+      - '.github/workflows/grocery-pricer-android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Test, lint and build APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: grocery-pricer
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make the Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        run: ./gradlew --no-daemon --stacktrace test
+
+      - name: Run Android Lint
+        run: ./gradlew --no-daemon --stacktrace lintDebug
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Name the APK for humans
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             artifacts/grocery-pricer-1.0.0-debug.apk
+          ls -lh artifacts/
+
+      - name: Report APK size
+        run: |
+          SIZE=$(stat -c%s artifacts/grocery-pricer-1.0.0-debug.apk)
+          echo "### Grocery Pricer debug APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- File: \`grocery-pricer-1.0.0-debug.apk\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Size: $(numfmt --to=iec --suffix=B "$SIZE")" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Download it from the **Grocery-Pricer-Android-debug** artifact below." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grocery-Pricer-Android-debug
+          path: grocery-pricer/artifacts/grocery-pricer-1.0.0-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grocery-Pricer-reports
+          path: |
+            grocery-pricer/core/build/reports/tests/
+            grocery-pricer/app/build/reports/tests/
+            grocery-pricer/app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 14
