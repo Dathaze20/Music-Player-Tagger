@@ -41,13 +41,34 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Run unit tests
-        run: ./gradlew --no-daemon --stacktrace test
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon test 2>&1 | tee -a "$RUNNER_TEMP/gradle.log"
 
       - name: Run Android Lint
-        run: ./gradlew --no-daemon --stacktrace lintDebug
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon lintDebug 2>&1 | tee -a "$RUNNER_TEMP/gradle.log"
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon assembleDebug 2>&1 | tee -a "$RUNNER_TEMP/gradle.log"
+
+      # Gradle buries compiler errors under a long stack trace. Repeat just the
+      # errors at the end of the log so a failure is readable at a glance.
+      - name: Summarise build errors
+        if: failure()
+        run: |
+          echo "### Build errors" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            grep -E "^e: |^ERROR:|error: " "$RUNNER_TEMP/gradle.log" || true
+            grep -E "^[A-Za-z].*> Task .* FAILED" "$RUNNER_TEMP/gradle.log" || true
+            grep -E "^\* What went wrong:" -A 6 "$RUNNER_TEMP/gradle.log" || true
+          } | sed 's|/home/runner/work/Music-Player-Tagger/Music-Player-Tagger/grocery-pricer/||g' \
+            | sort -u | head -200 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Name the APK for humans
         run: |

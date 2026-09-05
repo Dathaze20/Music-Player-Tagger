@@ -1,6 +1,5 @@
 package com.grocerypricer.app.ui.components
 
-import com.grocerypricer.core.money.Money
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -14,7 +13,3 @@ fun formatDate(millis: Long?): String = millis?.let { DATE_FORMAT.format(Date(it
 fun formatDateTime(millis: Long?): String = millis?.let { DATE_TIME_FORMAT.format(Date(it)) } ?: "-"
 
 fun formatIsoDate(millis: Long): String = ISO_DATE_FORMAT.format(Date(millis))
-
-fun Money?.orDash(): String = this?.format() ?: "-"
-
-fun Money?.orZero(): Money = this ?: Money.ZERO
