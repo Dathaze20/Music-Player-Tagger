@@ -43,7 +43,7 @@ jobs:
       - name: Run unit tests
         run: |
           set -o pipefail
-          ./gradlew --no-daemon test 2>&1 | tee -a "$RUNNER_TEMP/gradle.log"
+          ./gradlew --no-daemon :core:test :app:testDebugUnitTest 2>&1 | tee -a "$RUNNER_TEMP/gradle.log"
 
       - name: Run Android Lint
         run: |

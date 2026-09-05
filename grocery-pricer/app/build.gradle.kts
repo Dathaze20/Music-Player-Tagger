@@ -91,6 +91,12 @@ kotlin {
     }
 }
 
+tasks.withType<Test>().configureEach {
+    // A safety net: a deadlocked test should fail the build, not sit on a runner for hours.
+    timeout.set(java.time.Duration.ofMinutes(20))
+    testLogging { events("failed", "skipped") }
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
     arg("room.incremental", "true")

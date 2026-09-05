@@ -25,7 +25,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+// The stock Application: GroceryPricerApplication.onCreate opens the real database
+// and seeds pricing rules, which a unit test must not do.
+@Config(sdk = [34], application = android.app.Application::class)
 class GroceryPricerDatabaseTest {
 
     private lateinit var database: GroceryPricerDatabase
