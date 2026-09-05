@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -187,7 +186,7 @@ fun PricingRulesScreen(
                         Text(
                             when {
                                 rule == null -> "Uses the cost ladder"
-                                rule.markupPercent != null -> "${rule.markupPercent.toPlainString()}% markup"
+                                rule.markupPercent != null -> "${rule.markupPercent?.toPlainString()}% markup"
                                 rule.tierSteps != 0 -> "Ladder ${if (rule.tierSteps > 0) "+" else ""}${rule.tierSteps} step(s)"
                                 else -> "Custom ending"
                             },
