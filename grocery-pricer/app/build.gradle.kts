@@ -1,3 +1,4 @@
+import java.time.Duration
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -93,7 +94,7 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     // A safety net: a deadlocked test should fail the build, not sit on a runner for hours.
-    timeout.set(java.time.Duration.ofMinutes(20))
+    timeout.set(Duration.ofMinutes(20))
     testLogging { events("failed", "skipped") }
 }
 
