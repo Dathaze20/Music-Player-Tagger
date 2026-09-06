@@ -7,6 +7,13 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.6
+
+- AI Fill now strips the uploader's label off an album name. "Album_-_The
+  Blixky_Tape" becomes "The Blixky Tape" instead of "Album - The Blixky Tape",
+  and tags like [320kbps] or [Explicit] come off too. Real names such as "The
+  Album", "LP1" or "Aquemini (Deluxe Edition)" are left exactly as they are
+
 ## v1.6.5
 
 - AI Fill now knows every genre, not just hip-hop. It was being told it

@@ -1728,13 +1728,40 @@ function getBestAlbumArtistKey(albumName, song) {
   return bestKey || '';
 }
 
-// Clean up album names that came from filenames (underscores, stray dashes).
+/**
+ * Tidy an album name that came out of a filename.
+ *
+ * This used to swap underscores for spaces and stop, so
+ * "Album_-_The_Blixky_Tape" became "Album - The Blixky Tape" — the word the
+ * uploader put in front of the real name survived as part of it. The label and
+ * the download tags that ride along with it are dropped too.
+ *
+ * Every rule needs its own bracket or its own separator, so an album genuinely
+ * called "The Album", "LP1" or "Single Ladies" is left alone, and edition names
+ * like "(Deluxe Edition)" or "(Remastered)" are kept — those are part of the
+ * title, not clutter.
+ */
 function cleanFilenameAlbum(s) {
   if (!s) return s;
-  return s
-    .replace(/_/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  var out = String(s).replace(/_/g, ' ');
+
+  // "[Album] Take Care", "(EP) Nickel Bag"
+  out = out.replace(/[[(]\s*(album|mixtape|ep|lp|single)\s*[\])]/gi, ' ');
+
+  // Format and quality tags an uploader added: [320kbps], (HQ), [Explicit]
+  out = out.replace(
+    /[[(]\s*(?:\d{3}\s*kbps|\d{3}k|v0|hq|hd|web|webrip|cdq|itunes|mp3|m4a|aac|flac|explicit|clean|dirty)\s*[\])]/gi,
+    ' ');
+
+  // "Album - The Blixky Tape". Needs the separator, so "Single Ladies" and
+  // "The Album" are untouched, and needs something left over, so an album
+  // actually named "EP" survives.
+  out = out.replace(/^\s*(album|mixtape|ep|lp|single)\s*[-\u2013\u2014:]+\s*(?=\S)/i, '');
+
+  // Whatever the trimming left at the ends.
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  out = out.replace(/^[-\u2013\u2014:\s]+/, '').replace(/[-\u2013\u2014:\s]+$/, '').trim();
+  return out || String(s).replace(/_/g, ' ').trim();
 }
 
 function getArtistSongs(name) {
