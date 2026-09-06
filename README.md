@@ -54,10 +54,11 @@ Drop the files in a `screenshots/` folder and link them here.
 - Swipe the artwork left or right to change track. Swiping up and down still scrolls the lyrics, and a tap still shows and hides them
 
 ### Tagging
-- **MusicBrainz lookup** — free, no key; year, genre, release type, and artist credit. Results take priority over AI guesses. Uses the release group's *first* release date, so the year is the original rather than a reissue's, and falls back to the artist's own genre when a release is too obscure to be in the database
+- **MusicBrainz lookup** — free, no key; year, genre, release type, and artist credit. Results take priority over AI guesses. The release group is looked up in full, so the year is the record's original release date rather than the date of whichever pressing a search happened to return, and the genre is the album's own. Falls back to the artist's genre when a release is too obscure to be in the database
 - **Both lookups run at once**, and both are given the tidied album name, so a file called `Album_-_II` is searched for as `II`
 - **Google Gemini** (optional) — fills whatever MusicBrainz didn't, including subgenre and featured artists
-- **Album batch editor** — retag every song in an album at once. The album-artist field starts blank when songs are untagged, so saving never overwrites correct tags with "Unknown Artist"
+- **AI Fill says what it found**, and says "no year found" when it could not find one, so an empty field always means something definite
+- **Album batch editor** — retag every song in an album at once, including the one currently playing. The album-artist field starts blank when songs are untagged, so saving never overwrites correct tags with "Unknown Artist"
 - **Per-song editor** — full metadata, album art picker, AI fill, and a lyrics field (plain or LRC)
 - **Filename parsing** for untagged files — strips track numbers, `(prod. by …)`, and `(Official Audio)`-style noise, splits `Artist_-_Title` into its parts, converts underscores back to spaces, and pulls featured artists out into their own field
 - **Album name cleaning** — strips an uploader's `Album -` or `Mixtape -` label and tags like `[320kbps]`, so `Album_-_The_Blixky_Tape` becomes `The Blixky Tape`. Real names such as `The Album`, `LP1` and `Aquemini (Deluxe Edition)` are left alone
@@ -81,7 +82,7 @@ Drop the files in a `screenshots/` folder and link them here.
 
 ## Android Integration
 
-Everything below is implemented in the hand-written plugin (`MediaStorePlugin.java`, ~1,500 lines) and its playback service — not through an off-the-shelf wrapper.
+Everything below is implemented in the hand-written plugin (`MediaStorePlugin.java`, ~1,700 lines) and its playback service — not through an off-the-shelf wrapper.
 
 - **MediaStore scanning** — reads every audio file on the device without copying anything, pulling name, path, duration, disc, album artist, genre, size, and date added in a single cursor pass. Requests the correct runtime permission per API level (`READ_MEDIA_AUDIO` on API 33+, `READ_EXTERNAL_STORAGE` below). Includes files Android does not flag as music, which is where most downloaded tracks land
 - **Media notification** — lock-screen and shade controls via `MediaSession` and a foreground service
@@ -115,6 +116,10 @@ Art is decoded natively, scaled, and JPEG-compressed before crossing the bridge.
 **Edit persistence**
 
 Manual edits live in their own IndexedDB store (`manual_edits`), keyed by content URI with a filename fallback, and are re-applied on top of every fresh MediaStore scan. Edits therefore survive a full rescan and are never clobbered by Android's stale metadata. Deleting a song also deletes its saved edits, so a file later downloaded under the same name does not silently inherit them.
+
+**Writing tags to a file that is playing**
+
+Android will not let the app rewrite a file the media player currently has open, so retagging an album used to write every file in it except the one being listened to — and the failure was discarded, so the only sign was that one song staying behind. A write that fails on the playing file is now held and retried once playback moves on, which is when the file is released. The queue is keyed by content URI, gives up after three attempts, and lives in memory: the edit itself is already in the edits store, so the worst case is a file whose tag catches up on the next run rather than immediately.
 
 **Activity results**
 
@@ -241,7 +246,8 @@ Both run in CI on every push.
 - **Damaged audio files** cannot be played. The WebView uses Chromium's decoders, which reject some truncated or malformed downloads. The app reports the reason, including the file size when a download is incomplete, so a broken file is easy to tell apart from an unsupported format.
 - **Crossfade and the equalizer** rely on the Web Audio API and are unavailable on files the WebView cannot decode.
 - **Automated tests cover the pure helper functions only** — filename, LRC and time parsing. Playback, scanning, and the native layer are verified by hand on a device.
-- **AI Fill cannot always find a year.** A release missing from MusicBrainz, or one whose title is too short or generic to search on, may come back with a genre but no year. The app leaves the field empty rather than estimating, since a confident wrong year is worse than a blank one — type it in yourself in that case.
+- **AI Fill cannot always find a year.** A release missing from MusicBrainz, or one whose title is too short or generic to search on, may come back with a genre but no year. The app leaves the field empty and says "no year found" rather than estimating, since a confident wrong year is worse than a blank one — type it in yourself in that case.
+- **A tag write deferred while a song is playing is lost if the app closes first.** The change is still saved in the app and the library stays correct; only the tag inside the file waits for the next edit. The pending queue is deliberately in memory rather than persisted.
 - **Android only.** The web layer runs in any Chromium browser, but every native capability is Android-specific.
 
 ---
