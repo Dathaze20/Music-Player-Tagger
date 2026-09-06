@@ -7,6 +7,17 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.8
+
+- AI Fill finds a genre far more often. When the music database has never heard
+  of a mixtape it now asks who the artist is, instead of giving up — small
+  releases are usually missing while the artist is not
+- A broken genre tag reading "Genre:" or "Unknown" no longer sits in the editor
+  looking like a real value
+- AI Fill will give the genre it would expect from the artist when it does not
+  know a specific release. It still will not guess at the year, since a wrong
+  year is worse than none
+
 ## v1.6.7
 
 - Opening the tag editor now shows the tidied album name straight away, so
