@@ -7,6 +7,20 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.1
+
+- The year is far more reliable. AI Fill was reading it off whichever single
+  pressing of a record the search happened to return — often a reissue years
+  later, and frequently carrying no date at all. It now asks the music database
+  for the record itself, which is where the original release date lives
+- The genre now comes from the album where the database has one, instead of
+  always falling back to the artist's genre
+- The Year box no longer shows a greyed-out "2024" when it is empty. That is a
+  hint, not a value, but it reads exactly like a filled-in year. It says "Not
+  set" now
+- AI Fill says "no year found" when it could not find one, rather than leaving
+  an empty box to be interpreted
+
 ## v1.7.0
 
 - Editing an album no longer skips the song you are playing. Android will not
