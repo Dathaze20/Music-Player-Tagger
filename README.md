@@ -50,15 +50,18 @@ Drop the files in a `screenshots/` folder and link them here.
 - Blurred background matched to the current cover
 - Tap the album or artist name to jump straight to that page
 - Synced lyrics (LRC) with live line highlighting, in portrait and landscape
-- Speed, repeat, and shuffle toggles
+- Repeat and shuffle toggles, with speed, add-to-playlist, the equalizer and the tag editor behind one menu in the header
+- Swipe the artwork left or right to change track. Swiping up and down still scrolls the lyrics, and a tap still shows and hides them
 
 ### Tagging
-- **MusicBrainz lookup** — free, no key; year, genre, release type, and artist credit. Results take priority over AI guesses
+- **MusicBrainz lookup** — free, no key; year, genre, release type, and artist credit. Results take priority over AI guesses. Uses the release group's *first* release date, so the year is the original rather than a reissue's, and falls back to the artist's own genre when a release is too obscure to be in the database
+- **Both lookups run at once**, and both are given the tidied album name, so a file called `Album_-_II` is searched for as `II`
 - **Google Gemini** (optional) — fills whatever MusicBrainz didn't, including subgenre and featured artists
 - **Album batch editor** — retag every song in an album at once. The album-artist field starts blank when songs are untagged, so saving never overwrites correct tags with "Unknown Artist"
 - **Per-song editor** — full metadata, album art picker, AI fill, and a lyrics field (plain or LRC)
 - **Filename parsing** for untagged files — strips track numbers, `(prod. by …)`, and `(Official Audio)`-style noise, splits `Artist_-_Title` into its parts, converts underscores back to spaces, and pulls featured artists out into their own field
-- **Year sanity filter** — suppresses the 1970 Unix-epoch default that corrupt ID3 tags produce
+- **Album name cleaning** — strips an uploader's `Album -` or `Mixtape -` label and tags like `[320kbps]`, so `Album_-_The_Blixky_Tape` becomes `The Blixky Tape`. Real names such as `The Album`, `LP1` and `Aquemini (Deluxe Edition)` are left alone
+- **Junk value filters** — the 1970 Unix-epoch year that corrupt ID3 tags produce, and genre fields holding `Genre:` or `Unknown`, are treated as empty rather than shown as values
 - Custom album art applies everywhere it should: song rows, album grid, artist mosaic, and artist avatars
 
 ### Sharing
@@ -71,7 +74,8 @@ Drop the files in a `screenshots/` folder and link them here.
 - Designed so your tagging work survives reinstalling the app
 
 ### Staying Current
-- **Check for Updates** in the side drawer compares the installed version code against the latest GitHub release and offers the download, so there is no need to visit the repository
+- **Check for Updates** in the side drawer compares the installed version code against the latest GitHub release, then **downloads and installs it in the app** — no browser, and no download left sitting at 100% waiting on a scan that never finishes
+- The first update asks for Android's permission to install apps. That is a one-time switch; after that updating is two taps
 
 ---
 
@@ -87,6 +91,7 @@ Everything below is implemented in the hand-written plugin (`MediaStorePlugin.ja
 - **Permanent delete** — removes the file through MediaStore with Android's own confirmation dialog, frees the space, and clears every trace from the library
 - **File save** — backups are written to Downloads through MediaStore, because a WebView has no download handler and `<a download>` silently does nothing
 - **QR generation** and a **local HTTP file server** for WiFi sharing
+- **Update download and install** — fetches the APK itself, following GitHub's redirect to its asset host by hand, checks the length, and hands it to Android's installer through a `FileProvider`
 - **Clipboard read** — an Android WebView does not implement `navigator.clipboard.readText()`, so the API-key screen asks Android directly and can tell you what you actually copied
 - **Battery optimisation prompt** — offers the exemption once, since Android otherwise kills background playback
 - **Notification permission** requested on Android 13+, plus haptics and an external-link handler
@@ -145,7 +150,9 @@ MusicBrainz needs no key at all.
 
 ## Install
 
-Download the latest signed APK from the [**Releases**](https://github.com/dathaze20/music-player-tagger/releases) page and open it. Android will warn that your browser is not allowed to install apps — tap Settings, allow it, go back, and install. Updates install straight over the top; nothing is lost.
+Download the latest signed APK from the [**Releases**](https://github.com/dathaze20/music-player-tagger/releases) page and open it. Android will warn that your browser is not allowed to install apps — tap Settings, allow it, go back, and install.
+
+After that first install the app updates itself: **Check for Updates** in the side drawer fetches and installs new versions without leaving the app. Updates install straight over the top; nothing is lost.
 
 Requires **Android 7.0 (API 24)** or newer.
 
@@ -234,6 +241,7 @@ Both run in CI on every push.
 - **Damaged audio files** cannot be played. The WebView uses Chromium's decoders, which reject some truncated or malformed downloads. The app reports the reason, including the file size when a download is incomplete, so a broken file is easy to tell apart from an unsupported format.
 - **Crossfade and the equalizer** rely on the Web Audio API and are unavailable on files the WebView cannot decode.
 - **Automated tests cover the pure helper functions only** — filename, LRC and time parsing. Playback, scanning, and the native layer are verified by hand on a device.
+- **AI Fill cannot always find a year.** A release missing from MusicBrainz, or one whose title is too short or generic to search on, may come back with a genre but no year. The app leaves the field empty rather than estimating, since a confident wrong year is worse than a blank one — type it in yourself in that case.
 - **Android only.** The web layer runs in any Chromium browser, but every native capability is Android-specific.
 
 ---
