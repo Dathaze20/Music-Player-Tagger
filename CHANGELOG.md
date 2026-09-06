@@ -7,6 +7,12 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.7
+
+- Opening the tag editor now shows the tidied album name straight away, so
+  pressing Save is enough. Before, the tidying only happened if you ran AI
+  Fill, so opening the editor and saving kept the messy name
+
 ## v1.6.6
 
 - AI Fill now strips the uploader's label off an album name. "Album_-_The
