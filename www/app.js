@@ -1574,7 +1574,7 @@ if (_geminiModel && !/gemini/i.test(_geminiModel)) {
 // library and wrong for one holding folk, soul, rock and everything else: it
 // pushed the answer toward a rap subgenre whatever the song actually was.
 var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of every genre and era \u2014 hip-hop and R&B, rock, pop, soul, funk, jazz, blues, country, folk, reggae, dancehall, electronic, Latin, gospel, metal, punk and classical. Research this release from your knowledge and return correct values for every field \u2014 do not leave fields blank if you know the answer.\n\n';
-var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre that fits this actual song, from any genre family (e.g. "Boom Bap", "Neo Soul", "Outlaw Country", "Bebop", "Roots Reggae", "Shoegaze", "Bachata") \u2014 not a broad category, and never force a hip-hop answer onto music that is not hip-hop\n- year must be the year of the original release, not a reissue, remaster or compilation\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
+var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre that fits this actual song, from any genre family (e.g. "Boom Bap", "Neo Soul", "Outlaw Country", "Bebop", "Roots Reggae", "Shoegaze", "Bachata") \u2014 not a broad category, and never force a hip-hop answer onto music that is not hip-hop\n- year must be the year of the original release, not a reissue, remaster or compilation\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If you do not know the specific release, still give the genre you would expect from this artist rather than leaving it blank \u2014 but never guess at the year that way\n- If unsure, use "" not "Unknown"\n';
 
 // MusicBrainz tags are free text, so alongside real genres they carry things
 // nobody would file a song under. Taking the top-voted tag blindly could hand
@@ -1590,6 +1590,23 @@ var _MB_NON_GENRE = [
   'explicit','clean','remaster','remastered','compilation',
   'various artists','unknown','other','music'
 ];
+/**
+ * A genre value from a file's own tags, or '' if it is not really one.
+ *
+ * Files from download sites often carry a genre field holding the word
+ * "Genre:" or similar leftovers from whatever wrote them. Left alone it sits
+ * in the editor looking like a real value.
+ */
+function cleanFileGenre(g) {
+  var v = String(g || '').replace(/^\s*genre\s*[:\-]\s*/i, '').trim();
+  if (!v) return '';
+  var low = v.toLowerCase().replace(/[.:;,]+$/, '').trim();
+  if (!low) return '';
+  if (['genre','unknown','unknown genre','none','n/a','na','null','other','music','misc','miscellaneous','(none)','undefined'].indexOf(low) !== -1) return '';
+  if (/^\(\s*\d+\s*\)$/.test(low)) return '';   // a bare ID3 numeric code
+  return v;
+}
+
 function _mbIsGenreTag(name) {
   var n = String(name || '').trim().toLowerCase();
   if (!n) return false;
@@ -4916,6 +4933,46 @@ function handleFileImport(files) {
 
 // ─── Tag Editor AI Fill ───
 
+/**
+ * The genre MusicBrainz files an artist under, when it has never heard of the
+ * release itself.
+ *
+ * Small labels and mixtapes are frequently missing from the database while the
+ * artist is present. Giving up at the release meant losing a genre that was
+ * there for the asking.
+ */
+function _mbArtistOnlyGenre(artistName) {
+  var name = String(artistName || '').trim();
+  if (!name) return null;
+  var url = 'https://musicbrainz.org/ws/2/artist?query='
+          + encodeURIComponent('artist:"' + name.replace(/"/g, '') + '"')
+          + '&fmt=json&limit=1';
+  var ctrl = new AbortController();
+  var tid  = setTimeout(function() { ctrl.abort(); }, 10000);
+  return fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' } })
+    .then(function(res) { clearTimeout(tid); return res.ok ? res.json() : null; })
+    .then(function(d) {
+      var a = d && d.artists && d.artists[0];
+      // The same confidence bar the release search uses, so a loose name match
+      // cannot hand back somebody else's genre.
+      if (!a || !a.id || (a.score || 0) < 85) return null;
+      return fetch('https://musicbrainz.org/ws/2/artist/' + a.id + '?inc=tags&fmt=json', {
+        headers: { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' }
+      }).then(function(r2) {
+        if (!r2.ok) return null;
+        return r2.json().then(function(ad) {
+          var tags = (ad.tags || []).slice()
+            .sort(function(x, y) { return (y.count||0) - (x.count||0); })
+            .filter(function(t) { return _mbIsGenreTag(t.name); });
+          if (!tags.length || !tags[0].name) return null;
+          var g = tags[0].name;
+          return { genre: g.charAt(0).toUpperCase() + g.slice(1) };
+        });
+      });
+    })
+    .catch(function() { clearTimeout(tid); return null; });
+}
+
 // Query MusicBrainz (free, no key) for album metadata — year, albumArtist, releaseType, genre.
 // Returns a partial result object (only populated fields) or null on failure / no match.
 function lookupMusicBrainz(song) {
@@ -4942,7 +4999,7 @@ function lookupMusicBrainz(song) {
     if (!res.ok) return null;
     return res.json();
   }).then(function(data) {
-    if (!data || !data.releases || !data.releases.length) return null;
+    if (!data || !data.releases || !data.releases.length) return _mbArtistOnlyGenre(artist);
 
     // Pick the highest-confidence result; skip results with score < 75 to avoid
     // applying wrong metadata from an unrelated release.
@@ -4950,7 +5007,10 @@ function lookupMusicBrainz(song) {
     for (var ri = 0; ri < data.releases.length; ri++) {
       if ((data.releases[ri].score || 100) >= 75) { rel = data.releases[ri]; break; }
     }
-    if (!rel) return null;
+    // Nothing scored well enough. An underground release will not be in the
+    // database at all, but its artist usually is, and their genre is better
+    // than nothing.
+    if (!rel) return _mbArtistOnlyGenre(artist);
 
     var result = {};
 
@@ -5592,7 +5652,7 @@ function openSongEditModal(songId) {
   +         '<input class="te-input" id="teYear" value="' + escHtml(song.year || '') + '" placeholder="2024">'
   +         '<div class="te-ai-hint" id="teYearHint"></div></div>'
   +       '<div class="te-field"><div class="te-label">Genre</div>'
-  +         '<input class="te-input" id="teGenre" value="' + escHtml(song.genre || '') + '" placeholder="Hip-Hop">'
+  +         '<input class="te-input" id="teGenre" value="' + escHtml(cleanFileGenre(song.genre)) + '" placeholder="Hip-Hop">'
   +         '<div class="te-ai-hint" id="teGenreHint"></div></div>'
   +     '</div>'
   +     '<div class="te-row">'
@@ -5841,7 +5901,7 @@ function openEditModal(albumName, artistName) {
     + '<div class="edit-field"><label>Album / Mixtape Name</label><input id="editAlbum" value="' + escHtml(cleanFilenameAlbum(albumName)) + '"></div>'
     + '<div class="edit-row">'
     + '<div class="edit-field"><label>Year</label><input id="editYear" value="' + escHtml(first.year || '') + '" placeholder="2024"></div>'
-    + '<div class="edit-field"><label>Genre</label><input id="editGenre" value="' + escHtml(first.genre || '') + '" placeholder="Hip-Hop"></div>'
+    + '<div class="edit-field"><label>Genre</label><input id="editGenre" value="' + escHtml(cleanFileGenre(first.genre)) + '" placeholder="Hip-Hop"></div>'
     + '</div>'
     + '<div class="edit-field"><label>Release Type</label><div class="type-buttons">'
     + ['Album','Mixtape','EP','Single'].map(function(t) {
