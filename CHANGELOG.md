@@ -7,6 +7,10 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.4
+
+- The album art is bigger, filling the width of the screen the way it should
+
 ## v1.6.3
 
 - Nothing moves when the song changes. The artwork keeps the same size whether
