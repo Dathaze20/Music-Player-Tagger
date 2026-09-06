@@ -5582,7 +5582,7 @@ function openSongEditModal(songId) {
   +       '<input class="te-input" id="teArtist" value="' + escHtml(song.artist) + '">'
   +       '<div class="te-ai-hint" id="teArtistHint"></div></div>'
   +     '<div class="te-field"><div class="te-label">Album</div>'
-  +       '<input class="te-input" id="teAlbum" value="' + escHtml(song.album) + '">'
+  +       '<input class="te-input" id="teAlbum" value="' + escHtml(cleanFilenameAlbum(song.album)) + '">'
   +       '<div class="te-ai-hint" id="teAlbumHint"></div></div>'
   +     '<div class="te-field"><div class="te-label">Album Artist</div>'
   +       '<input class="te-input" id="teAlbumArtist" value="' + escHtml(song.albumArtist || '') + '">'
@@ -5835,7 +5835,10 @@ function openEditModal(albumName, artistName) {
     + '</div></div>'
     + '<div class="edit-field"><label>Artist</label><input id="editArtist" value="' + escHtml(editArtistVal) + '" placeholder="e.g. Eminem"></div>'
     + '<div class="edit-field"><label>Album Artist</label><input id="editAlbumArtist" value="' + escHtml(first.albumArtist || '') + '" placeholder="e.g. Various Artists"></div>'
-    + '<div class="edit-field"><label>Album / Mixtape Name</label><input id="editAlbum" value="' + escHtml(albumName) + '"></div>'
+    // Tidied on the way in, not only when AI Fill runs. Opening the editor and
+    // pressing save is the common path, and it used to store the name exactly as
+    // the uploader left it.
+    + '<div class="edit-field"><label>Album / Mixtape Name</label><input id="editAlbum" value="' + escHtml(cleanFilenameAlbum(albumName)) + '"></div>'
     + '<div class="edit-row">'
     + '<div class="edit-field"><label>Year</label><input id="editYear" value="' + escHtml(first.year || '') + '" placeholder="2024"></div>'
     + '<div class="edit-field"><label>Genre</label><input id="editGenre" value="' + escHtml(first.genre || '') + '" placeholder="Hip-Hop"></div>'
