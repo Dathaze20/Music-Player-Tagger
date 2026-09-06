@@ -7,6 +7,17 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.0
+
+- Editing an album no longer skips the song you are playing. Android will not
+  let the file be rewritten while the player has it open, so that one song kept
+  its old tags and the failure was never reported. The change is now held and
+  written by itself as soon as you move to another song — no need to go and play
+  something else first
+- Nothing flickers over albums that have no artwork. A moving band of light was
+  sweeping across every art-less tile, forever, which on a page full of them was
+  the whole screen moving at once. It is a plain still colour now
+
 ## v1.6.9
 
 - The year fills in again. The lookup was being run on the raw album name from
