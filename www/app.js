@@ -3520,6 +3520,13 @@ function bindSongRows(el, songList) {
 // ─── Mini Player ───
 
 function updateMiniPlayer() {
+  // Marks the body while Now Playing is up, so the A-Z strip — which is fixed
+  // and would otherwise sit on top of it — stays with the list it belongs to.
+  // Set from here because this runs on every tick, so it stays right whichever
+  // of the several ways Now Playing was opened or closed.
+  try {
+    document.body.classList.toggle('np-open', !!showNowPlaying);
+  } catch (e) {}
   if (!_mpEl) {
     _mpEl       = document.getElementById('miniPlayer');
     _mpTitleEl  = document.getElementById('miniTitle');
@@ -3806,9 +3813,9 @@ function renderNowPlaying() {
     + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '" style="font-size:20px;">&#8644;</button>'
     + '</div>'
     + '<div class="np-bottom">'
-    + '<button id="npSpeed" class="np-ctrl' + (playbackRate !== 1.0 ? ' active' : '') + '" style="font-size:13px;font-weight:700;min-width:40px;">' + playbackRate + 'x</button>'
-    + '<button id="npAddPlBtn" class="np-ctrl" style="font-size:15px;" title="Add to playlist">&#9835;+</button>'
-    + '<button id="npEqBtn" class="np-ctrl' + (eqGains.some(function(g){return g!==0;}) ? ' active' : '') + '" style="font-size:13px;font-weight:700;letter-spacing:1px;" title="Equalizer">EQ</button>'
+    + '<button id="npSpeed" class="np-ctrl' + (playbackRate !== 1.0 ? ' active' : '') + '" title="Playback speed">' + playbackRate + '&#215;</button>'
+    + '<button id="npAddPlBtn" class="np-ctrl" title="Add to playlist">&#9835;&#43;</button>'
+    + '<button id="npEqBtn" class="np-ctrl' + (eqGains.some(function(g){return g!==0;}) ? ' active' : '') + '" title="Equalizer">EQ</button>'
     + '</div>';
 
   html += '</div>';  // end np-controls

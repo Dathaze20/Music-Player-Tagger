@@ -405,18 +405,29 @@ body {
 
 /* Album art — padded with rounded corners so blurred background shows on sides */
 .np-art-full {
-  width: calc(100% - 48px);
-  margin: 4px 24px 0;
+  /* Square, and sized to whatever room is left.
+     This is a flex column item, so it used to stretch to the full width while
+     only its height shrank when space was tight. That made the box wider than
+     tall, and object-fit: cover then trimmed the top and bottom off the
+     sleeve — which is why the parental advisory strip was missing. Centring it
+     stops the stretch, so width follows height and the box stays square. */
+  width: auto;
+  height: auto;
+  align-self: center;
+  margin: 4px auto 0;
+  max-width: calc(100% - 48px);
+  max-height: 100%;
   aspect-ratio: 1;
+  flex: 0 1 auto;
+  min-height: 0;
   border-radius: 16px;
   overflow: hidden;
-  flex-shrink: 1;
-  min-height: 0;
-  max-height: calc(100vw - 48px);
   box-shadow: 0 12px 40px rgba(0,0,0,0.65);
   position: relative;
 }
-.np-art-full img { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: -webkit-optimize-contrast; }
+/* contain, not cover: the whole sleeve is shown even if the box is not exactly
+   square on some screen. Nothing is ever cropped. */
+.np-art-full img { width: 100%; height: 100%; object-fit: contain; display: block; image-rendering: -webkit-optimize-contrast; }
 .np-art-full .art-placeholder { width: 100% !important; height: 100% !important; font-size: 80px !important; border-radius: 0 !important; }
 
 /* Info row: heart | [title marquee + artist] | queue */
@@ -653,13 +664,21 @@ body {
 .np-bottom {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* Grouped in the middle rather than flung into the corners, which read as
+     three stray labels rather than one row of controls. */
+  justify-content: center;
+  gap: 34px;
   flex-shrink: 0;
 }
 .np-bottom button {
   background: none; border: none; color: var(--text-faint);
-  padding: 8px; cursor: pointer; font-size: 20px;
+  padding: 8px 10px; cursor: pointer;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
+  min-width: 44px; text-align: center;
+  opacity: 0.75;
+  transition: opacity 0.15s, color 0.15s, transform 0.1s;
 }
+.np-bottom button.active { color: var(--primary); opacity: 1; }
 
 /* Drawer */
 .drawer-overlay {
@@ -1607,9 +1626,8 @@ body {
 
 /* ─── NP bottom controls ─── */
 .np-bottom button {
-  background: none; border: none; color: var(--text-faint);
-  padding: 10px; cursor: pointer; font-size: 20px;
-  transition: transform 0.1s;
+  padding: 10px 12px;
+  transition: opacity 0.15s, color 0.15s, transform 0.1s;
 }
 .np-bottom button:active { transform: scale(0.85); }
 
@@ -1671,6 +1689,11 @@ body {
   -webkit-user-select: none;
   user-select: none;
 }
+/* Now Playing covers the whole screen, but the strip is fixed and sits above
+   it. Raising Now Playing instead would put it over the edit modal it opens,
+   so the strip is hidden while Now Playing is up. */
+body.np-open .alpha-strip { display: none !important; }
+
 .alpha-letter {
   font-size: 9px;
   font-weight: 700;

@@ -7,6 +7,14 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.2
+
+- The album art shows whole again, corner to corner, instead of having the top
+  and bottom trimmed off. The parental advisory strip is back
+- The A-Z strip no longer shows through on the Now Playing screen
+- Speed, add-to-playlist and EQ sit together as one tidy row instead of being
+  pushed into the corners. All three still do exactly what they did
+
 ## v1.6.1
 
 - The play button works again. It was starting the song and stopping it in the
