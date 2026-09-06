@@ -1569,8 +1569,34 @@ if (_geminiModel && !/gemini/i.test(_geminiModel)) {
     localStorage.removeItem('gemini_body_idx');
   } catch(e) {}
 }
-var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of hip-hop, rap, R&B, drill, trap, boom-bap, G-funk, cloud rap, and mixtape culture. Research this release from your knowledge and return correct values for every field — do not leave fields blank if you know the answer.\n\n';
-var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre (e.g. "Trap", "Boom Bap", "Drill") not a broad category\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
+// The model used to be told it specialised in hip-hop, and the only genre
+// examples it was given were Trap, Boom Bap and Drill. That is right for a rap
+// library and wrong for one holding folk, soul, rock and everything else: it
+// pushed the answer toward a rap subgenre whatever the song actually was.
+var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of every genre and era \u2014 hip-hop and R&B, rock, pop, soul, funk, jazz, blues, country, folk, reggae, dancehall, electronic, Latin, gospel, metal, punk and classical. Research this release from your knowledge and return correct values for every field \u2014 do not leave fields blank if you know the answer.\n\n';
+var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre that fits this actual song, from any genre family (e.g. "Boom Bap", "Neo Soul", "Outlaw Country", "Bebop", "Roots Reggae", "Shoegaze", "Bachata") \u2014 not a broad category, and never force a hip-hop answer onto music that is not hip-hop\n- year must be the year of the original release, not a reissue, remaster or compilation\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If unsure, use "" not "Unknown"\n';
+
+// MusicBrainz tags are free text, so alongside real genres they carry things
+// nobody would file a song under. Taking the top-voted tag blindly could hand
+// back "american" or "90s" as a song's genre. Only exact matches are dropped,
+// so a real genre is never mistaken for one of these.
+var _MB_NON_GENRE = [
+  'american','british','english','canadian','australian','irish','scottish',
+  'french','german','swedish','japanese','korean','usa','uk','united states',
+  'male vocalists','female vocalists','male vocalist','female vocalist',
+  'band','duo','group','solo','producer',
+  'favorites','favourite','favourites','seen live','owned','wishlist',
+  'love','beautiful','cool','awesome','good','great',
+  'explicit','clean','remaster','remastered','compilation',
+  'various artists','unknown','other','music'
+];
+function _mbIsGenreTag(name) {
+  var n = String(name || '').trim().toLowerCase();
+  if (!n) return false;
+  if (/^(19|20)?\d{2}s$/.test(n)) return false;   // 80s, 1990s
+  if (/^(19|20)\d{2}$/.test(n))   return false;   // a bare year
+  return _MB_NON_GENRE.indexOf(n) === -1;
+}
 var sortMode = 'title';
 var artistSortMode = 'az';
 var albumSortMode = 'az';
@@ -4938,7 +4964,9 @@ function lookupMusicBrainz(song) {
       }
 
       // Genre from crowd-sourced tags (sorted by vote count)
-      var tags = (rg.tags || []).slice().sort(function(a, b) { return (b.count||0) - (a.count||0); });
+      var tags = (rg.tags || []).slice()
+        .sort(function(a, b) { return (b.count||0) - (a.count||0); })
+        .filter(function(t) { return _mbIsGenreTag(t.name); });
       if (tags.length && tags[0].name) {
         var g = tags[0].name;
         result.genre = g.charAt(0).toUpperCase() + g.slice(1);
@@ -4952,7 +4980,9 @@ function lookupMusicBrainz(song) {
       }).then(function(r2) {
         if (!r2.ok) return Object.keys(result).length ? result : null;
         return r2.json().then(function(ad) {
-          var atags = (ad.tags || []).slice().sort(function(a,b) { return (b.count||0) - (a.count||0); });
+          var atags = (ad.tags || []).slice()
+            .sort(function(a,b) { return (b.count||0) - (a.count||0); })
+            .filter(function(t) { return _mbIsGenreTag(t.name); });
           if (atags.length && atags[0].name) {
             var ag = atags[0].name;
             result.genre = ag.charAt(0).toUpperCase() + ag.slice(1);

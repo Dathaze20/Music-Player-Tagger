@@ -7,6 +7,17 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.5
+
+- AI Fill now knows every genre, not just hip-hop. It was being told it
+  specialised in rap, so it leaned that way on folk, soul, rock and everything
+  else in a mixed library
+- Genres like "american", "90s" or "female vocalists" no longer come back as a
+  song's genre. Those come from the free-text side of the music database and
+  were being taken at face value
+- AI Fill is now asked for the year of the original release rather than a
+  reissue or remaster
+
 ## v1.6.4
 
 - The album art is bigger, filling the width of the screen the way it should
