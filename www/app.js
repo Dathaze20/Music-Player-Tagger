@@ -5009,6 +5009,63 @@ function handleFileImport(files) {
  * artist is present. Giving up at the release meant losing a genre that was
  * there for the asking.
  */
+var _MB_UA = { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' };
+
+// The highest-voted tag that is actually a genre. MusicBrainz tags are free
+// text, so "american", "90s" and "female vocalists" sit in the same list.
+function _mbTopGenreTag(tags) {
+  var list = (tags || []).slice()
+    .sort(function(a, b) { return (b.count || 0) - (a.count || 0); })
+    .filter(function(t) { return _mbIsGenreTag(t.name); });
+  if (!list.length || !list[0].name) return '';
+  var g = list[0].name;
+  return g.charAt(0).toUpperCase() + g.slice(1);
+}
+
+// A four-digit year out of a MusicBrainz date, which may be "2022",
+// "2022-12" or "2022-12-09". 1970 is the epoch value a tagger writes when it
+// had no date at all, so it is not a year.
+function _mbYear(dateStr) {
+  var y = String(dateStr || '').replace(/^(\d{4}).*/, '$1');
+  return (/^\d{4}$/.test(y) && y !== '1970') ? y : '';
+}
+
+function _mbArtistTagGenre(mbid) {
+  if (!mbid) return Promise.resolve('');
+  return fetch('https://musicbrainz.org/ws/2/artist/' + encodeURIComponent(mbid) + '?inc=tags&fmt=json',
+               { headers: _MB_UA })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(ad) { return _mbTopGenreTag(ad && ad.tags); })
+    .catch(function() { return ''; });
+}
+
+/**
+ * Look up a release group in full.
+ *
+ * A release search returns a cut-down release group — an id, a title and a
+ * primary type — and nothing else. The two things actually wanted from it,
+ * the original release date and the genre tags, come back only from a lookup
+ * on the release group itself.
+ *
+ * This is why the year was unreliable. Without first-release-date the year
+ * fell back to the date on the individual release the search happened to
+ * return, which for anything popular is one pressing among dozens: a reissue,
+ * a regional edition, or an entry carrying no date at all. Asking the release
+ * group gives the date the record actually came out.
+ *
+ * Resolves to null rather than rejecting, so a lookup that fails leaves the
+ * search result to be used exactly as it was before.
+ */
+function _mbReleaseGroup(mbid) {
+  if (!mbid) return Promise.resolve(null);
+  var ctrl = new AbortController();
+  var tid  = setTimeout(function() { ctrl.abort(); }, 8000);
+  return fetch('https://musicbrainz.org/ws/2/release-group/' + encodeURIComponent(mbid) + '?inc=tags&fmt=json',
+               { signal: ctrl.signal, headers: _MB_UA })
+    .then(function(r) { clearTimeout(tid); return r.ok ? r.json() : null; })
+    .catch(function() { clearTimeout(tid); return null; });
+}
+
 function _mbArtistOnlyGenre(artistName) {
   var name = String(artistName || '').trim();
   if (!name) return null;
@@ -5017,25 +5074,15 @@ function _mbArtistOnlyGenre(artistName) {
           + '&fmt=json&limit=1';
   var ctrl = new AbortController();
   var tid  = setTimeout(function() { ctrl.abort(); }, 10000);
-  return fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' } })
+  return fetch(url, { signal: ctrl.signal, headers: _MB_UA })
     .then(function(res) { clearTimeout(tid); return res.ok ? res.json() : null; })
     .then(function(d) {
       var a = d && d.artists && d.artists[0];
       // The same confidence bar the release search uses, so a loose name match
       // cannot hand back somebody else's genre.
       if (!a || !a.id || (a.score || 0) < 85) return null;
-      return fetch('https://musicbrainz.org/ws/2/artist/' + a.id + '?inc=tags&fmt=json', {
-        headers: { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' }
-      }).then(function(r2) {
-        if (!r2.ok) return null;
-        return r2.json().then(function(ad) {
-          var tags = (ad.tags || []).slice()
-            .sort(function(x, y) { return (y.count||0) - (x.count||0); })
-            .filter(function(t) { return _mbIsGenreTag(t.name); });
-          if (!tags.length || !tags[0].name) return null;
-          var g = tags[0].name;
-          return { genre: g.charAt(0).toUpperCase() + g.slice(1) };
-        });
+      return _mbArtistTagGenre(a.id).then(function(g) {
+        return g ? { genre: g } : null;
       });
     })
     .catch(function() { clearTimeout(tid); return null; });
@@ -5052,16 +5099,19 @@ function lookupMusicBrainz(song) {
   if (artist) parts.push('artist:"' + artist.replace(/"/g, '') + '"');
   if (album)  parts.push('release:"' + album.replace(/"/g, '')  + '"');
 
+  // No inc= here: it is a parameter of a lookup, not of a search. A release
+  // search already carries the artist credit and a stub release group, and
+  // anything more has to be fetched on its own below.
   var url = 'https://musicbrainz.org/ws/2/release?query='
           + encodeURIComponent(parts.join(' AND '))
-          + '&fmt=json&limit=3&inc=release-groups+artist-credits';
+          + '&fmt=json&limit=3';
 
   var ctrl = new AbortController();
   var tid  = setTimeout(function() { ctrl.abort(); }, 12000);
 
   return fetch(url, {
     signal:  ctrl.signal,
-    headers: { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' }
+    headers: _MB_UA
   }).then(function(res) {
     clearTimeout(tid);
     if (!res.ok) return null;
@@ -5085,15 +5135,6 @@ function lookupMusicBrainz(song) {
     // Album name: use the real title from MusicBrainz database (no underscores, proper casing)
     if (rel.title) result.album = rel.title;
 
-    // Year: prefer release-group's first-release-date (original worldwide issue) over
-    // rel.date (which may be a remaster/reissue year, not the original release year).
-    var rg0 = rel['release-group'];
-    var yearStr = (rg0 && rg0['first-release-date']) ? rg0['first-release-date'] : (rel.date || '');
-    if (yearStr) {
-      var y = (yearStr + '').replace(/^(\d{4}).*/, '$1');
-      if (/^\d{4}$/.test(y) && y !== '1970') result.year = y;
-    }
-
     // Album artist from artist-credit array; capture artist MBID for genre fallback
     var ac = rel['artist-credit'];
     var artistMbid = '';
@@ -5104,54 +5145,62 @@ function lookupMusicBrainz(song) {
       if (ac[0] && ac[0].artist) artistMbid = ac[0].artist.id || '';
     }
 
-    // Release type + genre from release-group
-    var rg = rg0;
-    if (rg) {
-      var pt = (rg['primary-type'] || '').toLowerCase();
-      if      (pt === 'album')  result.releaseType = 'Album';
-      else if (pt === 'single') result.releaseType = 'Single';
-      else if (pt === 'ep')     result.releaseType = 'EP';
+    // The date on this particular release — a pressing, which may be a reissue
+    // years after the fact. Only used if the release group cannot be reached.
+    var relYear = _mbYear(rel.date);
+    var rgStub  = rel['release-group'] || null;
 
-      // MusicBrainz marks mixtapes as a secondary type
-      var sec = (rg['secondary-types'] || []).map(function(s) { return (s + '').toLowerCase(); });
-      if (sec.indexOf('mixtape/street') !== -1 || sec.indexOf('mixtape') !== -1) {
-        result.releaseType = 'Mixtape';
+    return _mbReleaseGroup(rgStub ? rgStub.id : '').then(function(rgFull) {
+      var rg = rgFull || rgStub;
+      if (rg) {
+        // The year the record came out, which is what the release group is for.
+        var y = _mbYear(rg['first-release-date']);
+        if (y) result.year = y;
+
+        var pt = (rg['primary-type'] || '').toLowerCase();
+        if      (pt === 'album')  result.releaseType = 'Album';
+        else if (pt === 'single') result.releaseType = 'Single';
+        else if (pt === 'ep')     result.releaseType = 'EP';
+
+        // MusicBrainz marks mixtapes as a secondary type
+        var sec = (rg['secondary-types'] || []).map(function(s) { return (s + '').toLowerCase(); });
+        if (sec.indexOf('mixtape/street') !== -1 || sec.indexOf('mixtape') !== -1) {
+          result.releaseType = 'Mixtape';
+        }
+
+        var g = _mbTopGenreTag(rg.tags);
+        if (g) result.genre = g;
       }
 
-      // Genre from crowd-sourced tags (sorted by vote count)
-      var tags = (rg.tags || []).slice()
-        .sort(function(a, b) { return (b.count||0) - (a.count||0); })
-        .filter(function(t) { return _mbIsGenreTag(t.name); });
-      if (tags.length && tags[0].name) {
-        var g = tags[0].name;
-        result.genre = g.charAt(0).toUpperCase() + g.slice(1);
-      }
-    }
+      // Better the pressing's date than no year at all.
+      if (!result.year && relYear) result.year = relYear;
 
-    // Genre fallback: artist-level tags (almost always populated even when release-group isn't)
-    if (!result.genre && artistMbid) {
-      return fetch('https://musicbrainz.org/ws/2/artist/' + artistMbid + '?inc=tags&fmt=json', {
-        headers: { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' }
-      }).then(function(r2) {
-        if (!r2.ok) return Object.keys(result).length ? result : null;
-        return r2.json().then(function(ad) {
-          var atags = (ad.tags || []).slice()
-            .sort(function(a,b) { return (b.count||0) - (a.count||0); })
-            .filter(function(t) { return _mbIsGenreTag(t.name); });
-          if (atags.length && atags[0].name) {
-            var ag = atags[0].name;
-            result.genre = ag.charAt(0).toUpperCase() + ag.slice(1);
-          }
+      // Genre fallback: artist-level tags, populated far more often than a
+      // release group's own.
+      if (!result.genre && artistMbid) {
+        return _mbArtistTagGenre(artistMbid).then(function(ag) {
+          if (ag) result.genre = ag;
           return Object.keys(result).length ? result : null;
         });
-      }).catch(function() { return Object.keys(result).length ? result : null; });
-    }
-
-    return Object.keys(result).length ? result : null;
+      }
+      return Object.keys(result).length ? result : null;
+    });
   }).catch(function() { clearTimeout(tid); return null; });
 }
 
 // Primary AI Fill: MusicBrainz first (free, always), Gemini fills remaining gaps if key set.
+/**
+ * What to say after an AI Fill.
+ *
+ * The year is the field that most often cannot be found, and an empty year box
+ * looks exactly like one that was never filled — so when it does not come back,
+ * say so rather than leaving it to be guessed at.
+ */
+function fillResultToast(r) {
+  var got = [r.year, r.genre, r.releaseType].filter(Boolean).join(' · ');
+  return '✓ ' + (got || 'Filled') + (r.year ? '' : ' — no year found');
+}
+
 function aiFill(song) {
   // Both lookups get the tidied album name, not the raw one.
   //
@@ -5736,7 +5785,7 @@ function openSongEditModal(songId) {
   +       '<div class="te-ai-hint" id="teAlbumArtistHint"></div></div>'
   +     '<div class="te-row">'
   +       '<div class="te-field"><div class="te-label">Year</div>'
-  +         '<input class="te-input" id="teYear" value="' + escHtml(song.year || '') + '" placeholder="2024">'
+  +         '<input class="te-input" id="teYear" value="' + escHtml(song.year || '') + '" placeholder="Not set">'
   +         '<div class="te-ai-hint" id="teYearHint"></div></div>'
   +       '<div class="te-field"><div class="te-label">Genre</div>'
   +         '<input class="te-input" id="teGenre" value="' + escHtml(cleanFileGenre(song.genre)) + '" placeholder="Hip-Hop">'
@@ -5905,7 +5954,7 @@ function openSongEditModal(songId) {
             });
           }
           if (filled > 0) {
-            showToast('✓ ' + [result.year, result.genre, result.releaseType].filter(Boolean).join(' · '));
+            showToast(fillResultToast(result));
           } else {
             showToast('Already complete — nothing to fill', 3000);
           }
@@ -5987,7 +6036,7 @@ function openEditModal(albumName, artistName) {
     // the uploader left it.
     + '<div class="edit-field"><label>Album / Mixtape Name</label><input id="editAlbum" value="' + escHtml(cleanFilenameAlbum(albumName)) + '"></div>'
     + '<div class="edit-row">'
-    + '<div class="edit-field"><label>Year</label><input id="editYear" value="' + escHtml(first.year || '') + '" placeholder="2024"></div>'
+    + '<div class="edit-field"><label>Year</label><input id="editYear" value="' + escHtml(first.year || '') + '" placeholder="Not set"></div>'
     + '<div class="edit-field"><label>Genre</label><input id="editGenre" value="' + escHtml(cleanFileGenre(first.genre)) + '" placeholder="Hip-Hop"></div>'
     + '</div>'
     + '<div class="edit-field"><label>Release Type</label><div class="type-buttons">'
@@ -6076,7 +6125,7 @@ function openEditModal(albumName, artistName) {
           if (activeTypeBtn) { activeTypeBtn.className = 'type-btn active-' + rtype.toLowerCase(); filled++; }
         }
         if (filled > 0) {
-          showToast('✓ ' + [r.year, r.genre, r.releaseType].filter(Boolean).join(' · '));
+          showToast(fillResultToast(r));
         } else {
           showToast('Already complete — nothing to fill', 3000);
         }
@@ -6172,7 +6221,7 @@ function openBulkEditModal(songArr) {
     + '<div class="edit-field"><label>Album Artist</label><input id="bEditAlbumArtist" placeholder="e.g. 2Pac"></div>'
     + '<div class="edit-field"><label>Album</label><input id="bEditAlbum" placeholder="Album name"></div>'
     + '<div class="edit-row">'
-    + '<div class="edit-field"><label>Year</label><input id="bEditYear" placeholder="2024" type="number"></div>'
+    + '<div class="edit-field"><label>Year</label><input id="bEditYear" placeholder="Not set" type="number"></div>'
     + '<div class="edit-field"><label>Genre</label><input id="bEditGenre" placeholder="Hip-Hop"></div>'
     + '</div></div>'
     + '<div class="edit-modal-footer">'
