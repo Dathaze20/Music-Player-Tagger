@@ -2248,12 +2248,6 @@ body.np-open .alpha-strip { display: none !important; }
   --ease-smooth:  cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ─── New keyframes ─── */
-@keyframes shimmer {
-  from { background-position: -200% center; }
-  to   { background-position:  200% center; }
-}
-
 /* ─── Header: stronger glass ─── */
 .header {
   background: rgba(18, 23, 36, 0.97);
@@ -2580,14 +2574,13 @@ body.np-open .alpha-strip { display: none !important; }
   font-size: 15px;
 }
 
-/* ─── Art lazy shimmer while loading ─── */
+/* ─── Art placeholder while a sleeve loads ─── */
+/* Deliberately a flat, still colour. This used to be a light band sweeping
+   across the tile, which never stops on a song that has no artwork at all —
+   on an artist page full of art-less albums that is the whole screen
+   flickering at once, which is unpleasant to look at. */
 .art-lazy:not([data-loaded]) {
-  background: linear-gradient(90deg,
-    var(--bg-secondary) 25%,
-    rgba(255,255,255,0.07) 50%,
-    var(--bg-secondary) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
+  background: var(--bg-secondary);
 }
 
 /* ─── Lyrics overlay inside album art ─── */

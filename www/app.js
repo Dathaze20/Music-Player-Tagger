@@ -1087,6 +1087,70 @@ function applyEditsToSongs() {
   });
 }
 
+// ─── Deferred file-tag writes ───
+//
+// Android will not let us rewrite a file the player still has open, so editing
+// an album while one of its songs is playing wrote every file in the album
+// except that one. The library inside the app was always correct — it was the
+// file on disk that missed out, and the failure was swallowed, so the only way
+// round it was to go and play something from another album first.
+//
+// A write that fails on the file currently being played is kept here instead
+// and tried again once playback has moved on. Entries are keyed by contentUri
+// so a later edit of the same song replaces an earlier one, and each gets a few
+// attempts so a file that genuinely cannot be written does not retry for ever.
+// The queue lives in memory only: if the app closes first the file keeps its old
+// tags, which is exactly where it stands today, and the edit itself is already
+// safe in the edits store.
+var _pendingTagWrites = Object.create(null); // contentUri → { payload, tries }
+var _PENDING_TAG_TRIES = 3;
+
+function isPlayingUri(uri) {
+  return !!(uri && currentSong && currentSong.contentUri === uri);
+}
+
+/**
+ * Write a song's tags to its file, holding the write back for later if the
+ * player has that file open. Resolves either way; rejects only on a failure
+ * there is nothing more to be done about.
+ */
+function writeSongFileTags(payload) {
+  return NativeBridge.writeFileTags(payload).then(function(res) {
+    delete _pendingTagWrites[payload.contentUri];
+    return res;
+  }, function(err) {
+    if (!isPlayingUri(payload.contentUri)) throw err;
+    var prev = _pendingTagWrites[payload.contentUri];
+    _pendingTagWrites[payload.contentUri] = {
+      payload: payload,
+      tries: prev ? prev.tries : _PENDING_TAG_TRIES
+    };
+    return null;
+  });
+}
+
+// Retry the writes that were held back. Called when the song changes, once the
+// audio element has been pointed at the new file.
+function flushPendingTagWrites() {
+  var uris = Object.keys(_pendingTagWrites);
+  if (!uris.length) return;
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  // Give the player a moment to actually let go of the file it was on.
+  setTimeout(function() {
+    Object.keys(_pendingTagWrites).forEach(function(uri) {
+      if (isPlayingUri(uri)) return; // back on this song again — leave it queued
+      var entry = _pendingTagWrites[uri];
+      delete _pendingTagWrites[uri];
+      writeSongFileTags(entry.payload).catch(function() {
+        if (entry.tries > 1) {
+          entry.tries--;
+          _pendingTagWrites[uri] = entry;
+        }
+      });
+    });
+  }, 1500);
+}
+
 // Permanently delete a list of songs from the device filesystem (native) or just
 // remove them from the library (web). Shows a system confirm dialog on Android 10+.
 function deleteSongsFromDevice(songsToDelete) {
@@ -4588,6 +4652,9 @@ function playSong(song, songList) {
   }
   if (showNowPlaying) renderNowPlaying();
   else render();
+  // The previous song's file is free now, so any tag write that was blocked on
+  // it can go through.
+  flushPendingTagWrites();
 }
 
 // Update every play/pause indicator in the UI to match isPlaying.
@@ -4663,6 +4730,7 @@ function handleNext() {
     updateMediaSession();
     if (showNowPlaying) renderNowPlaying();
     else render();
+    flushPendingTagWrites(); // gapless handoff skips playSong, so flush here too
   } else {
     playSong(song, queue);
   }
@@ -5789,7 +5857,7 @@ function openSongEditModal(songId) {
         ? NativeBridge.readAlbumArt(song.albumArtUri, 500).catch(function() { return ''; })
         : Promise.resolve('');
     artPromise.then(function(artBase64) {
-      return NativeBridge.writeFileTags({
+      return writeSongFileTags({
         contentUri:   song.contentUri,
         title:        song.title        || '',
         artist:       song.artist       || '',
@@ -6054,9 +6122,6 @@ function openEditModal(albumName, artistName) {
     var toWrite = albumSongs.filter(function(s) { return s.contentUri; });
     if (!toWrite.length) return;
 
-    var done = 0;
-    var failed = 0;
-
     function writeNext(i) {
       if (i >= toWrite.length) return;  // file write is best-effort; in-app save already confirmed
       var s = toWrite[i];
@@ -6067,7 +6132,7 @@ function openEditModal(albumName, artistName) {
           : Promise.resolve(s.art && s.art.startsWith('data:') ? s.art : ''));
 
       artPromise.then(function(artBase64) {
-        return NativeBridge.writeFileTags({
+        return writeSongFileTags({
           contentUri:  s.contentUri,
           title:       s.title,
           artist:      s.artist,
@@ -6080,10 +6145,8 @@ function openEditModal(albumName, artistName) {
           artBase64:   artBase64     || '',
         });
       }).then(function() {
-        done++;
         writeNext(i + 1);
       }).catch(function() {
-        failed++;
         writeNext(i + 1);
       });
     }
@@ -6156,7 +6219,7 @@ function openBulkEditModal(songArr) {
       (function writeNext(i) {
         if (i >= toWrite.length) return;
         var s = toWrite[i];
-        NativeBridge.writeFileTags({
+        writeSongFileTags({
           contentUri: s.contentUri, title: s.title,
           artist: s.artist, album: s.album, year: s.year || '',
           genre: s.genre || '', albumArtist: s.albumArtist || '',
