@@ -3777,7 +3777,7 @@ function renderNowPlaying() {
     + '<button id="npClose">&#8744;</button>'
     + '<div class="np-header-center"><div class="np-label">Playing From</div>'
     + '<div class="np-header-album" id="npAlbumBtn">' + escHtml(currentSong.album && currentSong.album !== 'Unknown Album' ? currentSong.album : currentSong.artist) + '</div></div>'
-    + '<button id="npEditBtn">&#9998;</button>'
+    + '<button id="npMenuBtn" title="More">&#8942;</button>'
     + '</div>'
     + '<div class="np-art-full" id="npArtImg">'
     + artContent
@@ -3812,11 +3812,7 @@ function renderNowPlaying() {
     + '<button id="npNext" class="np-ctrl np-skip">&#9197;</button>'
     + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '" style="font-size:20px;">&#8644;</button>'
     + '</div>'
-    + '<div class="np-bottom">'
-    + '<button id="npSpeed" class="np-ctrl' + (playbackRate !== 1.0 ? ' active' : '') + '" title="Playback speed">' + playbackRate + '&#215;</button>'
-    + '<button id="npAddPlBtn" class="np-ctrl" title="Add to playlist">&#9835;&#43;</button>'
-    + '<button id="npEqBtn" class="np-ctrl' + (eqGains.some(function(g){return g!==0;}) ? ' active' : '') + '" title="Equalizer">EQ</button>'
-    + '</div>';
+    + '';
 
   html += '</div>';  // end np-controls
   html += '</div>';  // end np-content
@@ -3878,7 +3874,7 @@ function renderNowPlaying() {
   document.getElementById('npPlay').addEventListener('touchstart', function() { _haptic(55); }, { passive: true });
   document.getElementById('npPrev').addEventListener('touchstart', function() { _haptic(35); }, { passive: true });
   document.getElementById('npNext').addEventListener('touchstart', function() { _haptic(35); }, { passive: true });
-  document.getElementById('npEditBtn').onclick = function() { openSongEditModal(currentSong.id); };
+  document.getElementById('npMenuBtn').onclick = function() { openNowPlayingMenu(); };
   document.getElementById('npRepeat').onclick = function() {
     repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
     var btn = document.getElementById('npRepeat');
@@ -3963,24 +3959,6 @@ function renderNowPlaying() {
       render();
     };
   }
-
-  document.getElementById('npSpeed').onclick = function() {
-    var idx = SPEEDS.indexOf(playbackRate);
-    playbackRate = SPEEDS[(idx + 1) % SPEEDS.length];
-    audio.playbackRate = playbackRate;
-    pushPlaybackPosition(true);
-    var btn = document.getElementById('npSpeed');
-    if (btn) { btn.textContent = playbackRate + 'x'; btn.classList.toggle('active', playbackRate !== 1.0); }
-    if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && duration > 0) {
-      try { navigator.mediaSession.setPositionState({ duration: duration, playbackRate: playbackRate, position: currentTime }); } catch(e) {}
-    }
-  };
-
-  document.getElementById('npAddPlBtn').onclick = function() {
-    if (currentSong) showAddToPlaylistSheet(currentSong);
-  };
-
-  document.getElementById('npEqBtn').onclick = function() { openEqPanel(); };
 
   // Wire synced lyric line clicks if already showing (re-open NP case)
   var syncContainer = document.getElementById('syncedLyricsContainer');
@@ -4121,6 +4099,51 @@ function showShareQrModal(songs, label) {
 function closeBottomSheet() {
   document.getElementById('bottomSheet').classList.add('hidden');
   document.getElementById('bsOverlay').classList.add('hidden');
+}
+
+/**
+ * The Now Playing overflow menu.
+ *
+ * Speed, add-to-playlist, the equalizer and the tag editor used to sit as
+ * buttons around the artwork. Moving them behind one menu leaves the player
+ * itself to the artwork and the transport, and none of them are things you
+ * reach for mid-song. Every one still does exactly what its button did.
+ */
+function openNowPlayingMenu() {
+  if (!currentSong) return;
+  var eqOn = eqGains.some(function(g) { return g !== 0; });
+  openBottomSheet(
+    '<div class="bs-info"><div class="bs-name">' + escHtml(currentSong.title) + '</div>'
+    + '<div class="bs-meta">' + escHtml(currentSong.artist) + '</div></div>',
+    [
+      { icon: '&#9998;', label: 'Tag editor',
+        action: function() { openSongEditModal(currentSong.id); } },
+      { icon: '&#9835;', label: 'Add to playlist',
+        action: function() { showAddToPlaylistSheet(currentSong); } },
+      'divider',
+      { icon: '&#9201;', label: 'Playback speed \u2014 ' + playbackRate + '\u00d7',
+        action: function() { cyclePlaybackSpeed(); } },
+      { icon: '&#9776;', label: 'Equalizer' + (eqOn ? ' \u2014 on' : ''),
+        action: function() { openEqPanel(); } }
+    ]
+  );
+}
+
+// Step through the speeds. Lives here rather than in the render so the menu can
+// call it without depending on a button being on screen.
+function cyclePlaybackSpeed() {
+  var idx = SPEEDS.indexOf(playbackRate);
+  playbackRate = SPEEDS[(idx + 1) % SPEEDS.length];
+  audio.playbackRate = playbackRate;
+  pushPlaybackPosition(true);
+  showToast('Speed ' + playbackRate + '\u00d7', 1500);
+  if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && duration > 0) {
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: duration, playbackRate: playbackRate, position: currentTime
+      });
+    } catch(e) {}
+  }
 }
 
 function openBottomSheet(headerHTML, items) {
@@ -4414,8 +4437,6 @@ function openEqPanel() {
       var valEl = document.getElementById('eqVal' + band);
       if (valEl) valEl.textContent = (eqGains[band] > 0 ? '+' : '') + eqGains[band];
       applyEqGains();
-      var eqBtn = document.getElementById('npEqBtn');
-      if (eqBtn) eqBtn.classList.toggle('active', eqGains.some(function(g){return g!==0;}));
       overlay.querySelectorAll('.eq-preset-chip').forEach(function(c) {
         c.classList.toggle('active', JSON.stringify(EQ_PRESETS[c.dataset.preset]) === JSON.stringify(eqGains));
       });
@@ -4436,8 +4457,6 @@ function openEqPanel() {
       });
       overlay.querySelectorAll('.eq-preset-chip').forEach(function(c) { c.classList.remove('active'); });
       chip.classList.add('active');
-      var eqBtn = document.getElementById('npEqBtn');
-      if (eqBtn) eqBtn.classList.toggle('active', eqGains.some(function(g){return g!==0;}));
     };
   });
 

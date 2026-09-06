@@ -7,6 +7,14 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.3
+
+- Nothing moves when the song changes. The artwork keeps the same size whether
+  a song has a sleeve or not, so the buttons stay exactly where they were
+- Speed, add to playlist, the equalizer and the tag editor have moved into a
+  menu behind the dots at the top right. All four still work the same; the
+  player itself is now just the artwork and the controls
+
 ## v1.6.2
 
 - The album art shows whole again, corner to corner, instead of having the top
