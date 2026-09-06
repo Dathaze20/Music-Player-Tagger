@@ -7,6 +7,15 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.6.9
+
+- The year fills in again. The lookup was being run on the raw album name from
+  the file rather than the tidied one, so "Album_-_II" matched no record
+  anywhere and a famous album came back with no year
+- AI Fill is roughly twice as fast. It was asking the music database and the AI
+  one after the other; they do not depend on each other, so now it asks both at
+  once
+
 ## v1.6.8
 
 - AI Fill finds a genre far more often. When the music database has never heard

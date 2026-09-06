@@ -1574,7 +1574,7 @@ if (_geminiModel && !/gemini/i.test(_geminiModel)) {
 // library and wrong for one holding folk, soul, rock and everything else: it
 // pushed the answer toward a rap subgenre whatever the song actually was.
 var _GEMINI_EXPERTISE = 'You are a music metadata expert with encyclopedic knowledge of every genre and era \u2014 hip-hop and R&B, rock, pop, soul, funk, jazz, blues, country, folk, reggae, dancehall, electronic, Latin, gospel, metal, punk and classical. Research this release from your knowledge and return correct values for every field \u2014 do not leave fields blank if you know the answer.\n\n';
-var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre that fits this actual song, from any genre family (e.g. "Boom Bap", "Neo Soul", "Outlaw Country", "Bebop", "Roots Reggae", "Shoegaze", "Bachata") \u2014 not a broad category, and never force a hip-hop answer onto music that is not hip-hop\n- year must be the year of the original release, not a reissue, remaster or compilation\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If you do not know the specific release, still give the genre you would expect from this artist rather than leaving it blank \u2014 but never guess at the year that way\n- If unsure, use "" not "Unknown"\n';
+var _GEMINI_TAG_RULES = 'Rules:\n- Use standard title case\n- genre must be one specific subgenre that fits this actual song, from any genre family (e.g. "Boom Bap", "Neo Soul", "Outlaw Country", "Bebop", "Roots Reggae", "Shoegaze", "Bachata") \u2014 not a broad category, and never force a hip-hop answer onto music that is not hip-hop\n- year must be the year of the original release, not a reissue, remaster or compilation\n- releaseType: Album | Mixtape | EP | Single\n- featuredArtists: comma-separated guest artists from the title (e.g. "Lil Wayne, Drake") or ""\n- If you know the release, always give its year \u2014 well-known albums must not come back without one\n- If you do not know the specific release, still give the genre you would expect from this artist rather than leaving it blank, but leave the year empty rather than estimating it\n- If unsure, use "" not "Unknown"\n';
 
 // MusicBrainz tags are free text, so alongside real genres they carry things
 // nobody would file a song under. Taking the top-voted tag blindly could hand
@@ -5085,16 +5085,35 @@ function lookupMusicBrainz(song) {
 
 // Primary AI Fill: MusicBrainz first (free, always), Gemini fills remaining gaps if key set.
 function aiFill(song) {
-  return lookupMusicBrainz(song).then(function(mb) {
-    if (!apiKey) return mb || {};
-    // Ask Gemini to fill whatever MusicBrainz didn't cover
-    return callGeminiTag(song).then(function(gem) {
-      // MusicBrainz wins on overlapping fields (database > AI guess)
-      var merged = {};
-      if (gem) Object.keys(gem).forEach(function(k) { if (gem[k]) merged[k] = gem[k]; });
-      if (mb)  Object.keys(mb).forEach(function(k)  { if (mb[k])  merged[k] = mb[k];  });
-      return merged;
-    }).catch(function() { return mb || {}; });
+  // Both lookups get the tidied album name, not the raw one.
+  //
+  // The editor showed "II" while the search was still being run on
+  // "Album_-_II", which matches no release anywhere — so a famous album came
+  // back with no year, and the genre only arrived because the artist fallback
+  // caught it. Whatever the file was named, the lookups should be asked about
+  // the record.
+  var lookupSong = song;
+  var tidyAlbum = cleanFilenameAlbum(song.album || '');
+  if (tidyAlbum !== (song.album || '')) {
+    lookupSong = {};
+    Object.keys(song).forEach(function(k) { lookupSong[k] = song[k]; });
+    lookupSong.album = tidyAlbum;
+  }
+
+  // Run both at once. They do not depend on each other — the merge below is
+  // what decides precedence — and asking one after the other made every fill
+  // wait out the database before the model had even been asked.
+  var mbP  = lookupMusicBrainz(lookupSong).catch(function() { return null; });
+  var gemP = apiKey ? callGeminiTag(lookupSong).catch(function() { return null; })
+                    : Promise.resolve(null);
+
+  return Promise.all([mbP, gemP]).then(function(both) {
+    var mb = both[0], gem = both[1];
+    // MusicBrainz wins on overlapping fields (database > AI guess)
+    var merged = {};
+    if (gem) Object.keys(gem).forEach(function(k) { if (gem[k]) merged[k] = gem[k]; });
+    if (mb)  Object.keys(mb).forEach(function(k)  { if (mb[k])  merged[k] = mb[k];  });
+    return merged;
   });
 }
 
