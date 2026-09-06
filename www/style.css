@@ -411,14 +411,18 @@ body {
      tall, and object-fit: cover then trimmed the top and bottom off the
      sleeve — which is why the parental advisory strip was missing. Centring it
      stops the stretch, so width follows height and the box stays square. */
+  /* flex-grow takes all the space left over, so the height depends only on the
+     screen and never on what is inside. A song with no artwork used to shrink
+     this box to the size of the placeholder, which moved every control below
+     it — the buttons appeared to jump about as tracks changed. The cap keeps
+     it square: height can never exceed what the width allows. */
+  flex: 1 1 0%;
   width: auto;
-  height: auto;
   align-self: center;
   margin: 4px auto 0;
   max-width: calc(100% - 48px);
-  max-height: 100%;
+  max-height: calc(100vw - 48px);
   aspect-ratio: 1;
-  flex: 0 1 auto;
   min-height: 0;
   border-radius: 16px;
   overflow: hidden;
@@ -661,25 +665,6 @@ body {
   background: rgba(6,12,20,0.98) !important;
   box-shadow: 0 1px 6px rgba(0,0,0,0.55) !important;
 }
-.np-bottom {
-  display: flex;
-  align-items: center;
-  /* Grouped in the middle rather than flung into the corners, which read as
-     three stray labels rather than one row of controls. */
-  justify-content: center;
-  gap: 34px;
-  flex-shrink: 0;
-}
-.np-bottom button {
-  background: none; border: none; color: var(--text-faint);
-  padding: 8px 10px; cursor: pointer;
-  font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
-  min-width: 44px; text-align: center;
-  opacity: 0.75;
-  transition: opacity 0.15s, color 0.15s, transform 0.1s;
-}
-.np-bottom button.active { color: var(--primary); opacity: 1; }
-
 /* Drawer */
 .drawer-overlay {
   position: absolute; inset: 0;
@@ -1625,11 +1610,6 @@ body {
 .chip:active { transform: scale(0.96); }
 
 /* ─── NP bottom controls ─── */
-.np-bottom button {
-  padding: 10px 12px;
-  transition: opacity 0.15s, color 0.15s, transform 0.1s;
-}
-.np-bottom button:active { transform: scale(0.85); }
 
 /* ─── Mini player info text ─── */
 .mini-player .song-title {
@@ -3210,7 +3190,6 @@ body.cf-ls .app { overflow: visible !important; }
   }
 
   /* Hide bottom-row extras and volume slider — not enough vertical room */
-  .now-playing .np-bottom { display: none !important; }
 
   /* Tighter controls */
   .now-playing .np-progress { margin-bottom: 4px; }
