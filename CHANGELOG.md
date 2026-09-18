@@ -7,6 +7,18 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.8
+
+- **Songs that said "format not supported" should play now.** The app asked
+  Android for each song in a way that never mentioned what kind of file it was,
+  so the player had to work it out from the contents — which it managed for most
+  songs and gave up on for the rest. Those same files play in other music apps,
+  which is exactly what you would expect, because other apps never have to guess.
+  A song that will not play is now asked for a second time by its real filename,
+  which says .mp3 or .m4a on the end and settles it
+- When a song genuinely cannot be played, the message now says which kind of
+  file it was, rather than just "format not supported"
+
 ## v1.7.7
 
 - The untagged-album lookup is now offered on the Unknown Artist page itself,
