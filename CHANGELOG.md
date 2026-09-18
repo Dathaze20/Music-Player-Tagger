@@ -7,6 +7,13 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.7
+
+- The untagged-album lookup is now offered on the Unknown Artist page itself,
+  which is where you go looking for it. The dots at the top of an artist page
+  open that artist's menu rather than the main one, so it was only reachable
+  from the main list — the one place you would not think to look
+
 ## v1.7.6
 
 - **Look up every untagged album in one go.** The ⋮ menu offers it with the
