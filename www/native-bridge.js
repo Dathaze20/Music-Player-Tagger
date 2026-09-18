@@ -333,6 +333,23 @@ var NativeBridge = (function() {
     return plugin.updatePlaybackPosition(opts).catch(function() {});
   }
 
+  // Set a song as the phone's ringtone, notification sound or alarm.
+  // Resolves {success, needsPermission} — needsPermission means Android's
+  // "modify system settings" switch is still off for this app.
+  function setAsRingtone(contentUri, type) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.setAsRingtone) {
+      return Promise.reject(new Error('setAsRingtone not available'));
+    }
+    return plugin.setAsRingtone({ contentUri: contentUri, type: type });
+  }
+
+  function openWriteSettingsScreen() {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.openWriteSettingsScreen) return Promise.resolve();
+    return plugin.openWriteSettingsScreen().catch(function() {});
+  }
+
   // Ask Android to tell us when an interruption is over, so a song paused by a
   // call or another app can pick itself back up without the app being reopened.
   function watchForResume(watch) {
@@ -374,6 +391,8 @@ var NativeBridge = (function() {
            openInstallPermissionSettings: openInstallPermissionSettings,
            updatePlaybackPosition: updatePlaybackPosition,
            watchForResume: watchForResume,
+           setAsRingtone: setAsRingtone,
+           openWriteSettingsScreen: openWriteSettingsScreen,
            saveToDownloads: saveToDownloads, readClipboard: readClipboard,
            getAppVersion: getAppVersion, openExternal: openExternal,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,

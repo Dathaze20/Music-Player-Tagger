@@ -73,6 +73,11 @@
     <!-- Required for navigator.vibrate() to work in the WebView -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Set a song as the ringtone, notification sound or alarm. A special
+         permission: declaring it here is not a grant, the user turns it on in a
+         system screen the app sends them to the first time they use it. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
     <!-- Lets the app hand a downloaded update straight to Android's installer,
          so updating never has to go out to a browser. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

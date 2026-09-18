@@ -52,6 +52,7 @@ Drop the files in a `screenshots/` folder and link them here.
 - Tap the album or artist name to jump straight to that page
 - Synced lyrics (LRC) with live line highlighting, in portrait and landscape
 - Repeat and shuffle toggles, with speed, add-to-playlist, the equalizer and the tag editor behind one menu in the header
+- Use the song as your ringtone, notification sound or alarm, from that same menu
 - Swipe the artwork left or right to change track. Swiping up and down still scrolls the lyrics, and a tap still shows and hides them
 
 ### Tagging
@@ -95,6 +96,7 @@ Everything below is implemented in the hand-written plugin (`MediaStorePlugin.ja
 - **QR generation** and a **local HTTP file server** for WiFi sharing
 - **Update download and install** — fetches the APK itself, following GitHub's redirect to its asset host by hand, checks the length, and hands it to Android's installer through a `FileProvider`
 - **Clipboard read** — an Android WebView does not implement `navigator.clipboard.readText()`, so the API-key screen asks Android directly and can tell you what you actually copied
+- **Ringtone, notification and alarm** — `RingtoneManager.setActualDefaultRingtoneUri` against the song's MediaStore URI, behind the `WRITE_SETTINGS` special permission (explained in-app before the system screen is opened). The file's own `IS_RINGTONE`/`IS_NOTIFICATION`/`IS_ALARM` flags are deliberately left alone: the library scan filters those out to keep system sounds off the shelves, so flagging a song would delete it from the library on the next scan
 - **Battery optimisation prompt** — offers the exemption once, since Android otherwise kills background playback
 - **Notification permission** requested on Android 13+, plus haptics and an external-link handler
 

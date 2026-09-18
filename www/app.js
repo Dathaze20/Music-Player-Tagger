@@ -4367,6 +4367,10 @@ function closeBottomSheet() {
  */
 function openNowPlayingMenu() {
   if (!currentSong) return;
+  // Hold the song the menu was opened on. The track can change while the sheet
+  // is up, and setting the ringtone to whatever happened to start next would be
+  // its own small disaster.
+  var menuSong = currentSong;
   var eqOn = eqGains.some(function(g) { return g !== 0; });
   openBottomSheet(
     '<div class="bs-info"><div class="bs-name">' + escHtml(currentSong.title) + '</div>'
@@ -4380,9 +4384,56 @@ function openNowPlayingMenu() {
       { icon: '&#9201;', label: 'Playback speed \u2014 ' + playbackRate + '\u00d7',
         action: function() { cyclePlaybackSpeed(); } },
       { icon: '&#9776;', label: 'Equalizer' + (eqOn ? ' \u2014 on' : ''),
-        action: function() { openEqPanel(); } }
+        action: function() { openEqPanel(); } },
+      'divider',
+      { icon: '&#128241;', label: 'Use as ringtone',
+        action: function() { setSongAs(menuSong, 'ringtone'); } },
+      { icon: '&#128276;', label: 'Use as notification sound',
+        action: function() { setSongAs(menuSong, 'notification'); } },
+      { icon: '&#9200;', label: 'Use as alarm',
+        action: function() { setSongAs(menuSong, 'alarm'); } }
     ]
   );
+}
+
+/**
+ * Make a song the ringtone, notification sound or alarm.
+ *
+ * Android guards all three behind "modify system settings", which is a switch
+ * on a settings screen rather than a permission a prompt can grant. The first
+ * time, say what the screen is for and let it be declined — being dropped into
+ * Android's settings with no explanation is how a request like this gets taken
+ * for something it is not.
+ */
+var RINGTONE_KINDS = {
+  ringtone:     'ringtone',
+  notification: 'notification sound',
+  alarm:        'alarm sound'
+};
+
+function setSongAs(song, kind) {
+  var what = RINGTONE_KINDS[kind] || kind;
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative() || !NativeBridge.setAsRingtone) {
+    showToast('Only available in the Android app', 3000);
+    return;
+  }
+  if (!song || !song.contentUri) {
+    showToast('That song has no file Android can use', 3000);
+    return;
+  }
+  NativeBridge.setAsRingtone(song.contentUri, kind).then(function(res) {
+    if (res && res.needsPermission) {
+      var ok = confirm(
+        'To set a ' + what + ', Android needs to let My Music change system settings.\n\n' +
+        'Open that screen now? Turn on "Allow modifying system settings", then come back and tap it again.'
+      );
+      if (ok) NativeBridge.openWriteSettingsScreen();
+      return;
+    }
+    showToast('✓ ' + song.title + ' is now your ' + what);
+  }).catch(function(err) {
+    showToast('Could not set the ' + what + ': ' + (err && err.message ? err.message : String(err)), 5000);
+  });
 }
 
 // Step through the speeds. Lives here rather than in the render so the menu can

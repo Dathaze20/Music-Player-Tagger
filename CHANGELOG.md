@@ -7,6 +7,16 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.3
+
+- **Use any song as your ringtone, notification sound or alarm.** The three are
+  in the ⋮ menu on the Now Playing screen. The first time, Android will ask you
+  to allow My Music to change system settings — that is a one-time switch, and
+  the app tells you what it is for before sending you there
+- The song stays in your library afterwards. Android marks a ringtone as not
+  being music, which would have made the track vanish from My Music, so the file
+  itself is left alone and only the ringtone setting is changed
+
 ## v1.7.2
 
 - A featured artist no longer splits a song off its own album. A track credited
