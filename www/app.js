@@ -5519,6 +5519,15 @@ function aiFill(song) {
     var merged = {};
     if (gem) Object.keys(gem).forEach(function(k) { if (gem[k]) merged[k] = gem[k]; });
     if (mb)  Object.keys(mb).forEach(function(k)  { if (mb[k])  merged[k] = mb[k];  });
+
+    // The music database says who a release is credited to, but calls that the
+    // album artist — a release has no separate per-track artist for it to give.
+    // So a song with no artist at all stayed that way unless the AI happened to
+    // answer, which is exactly the case that matters: an album that arrived
+    // untagged has no artist anywhere to borrow from, and the database is the
+    // only thing that knows. Whoever the record is by is the right answer for
+    // the tracks on it.
+    if (!merged.artist && merged.albumArtist) merged.artist = merged.albumArtist;
     return merged;
   });
 }
