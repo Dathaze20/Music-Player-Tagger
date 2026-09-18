@@ -1732,21 +1732,51 @@ function getArtists() {
 
   songs.forEach(function(s) {
     var key = s.artist;
-    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '', albumArtUris: [] };
-    map[key].albums[s.album] = true;
+    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '' };
+    // Keep each album's year and cover so the mosaic can be built from the
+    // artist's own records in order, rather than from whatever the file list
+    // happened to reach first.
+    if (!map[key].albums[s.album]) {
+      map[key].albums[s.album] = { year: s.year, uri: s.albumArtUri || '' };
+    } else if (!map[key].albums[s.album].uri && s.albumArtUri) {
+      map[key].albums[s.album].uri = s.albumArtUri;
+    }
     map[key].count++;
     var artUrl = s.art || '';
     if (artUrl && (artUrl.startsWith('data:') || artUrl.startsWith('http://localhost')) && map[key].arts.indexOf(artUrl) === -1) {
       map[key].arts.push(artUrl);
     }
-    if (s.albumArtUri && map[key].albumArtUris.indexOf(s.albumArtUri) === -1 && map[key].albumArtUris.length < 4) {
-      map[key].albumArtUris.push(s.albumArtUri);
-    }
     if (!map[key].albumArtist && s.albumArtist) map[key].albumArtist = s.albumArtist;
   });
 
+  /**
+   * The four covers for an artist's avatar, oldest album first.
+   *
+   * This used to take the first four distinct covers in file order, which is no
+   * order at all. Tagging a 24-track compilation to an artist put its cover at
+   * the front of their list, and when it was the only one that loaded it filled
+   * the whole circle — so Nas's avatar became a DJ Clue tape.
+   *
+   * Sorted the way the artist page sorts its albums, so the circle and the page
+   * you land on show the same records.
+   */
+  function avatarUris(albums) {
+    var ordered = Object.keys(albums).sort(function(a, b) {
+      var ya = parseInt(albums[a].year) || 9999;
+      var yb = parseInt(albums[b].year) || 9999;
+      if (ya !== yb) return ya - yb;
+      return a.localeCompare(b);
+    });
+    var uris = [];
+    for (var i = 0; i < ordered.length && uris.length < 4; i++) {
+      var u = albums[ordered[i]].uri;
+      if (u && uris.indexOf(u) === -1) uris.push(u);
+    }
+    return uris;
+  }
+
   var list = Object.keys(map).map(function(name) {
-    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist, albumArtUris: map[name].albumArtUris };
+    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist, albumArtUris: avatarUris(map[name].albums) };
   });
 
   // Album artists filter: only show artists that appear as an albumArtist on at least one song
