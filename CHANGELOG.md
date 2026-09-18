@@ -7,6 +7,15 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.5
+
+- **AI Fill now fills in the artist on an album that came in untagged.** The
+  music database says who a record is by, but files that under album artist —
+  so the Artist box was left empty unless the AI happened to answer as well.
+  Whoever the record is by is now used for its songs. This is the one that
+  matters for an album where nothing is tagged, since there is no artist
+  anywhere in it to copy from
+
 ## v1.7.4
 
 - **Fix unknown artists from their albums.** A song whose artist tag is empty
