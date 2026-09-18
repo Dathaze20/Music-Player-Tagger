@@ -41,6 +41,8 @@ import com.google.zxing.BarcodeFormat;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 
+import org.json.JSONObject;
+
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.tag.FieldKey;
@@ -1497,6 +1499,108 @@ public class MediaStorePlugin extends Plugin {
         }).start();
     }
 
+    /**
+     * Check a batch of songs and report which ones cannot be played by anything.
+     *
+     * A library filled from downloaders collects corpses: files the download
+     * never wrote a byte into, files cut off half way, and error pages saved
+     * under the name that was asked for. They sit in the library looking like
+     * songs waiting to be tagged, which is worse than useless.
+     *
+     * Deliberately cautious, because the caller offers to delete what this
+     * returns. A file is only condemned on proof:
+     *
+     *   - nothing opens it, or it has no bytes
+     *   - it starts with HTML, JSON or a shell script, which no audio file does
+     *   - nothing anywhere has ever worked out a duration for it, including
+     *     Android's own extractor
+     *
+     * A signature this does not recognise is NOT proof. Plenty of real
+     * containers are missing from the list, so an unknown one is handed to the
+     * extractor to decide rather than condemned on the spot.
+     */
+    @PluginMethod
+    public void findDeadFiles(final PluginCall call) {
+        final JSArray items = call.getArray("items");
+        if (items == null) { call.reject("findDeadFiles: nothing to check"); return; }
+        call.setKeepAlive(true);
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSArray dead = new JSArray();
+                Context ctx = getContext();
+                for (int i = 0; i < items.length(); i++) {
+                    String id, uri, path;
+                    long knownDur;
+                    try {
+                        JSONObject o = items.getJSONObject(i);
+                        id       = o.optString("id", "");
+                        uri      = o.optString("uri", "");
+                        path     = o.optString("path", "").replace("file://", "");
+                        knownDur = o.optLong("dur", -1);
+                    } catch (Exception e) { continue; }
+
+                    String reason = deadReason(ctx, uri, path, knownDur);
+                    if (reason != null) {
+                        JSObject row = new JSObject();
+                        row.put("id", id);
+                        row.put("reason", reason);
+                        dead.put(row);
+                    }
+                }
+                JSObject res = new JSObject();
+                res.put("dead", dead);
+                call.setKeepAlive(false);
+                call.resolve(res);
+            }
+        }).start();
+    }
+
+    /** Why a file is unplayable, or null when there is no reason to think it is. */
+    private static String deadReason(Context ctx, String uri, String path, long knownDur) {
+        if (!path.isEmpty()) {
+            try {
+                File f = new File(path);
+                if (f.exists() && f.length() == 0) return "empty";
+            } catch (Exception ignored) {}
+        }
+
+        byte[] head = new byte[16];
+        int got;
+        try {
+            InputStream is = ctx.getContentResolver().openInputStream(Uri.parse(uri));
+            if (is == null) return "missing";
+            try { got = is.read(head); } finally { is.close(); }
+        } catch (Exception e) {
+            return "missing";
+        }
+        if (got <= 0) return "empty";
+
+        // Only the certain signatures condemn a file here. "unrecognised" falls
+        // through to the extractor below.
+        if (signatureOf(head, got).contains("not audio")) return "notaudio";
+
+        // Something already read a length out of it, so it is real audio.
+        if (knownDur > 0) return null;
+
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        try {
+            mmr.setDataSource(ctx, Uri.parse(uri));
+            long ms = 0;
+            try {
+                ms = Long.parseLong(String.valueOf(
+                        mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)));
+            } catch (Exception ignored) {}
+            if (ms <= 0) return "damaged";
+        } catch (Exception e) {
+            return "damaged";
+        } finally {
+            try { mmr.release(); } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
     /** What the first bytes of a file say it really is, whatever it is named. */
     private static String signatureOf(byte[] b, int n) {
         if (n >= 3 && b[0] == 'I' && b[1] == 'D' && b[2] == '3')                       return "MP3";
@@ -1509,6 +1613,14 @@ public class MediaStorePlugin extends Plugin {
                    && (b[2] & 0xFF) == 0xB2 && (b[3] & 0xFF) == 0x75)                  return "WMA";
         if (n >= 4 && b[0] == 'M' && b[1] == 'A' && b[2] == 'C' && b[3] == ' ')        return "APE";
         if (n >= 4 && b[0] == 'F' && b[1] == 'O' && b[2] == 'R' && b[3] == 'M')        return "AIFF";
+        if (n >= 4 && (b[0] & 0xFF) == 0x1A && (b[1] & 0xFF) == 0x45
+                   && (b[2] & 0xFF) == 0xDF && (b[3] & 0xFF) == 0xA3)                  return "WebM/Matroska";
+        if (n >= 4 && b[0] == 'M' && b[1] == 'T' && b[2] == 'h' && b[3] == 'd')        return "MIDI";
+        if (n >= 4 && b[0] == 'D' && b[1] == 'S' && b[2] == 'D' && b[3] == ' ')        return "DSD";
+        if (n >= 4 && b[0] == 'w' && b[1] == 'v' && b[2] == 'p' && b[3] == 'k')        return "WavPack";
+        if (n >= 4 && b[0] == 'M' && b[1] == 'P' && b[2] == 'C' && b[3] == 'K')        return "Musepack";
+        if (n >= 4 && b[0] == 'T' && b[1] == 'T' && b[2] == 'A' && b[3] == '1')        return "TTA";
+        if (n >= 4 && b[0] == '.' && b[1] == 's' && b[2] == 'n' && b[3] == 'd')        return "AU";
         if (n >= 5 && b[0] == '#' && b[1] == '!' && b[2] == 'A' && b[3] == 'M' && b[4] == 'R')
                                                                                        return "AMR voice recording";
         // Must come after AMR: an AMR file starts "#!AMR", which is also how a
