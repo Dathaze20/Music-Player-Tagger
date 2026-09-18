@@ -5410,6 +5410,13 @@ function reportUnplayable(song) {
 }
 
 /**
+ * Formats Android decodes and the WebView never has. A song in one of these is
+ * not damaged and not mis-tagged — the app simply cannot play it, and saying so
+ * plainly beats implying the file is at fault.
+ */
+var _WEBVIEW_CANNOT_PLAY = /^(AMR|WMA|APE|AIFF)/i;
+
+/**
  * Why a song really would not play, read off the file itself.
  *
  * Resolves to a sentence worth showing, or '' when there is nothing to add
@@ -5458,7 +5465,14 @@ function explainUnplayable(song) {
            + 'either \u2014 the file is damaged, not the wrong format.';
     }
 
-    // Android can play it and we cannot. That is worth saying plainly.
+    // Android can play it and we cannot. Either it is a format the browser
+    // engine has never supported \u2014 which is not a fault in the file and not
+    // something the app can talk its way out of \u2014 or it is a real bug here.
+    if (_WEBVIEW_CANNOT_PLAY.test(sig)) {
+      return name + ' is ' + sig + '. Android plays it, this app cannot: '
+           + sig.split(' ')[0] + ' is not a format the browser engine the app is '
+           + 'built on can decode.';
+    }
     return name + ' is ' + sig + ' and Android says it plays ('
          + Math.round(dur / 1000) + 's). The app could not, which is a bug \u2014 '
          + 'please report it.';
