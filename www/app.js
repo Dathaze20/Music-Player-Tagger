@@ -2859,6 +2859,91 @@ function runBulkArtistFill() {
   step(0);
 }
 
+// ─── Finding dead files ───
+
+var _DEAD_REASONS = {
+  empty:    'never downloaded (0 bytes)',
+  missing:  'no longer on the phone',
+  notaudio: 'not a song at all — a failed download',
+  damaged:  'damaged beyond playing'
+};
+
+/**
+ * Sweep the library for files nothing can open, and offer to clear them out.
+ *
+ * A library filled from downloaders collects corpses: files the download never
+ * wrote a byte into, files cut off half way, error pages saved under the name
+ * that was asked for. They sit there looking like songs that need tagging,
+ * which is worse than useless — they pad the untagged pile and there is nothing
+ * to tag.
+ *
+ * Checked in batches so the count moves and it can be stopped. Deleting goes
+ * through the usual route, which puts Android's own confirmation in front of it.
+ */
+function runDeadFileSweep() {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative() || !NativeBridge.findDeadFiles) {
+    showToast('Only available in the Android app', 3000);
+    return;
+  }
+  var all = songs.filter(function(s) { return s.contentUri || s.nativePath; });
+  if (!all.length) { showToast('Nothing to check', 3000); return; }
+  if (!confirm(
+    'Check all ' + all.length + ' songs for files that cannot be opened?\n\n'
+    + 'This only looks. Nothing is deleted unless you say so afterwards.'
+  )) return;
+
+  _bulkFillStop = false;
+  _bulkProgressShow(all.length);
+
+  var CHUNK = 150;
+  var dead = [];
+  var seen = 0;
+
+  function finish() {
+    _bulkProgressHide();
+    // Say what was actually covered. Stopping half way and being told everything
+    // is fine would be a lie about the half that was never looked at.
+    var partial = seen < all.length ? ' of the first ' + seen + ' checked' : '';
+    if (!dead.length) {
+      showToast('✓ Nothing dead' + (partial || ' — every file in your library opened fine'), 5000);
+      return;
+    }
+    var byReason = Object.create(null);
+    dead.forEach(function(d) {
+      var label = _DEAD_REASONS[d.reason] || d.reason;
+      byReason[label] = (byReason[label] || 0) + 1;
+    });
+    var lines = Object.keys(byReason).map(function(k) { return '• ' + byReason[k] + ' ' + k; });
+    var deadSongs = dead.map(function(d) { return songMap[d.id]; }).filter(Boolean);
+    if (!deadSongs.length) { showToast('Nothing left to remove', 4000); return; }
+
+    if (confirm(
+      deadSongs.length + ' file' + (deadSongs.length === 1 ? '' : 's') + ' cannot be played by anything:\n\n'
+      + lines.join('\n') + '\n\n'
+      + 'Delete them from the phone? Android will ask you to confirm as well.'
+    )) {
+      deleteSongsFromDevice(deadSongs);
+    } else {
+      showToast(deadSongs.length + ' left alone. They are marked ⚠ in the song list.', 5000);
+    }
+  }
+
+  function step(i) {
+    if (_bulkFillStop || i >= all.length) { finish(); return; }
+    var slice = all.slice(i, i + CHUNK);
+    _bulkProgressUpdate(i, all.length, 'Checking files…', dead.length);
+    NativeBridge.findDeadFiles(slice.map(function(s) {
+      return { id: s.id, uri: s.contentUri || '', path: s.nativePath || '', dur: Math.round((s.dur || 0) * 1000) };
+    })).then(function(res) {
+      if (res && res.dead && res.dead.length) dead = dead.concat(res.dead);
+      seen = i + slice.length;
+      // Yield to the UI between batches so the bar moves and Stop responds.
+      setTimeout(function() { step(i + CHUNK); }, 30);
+    });
+  }
+  step(0);
+}
+
 function showOverflowMenu() {
   var existing = document.getElementById('overflowMenu');
   if (existing) { existing.remove(); return; }
@@ -2918,6 +3003,7 @@ function showOverflowMenu() {
   // Native-only: rescan option at the bottom of any tab menu
   if (songs.length > 0 && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
     items += '<div class="overflow-divider"></div>'
+      + '<div class="overflow-item" id="omDeadFiles">&#129529; Find dead files</div>'
       + '<div class="overflow-item" id="omRescanLib">&#128257; Rescan Library</div>';
   }
 
@@ -2971,6 +3057,11 @@ function showOverflowMenu() {
   var fixUnknownBtn = menu.querySelector('#omFixUnknown');
   if (fixUnknownBtn) {
     fixUnknownBtn.onclick = function() { menu.remove(); fixUnknownArtistsFromAlbums(); };
+  }
+
+  var deadFilesBtn = menu.querySelector('#omDeadFiles');
+  if (deadFilesBtn) {
+    deadFilesBtn.onclick = function() { menu.remove(); runDeadFileSweep(); };
   }
 
   var rescanBtn = menu.querySelector('#omRescanLib');

@@ -7,6 +7,19 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.11
+
+- **Find dead files.** In the ⋮ menu. It checks every song in your library for
+  files nothing can open — downloads that never wrote a byte, files cut off part
+  way, and error pages saved with a song's name — then tells you how many of
+  each it found and offers to delete them. Progress bar, and you can stop it
+  whenever you like
+- It only condemns a file on proof: nothing opens it, it has no bytes, it starts
+  with a web page instead of audio, or nothing on the phone — including
+  Android's own reader — can work out how long it is. A format it does not
+  recognise is never assumed to be broken
+- Nothing is deleted without you saying so, and Android asks again on top of that
+
 ## v1.7.10
 
 - A voice message is no longer called a script. AMR recordings — what Samsung

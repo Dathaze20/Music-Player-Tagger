@@ -333,6 +333,13 @@ var NativeBridge = (function() {
     return plugin.updatePlaybackPosition(opts).catch(function() {});
   }
 
+  // Check a batch of songs and report which files cannot be opened at all.
+  function findDeadFiles(items) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.findDeadFiles) return Promise.resolve({ dead: [] });
+    return plugin.findDeadFiles({ items: items }).catch(function() { return { dead: [] }; });
+  }
+
   // Find out what a file that will not play actually is. Read-only.
   function inspectAudioFile(contentUri, path) {
     var plugin = getPlugin('MediaStore');
@@ -400,6 +407,7 @@ var NativeBridge = (function() {
            updatePlaybackPosition: updatePlaybackPosition,
            watchForResume: watchForResume,
            inspectAudioFile: inspectAudioFile,
+           findDeadFiles: findDeadFiles,
            setAsRingtone: setAsRingtone,
            openWriteSettingsScreen: openWriteSettingsScreen,
            saveToDownloads: saveToDownloads, readClipboard: readClipboard,
