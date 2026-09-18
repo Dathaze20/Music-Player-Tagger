@@ -33,6 +33,7 @@ Drop the files in a `screenshots/` folder and link them here.
 - Queue panel — see what's next, add to queue, clear
 - 5-band equalizer (60 Hz – 14 kHz) with presets
 - Background playback via a foreground service; keeps going with the screen off
+- Picks itself back up after a phone call or another app borrowing the speaker, without needing the app reopened. Handing over to another music app stays handed over, and unplugging headphones does not restart the song out loud
 - Swipe a song row right to queue it, left to favorite it
 - Synced lyrics and playback position restore correctly when you return to the app
 
@@ -58,7 +59,7 @@ Drop the files in a `screenshots/` folder and link them here.
 - **Both lookups run at once**, and both are given the tidied album name, so a file called `Album_-_II` is searched for as `II`
 - **Google Gemini** (optional) — fills whatever MusicBrainz didn't, including subgenre and featured artists
 - **AI Fill says what it found**, and says "no year found" when it could not find one, so an empty field always means something definite
-- **Album batch editor** — retag every song in an album at once, including the one currently playing. The album-artist field starts blank when songs are untagged, so saving never overwrites correct tags with "Unknown Artist"
+- **Album batch editor** — retag every song in an album at once, including the one currently playing and any track carrying a guest credit. The album-artist field starts blank when songs are untagged, so saving never overwrites correct tags with "Unknown Artist", and a guest's name is never overwritten with the lead artist's
 - **Per-song editor** — full metadata, album art picker, AI fill, and a lyrics field (plain or LRC)
 - **Filename parsing** for untagged files — strips track numbers, `(prod. by …)`, and `(Official Audio)`-style noise, splits `Artist_-_Title` into its parts, converts underscores back to spaces, and pulls featured artists out into their own field
 - **Album name cleaning** — strips an uploader's `Album -` or `Mixtape -` label and tags like `[320kbps]`, so `Album_-_The_Blixky_Tape` becomes `The Blixky Tape`. Real names such as `The Album`, `LP1` and `Aquemini (Deluxe Edition)` are left alone
@@ -116,6 +117,22 @@ Art is decoded natively, scaled, and JPEG-compressed before crossing the bridge.
 **Edit persistence**
 
 Manual edits live in their own IndexedDB store (`manual_edits`), keyed by content URI with a filename fallback, and are re-applied on top of every fresh MediaStore scan. Edits therefore survive a full rescan and are never clobbered by Android's stale metadata. Deleting a song also deletes its saved edits, so a file later downloaded under the same name does not silently inherit them.
+
+**How songs are grouped into albums**
+
+An album is keyed by its name plus its album artist, with a featured artist stripped. A track credited to two people — "Sheek Louch/Dave East" on an otherwise solo EP — used to key differently from the rest of the record and became a one-song album sitting beside it, which is where most stray one-song albums in a large library come from.
+
+A joint credit is now folded into the lead name, but only where the same album already exists under that lead. That guard is what makes splitting on `/` safe: "Back in Black" by "AC/DC" would need an album of that name by "AC" to fold into, so real names containing a separator — AC/DC, "Earth, Wind & Fire", "Tyler, The Creator" — are never touched. The fold is computed once per library into a lookup table, and every album view reads its key from the same function, because two callers deriving it differently is exactly how an album splits in half.
+
+An artist's album card carries the album's own key rather than that artist's name, so a guest verse on somebody else's record opens that record. Handing back the wrong key was what produced a card reading "1 song" that opened onto "0 songs". The album view also re-resolves a key that finds nothing, so no route can reach an empty album page.
+
+**Resuming after an interruption**
+
+Playback happens in the WebView, and Chromium requests audio focus for the element it plays. A second request from the playback service revoked Chromium's, Chromium paused on the loss, and a press of play started and stopped the song in one go — so the service must not request focus, and cannot use an `OnAudioFocusChangeListener`.
+
+Resuming was therefore tied to the app becoming visible again, which never happens: nobody reopens their music app after hanging up the phone. The service now watches instead of claiming, polling two readings that need neither a permission nor a focus request — `getMode()` returns to `MODE_NORMAL` once a call ends, and `isMusicActive()` goes false once nothing else holds the speaker. When both clear it broadcasts a resume into the WebView. If another music app took over for good, `isMusicActive()` stays true and playback is never taken back.
+
+`ACTION_AUDIO_BECOMING_NOISY` is watched alongside it, because a headphone or Bluetooth disconnect looks identical to the end of an interruption from these two readings, and resuming there would play the track out loud on the speaker. A disconnect cancels the watch and blocks a new one briefly, in case the two arrive in the other order. If that receiver cannot be registered the watch does not run at all.
 
 **Writing tags to a file that is playing**
 
@@ -232,7 +249,7 @@ Then `./gradlew assembleRelease bundleRelease`.
 
 ```bash
 npm install
-npm test     # vitest — filename parsing, LRC parsing, time formatting, HTML escaping
+npm test     # vitest — filename/LRC parsing, time formatting, HTML escaping, album grouping
 npm run lint # eslint over the shipped app in www/
 ```
 
@@ -245,7 +262,7 @@ Both run in CI on every push.
 - **SD card tag writing** is implemented natively but no UI triggers the permission request, so it cannot currently be used.
 - **Damaged audio files** cannot be played. The WebView uses Chromium's decoders, which reject some truncated or malformed downloads. The app reports the reason, including the file size when a download is incomplete, so a broken file is easy to tell apart from an unsupported format.
 - **Crossfade and the equalizer** rely on the Web Audio API and are unavailable on files the WebView cannot decode.
-- **Automated tests cover the pure helper functions only** — filename, LRC and time parsing. Playback, scanning, and the native layer are verified by hand on a device.
+- **Automated tests cover the pure helper functions only** — filename, LRC and time parsing, plus album grouping and artist-page navigation, which are lifted out of `app.js` by name since it has no exports. Playback, scanning, and the native layer are verified by hand on a device.
 - **AI Fill cannot always find a year.** A release missing from MusicBrainz, or one whose title is too short or generic to search on, may come back with a genre but no year. The app leaves the field empty and says "no year found" rather than estimating, since a confident wrong year is worse than a blank one — type it in yourself in that case.
 - **A tag write deferred while a song is playing is lost if the app closes first.** The change is still saved in the app and the library stays correct; only the tag inside the file waits for the next edit. The pending queue is deliberately in memory rather than persisted.
 - **Android only.** The web layer runs in any Chromium browser, but every native capability is Android-specific.

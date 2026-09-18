@@ -1241,7 +1241,7 @@ function deleteSongsFromDevice(songsToDelete) {
 
 function saveLibrary() {
   _countsCache = null; _artistsCache = null; _albumsCache = null;
-  _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
+  _artistSongsCache = null; _albumSongsCache = null; _spCache = null; _albumCreditMap = null;
   songMap = Object.create(null);
   songs.forEach(function(s) { songMap[s.id] = s; });
   // Lean localStorage tier: no lyrics, no art (stored in IDB only).
@@ -1506,6 +1506,30 @@ var selectedGenre = null;
 var _ourPause = false;
 var _systemPaused = false;
 
+// Ask Android to watch for the end of an interruption, or to stop watching.
+// Resuming used to be tied to the app being reopened, so a song paused for a
+// phone call stayed paused — nobody goes back into the music app after hanging
+// up. Android tells us when the call is over and the speaker is free.
+function watchForResume(on) {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  if (!NativeBridge.watchForResume) return;
+  NativeBridge.watchForResume(on);
+}
+
+// Pick the song back up where it stopped. Shared by every route that can decide
+// an interruption is over: the app becoming visible again, Capacitor's resume
+// event, and Android telling us the speaker is free.
+function resumeAfterInterruption() {
+  if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume().catch(function(){});
+  if (!_systemPaused || !currentSong || !currentSong.url) return;
+  _systemPaused = false;
+  watchForResume(false);
+  prepareAudioOutput(false);
+  isPlaying = true;
+  audio.play().catch(function(err) { _playRejected(err); });
+  syncPlaybackUI();
+}
+
 // ─── Web Audio API — EQ + Crossfade ───
 var _audioCtx = null;
 var _srcMain  = null;
@@ -1745,12 +1769,73 @@ function albumArtistKeyOf(song) {
     .replace(/\s*(feat?\.?|ft\.?|featuring)\s+.+$/i, '').trim();
 }
 
+// The separators used to credit a second artist on a track: "Sheek Louch/Dave
+// East", "Method Man & Redman", "Jay-Z x Kanye West".
+var _CREDIT_SEP = /\s*(?:\/|;|,|\s+&\s+|\s+\+\s+|\s+x\s+|\s+with\s+|\s+and\s+|\s+vs\.?\s+)\s*/i;
+
+/**
+ * The lead name out of a joint credit, or '' when there is no join.
+ *
+ * On its own this is unsafe — it turns "AC/DC" into "AC" and "Earth, Wind &
+ * Fire" into "Earth". It is never used on its own: the caller only accepts the
+ * lead when an album already exists under it, which a real band name never
+ * produces.
+ */
+function _leadCredit(key) {
+  var s = String(key || '').trim();
+  if (!s) return '';
+  var m = _CREDIT_SEP.exec(s);
+  if (!m || m.index < 2) return '';
+  var head = s.slice(0, m.index).trim();
+  var tail = s.slice(m.index + m[0].length).trim();
+  if (!head || !tail) return '';
+  return head;
+}
+
+/**
+ * Which joint credits should be folded into a lead artist, worked out once for
+ * the whole library.
+ *
+ * A guest verse should not split an album. "Clear My Mind" is credited to
+ * "Sheek Louch/Dave East" while the rest of Gorillaween Vol. 3 is credited to
+ * "Sheek Louch", so it was filed as an album of its own — one song, under a
+ * name a character away from the real one. Across a library that is where most
+ * of the stray one-song albums come from, and every one of them reads as
+ * something still to be tagged.
+ *
+ * A fold is recorded only when the same album already exists under the lead
+ * name. That is what makes splitting on "/" safe: "Back in Black" by "AC/DC"
+ * would need an album of that name by "AC" to fold into, and there is none.
+ */
+var _albumCreditMap = null; // 'album|||joint credit' → lead credit
+
+function _buildAlbumCreditMap() {
+  var seen = Object.create(null);
+  songs.forEach(function(s) { seen[s.album + '|||' + albumArtistKeyOf(s)] = true; });
+  var map = Object.create(null);
+  Object.keys(seen).forEach(function(k) {
+    var i = k.indexOf('|||');
+    if (i < 0) return;
+    var lead = _leadCredit(k.slice(i + 3));
+    if (lead && seen[k.slice(0, i) + '|||' + lead]) map[k] = lead;
+  });
+  _albumCreditMap = map;
+}
+
+// The key an album is actually filed under. Every album lookup must use this
+// one: if two of them disagree, an album quietly splits in half.
+function albumGroupKeyOf(song) {
+  if (!_albumCreditMap) _buildAlbumCreditMap();
+  var raw = albumArtistKeyOf(song);
+  return _albumCreditMap[(song ? song.album : '') + '|||' + raw] || raw;
+}
+
 function getAlbums(filter) {
   if (_albumsCache && !filter) return _albumsCache;
   if (_albumsCache && filter === 'all') return _albumsCache;
   var map = {};
   songs.forEach(function(s) {
-    var artistKey = albumArtistKeyOf(s);
+    var artistKey = albumGroupKeyOf(s);
     var key = s.album + '|||' + artistKey;
     var art = safeArtUrl(s.art);
     if (!map[key]) map[key] = { artist: artistKey, year: s.year, art: art, count: 0, type: s.type || 'Album', albumArtUri: '', genre: s.genre || '' };
@@ -1794,7 +1879,7 @@ function getAlbumSongs(albumName, artistName) {
 function getBestAlbumArtistKey(albumName, song) {
   if (!_albumSongsCache) _buildSongCaches();
   if (song) {
-    var own = albumArtistKeyOf(song);
+    var own = albumGroupKeyOf(song);
     if (own && _albumSongsCache[albumName + '|||' + own]) return own;
   }
   var prefix = albumName + '|||';
@@ -1850,13 +1935,27 @@ function getArtistSongs(name) {
   return _artistSongsCache[name] || [];
 }
 
+/**
+ * Whose artist page to open for an album.
+ *
+ * An album artist does not always have a page of their own: a DJ tape or a
+ * compilation is filed under the DJ or the label while every song on it is
+ * credited to somebody else, so "Go to artist" landed on a page with nothing
+ * on it. Fall back to an artist who actually appears on the record.
+ */
+function artistPageNameFor(albumName, albumArtistName) {
+  if (getArtistSongs(albumArtistName).length) return albumArtistName;
+  var list = getAlbumSongs(albumName, albumArtistName);
+  return (list[0] && list[0].artist) || albumArtistName;
+}
+
 function _buildSongCaches() {
   var ac = Object.create(null); // artist → songs (sorted)
   var bc = Object.create(null); // 'album|||artist' → songs (sorted)
   songs.forEach(function(s) {
     if (!ac[s.artist]) ac[s.artist] = [];
     ac[s.artist].push(s);
-    var albumArtistKey = albumArtistKeyOf(s);
+    var albumArtistKey = albumGroupKeyOf(s);
     var k = s.album + '|||' + albumArtistKey;
     if (!bc[k]) bc[k] = [];
     bc[k].push(s);
@@ -1883,13 +1982,24 @@ function getArtistAlbums(name) {
   var map = Object.create(null);
   list.forEach(function(s) {
     var art = safeArtUrl(s.art);
-    if (!map[s.album]) map[s.album] = { year: s.year, art: art, count: 0, type: s.type, albumArtUri: '' };
+    if (!map[s.album]) {
+      map[s.album] = { year: s.year, art: art, count: 0, type: s.type, albumArtUri: '',
+                       artistKey: albumGroupKeyOf(s) };
+    }
     map[s.album].count++;
     if (art && !map[s.album].art) map[s.album].art = art;
     if (s.albumArtUri && !map[s.album].albumArtUri) map[s.album].albumArtUri = s.albumArtUri;
   });
   return Object.keys(map).map(function(a) {
-    return { name: a, artist: name, year: map[a].year, art: map[a].art, albumArtUri: map[a].albumArtUri || '', songCount: map[a].count, type: map[a].type };
+    // The album is filed under its album artist, which is not always the artist
+    // whose page this is — a guest verse on somebody else's record still
+    // belongs to that record. Handing back this artist's name instead opened an
+    // album that does not exist under that key and showed nothing: a card
+    // reading "1 song" that turns into "0 songs" when tapped.
+    var d = map[a];
+    var real = getAlbumSongs(a, d.artistKey);
+    return { name: a, artist: d.artistKey, year: d.year, art: d.art, albumArtUri: d.albumArtUri || '',
+             songCount: real.length || d.count, type: d.type };
   }).sort(function(a, b) {
     var ya = parseInt(a.year) || 9999;
     var yb = parseInt(b.year) || 9999;
@@ -2571,6 +2681,7 @@ function showOverflowMenu() {
     rescanBtn.onclick = function() {
       menu.remove();
       songs = []; songMap = Object.create(null); _countsCache = null; _artistsCache = null; _albumsCache = null;
+      _artistSongsCache = null; _albumSongsCache = null; _spCache = null; _albumCreditMap = null;
       nativeScanning = false; nativeScanError = ''; nativeScanCount = 0;
       nativeAutoScan();
     };
@@ -3367,6 +3478,17 @@ function renderArtistDetail(el) {
 
 function renderAlbumDetail(el) {
   var albumSongs = getAlbumSongs(selectedAlbum.name, selectedAlbum.artist);
+  // Nothing filed under that key. Rather than draw the album empty — a card
+  // reading "1 song" that opens onto "0 songs" — find who the album is really
+  // filed under and show that. Whichever route arrived here with the wrong key,
+  // the record itself still comes up.
+  if (!albumSongs.length) {
+    var alt = getBestAlbumArtistKey(selectedAlbum.name, null);
+    if (alt && alt !== selectedAlbum.artist) {
+      selectedAlbum = { name: selectedAlbum.name, artist: alt };
+      albumSongs = getAlbumSongs(selectedAlbum.name, alt);
+    }
+  }
   var first = albumSongs[0] || {};
   var typeClass = (first.type || 'Album').toLowerCase();
   var totalDur = albumSongs.reduce(function(sum, s) { return sum + (s.dur || 0); }, 0);
@@ -4385,7 +4507,7 @@ function showAlbumMenu(album) {
     }},
     'divider',
     { icon: '&#9998;',   label: 'Tag editor',       action: function() { openEditModal(album.name, album.artist); } },
-    { icon: '&#9835;',   label: 'Go to artist',     action: function() { selectedAlbum = null; selectedArtist = album.artist; render(); } },
+    { icon: '&#9835;',   label: 'Go to artist',     action: function() { selectedAlbum = null; selectedArtist = artistPageNameFor(album.name, album.artist); render(); } },
     { icon: '&#128257;', label: 'Share album',    action: function() { shareSongs(albumSongs, album.name); } },
     { icon: '&#9638;',   label: 'Share QR code', action: function() { showShareQrModal(albumSongs, album.name); } },
     { icon: '&#128465;', label: 'Delete all songs',  action: function() { deleteSongsFromDevice(albumSongs); } },
@@ -4444,7 +4566,7 @@ function showSongMenu(songId, songList) {
     { icon: '&#9835;', label: 'Add to playlist',   action: function() { showAddToPlaylistSheet(song); } },
     'divider',
     { icon: '&#9998;', label: 'Tag editor',        action: function() { openSongEditModal(songId); } },
-    { icon: '&#9835;', label: 'Go to album',       action: function() { selectedAlbum = { name: song.album, artist: song.artist }; render(); } },
+    { icon: '&#9835;', label: 'Go to album',       action: function() { selectedAlbum = { name: song.album, artist: getBestAlbumArtistKey(song.album, song) }; render(); } },
     { icon: '&#9834;', label: 'Go to artist',      action: function() { selectedAlbum = null; selectedArtist = song.artist; render(); } },
     'divider',
     { icon: '&#128257;', label: 'Share audio',   action: function() { shareSongs([song], song.title); } },
@@ -4612,6 +4734,8 @@ function playSong(song, songList) {
     if (_playHistory.length > 200) _playHistory.shift();
   }
   _historyJump = false;
+  _systemPaused = false;
+  watchForResume(false); // a new song supersedes whatever was interrupted
   currentSong = song;
   song.playCount = (song.playCount || 0) + 1;
   song.lastPlayed = Date.now();
@@ -4684,8 +4808,10 @@ function togglePlay() {
     audio.pause();
     // _ourPause cleared in the pause event handler after it fires
     isPlaying = false;
+    watchForResume(false); // a deliberate pause is not an interruption
   } else {
     _systemPaused = false;
+    watchForResume(false);
     prepareAudioOutput(false);
     isPlaying = true;
     audio.play().catch(function(err) { _playRejected(err); });
@@ -4791,6 +4917,7 @@ audio.addEventListener('ended', handleNext);
 audio.addEventListener('play', function() {
   if (isPlaying) return; // already handled by our own code
   _systemPaused = false;
+  watchForResume(false); // playing again — nothing left to wait for
   isPlaying = true;
   syncPlaybackUI();
 });
@@ -4798,7 +4925,10 @@ audio.addEventListener('pause', function() {
   var wasOurs = _ourPause;
   _ourPause = false; // always clear first — was never cleared when user paused (isPlaying=false already)
   if (!isPlaying) return; // user-pause: togglePlay already set isPlaying=false, nothing left to do
-  if (!wasOurs) _systemPaused = true; // OS paused us (call, BT, etc.)
+  if (!wasOurs) {
+    _systemPaused = true;   // OS paused us (call, BT, another app)
+    watchForResume(true);   // and tell us when that is over
+  }
   isPlaying = false;
   syncPlaybackUI();
 });
@@ -6146,7 +6276,11 @@ function openEditModal(albumName, artistName) {
     // albumSongs is already computed in the outer openEditModal scope — use it
     // directly so we update exactly the same songs that were shown in the dialog.
     albumSongs.forEach(function(s) {
-      if (newArtist)      s.artist      = newArtist;
+      // A guest credit belongs to the song, not to the album. Now that
+      // "Sheek Louch/Dave East" is filed under the album rather than off on its
+      // own, saving the album would have overwritten it with "Sheek Louch" and
+      // dropped Dave East from the only place he is named.
+      if (newArtist && _leadCredit(s.artist) !== newArtist) s.artist = newArtist;
       s.albumArtist = newAlbumArtist;
       if (newAlbum)       s.album       = newAlbum;
       if (newYear)        s.year        = newYear;
@@ -6157,7 +6291,15 @@ function openEditModal(albumName, artistName) {
     saveEditsBatch(albumSongs);
 
     if (selectedAlbum) {
-      selectedAlbum = { name: newAlbum || albumName, artist: newArtist || artistName };
+      // Re-key to what the album is filed under now, which is the album artist
+      // — not the Artist field. The two differ on every album that has an album
+      // artist set, and pointing at the wrong one left the album page empty the
+      // moment it was saved.
+      var _keySong = albumSongs[0];
+      selectedAlbum = {
+        name:   newAlbum || albumName,
+        artist: _keySong ? albumArtistKeyOf(_keySong) : (newAlbumArtist || newArtist || artistName)
+      };
     }
     var _artSnap = _pendingArtBase64; // snapshot before closeEditModal() clears it
     closeEditModal();
@@ -6251,7 +6393,8 @@ function openBulkEditModal(songArr) {
       showToast('Fill in at least one field or pick album art'); return;
     }
     songArr.forEach(function(s) {
-      if (newArtist)      s.artist      = newArtist;
+      // Keep a guest credit intact — see the album editor for why.
+      if (newArtist && _leadCredit(s.artist) !== newArtist) s.artist = newArtist;
       if (newAlbumArtist) s.albumArtist = newAlbumArtist;
       if (newAlbum)       s.album       = newAlbum;
       if (newYear)        s.year        = newYear;
@@ -7450,7 +7593,7 @@ loadAllEdits().then(function(edits) {
     songMap = Object.create(null);
     songs.forEach(function(s) { songMap[s.id] = s; });
     _countsCache = null; _artistsCache = null; _albumsCache = null;
-    _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
+    _artistSongsCache = null; _albumSongsCache = null; _spCache = null; _albumCreditMap = null;
   }
   applyEditsToSongs(); // always re-apply after IDB load
   _idbLoading = false;
@@ -7548,7 +7691,7 @@ function nativeAutoScan() {
         songMap = Object.create(null);
         songs.forEach(function(s) { if (!s.id) s.id = genId(); songMap[s.id] = s; });
         _countsCache = null; _artistsCache = null; _albumsCache = null;
-        _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
+        _artistSongsCache = null; _albumSongsCache = null; _spCache = null; _albumCreditMap = null;
         applyEditsToSongs();
         saveLibrary();
         render();
@@ -7659,8 +7802,13 @@ document.addEventListener('muzioMediaAction', function(e) {
       _lastNotifKey = ''; // force position update on next updateMediaSession call
       updateMediaSession();
     }
+  } else if (action === 'resume') {
+    // Android says the call ended and nothing else is using the speaker.
+    resumeAfterInterruption();
   } else if (action === 'close') {
     if (isPlaying) togglePlay();
+    _systemPaused = false;
+    watchForResume(false);
     if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
       NativeBridge.hideMediaNotification();
     }
@@ -7677,26 +7825,12 @@ document.addEventListener('visibilitychange', function() {
   // suspend the AudioContext on its own, and _systemPaused is only ever set
   // from the element's pause event, so gating this on it left a suspended
   // context running silently with no way back.
-  if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume().catch(function(){});
-  if (_systemPaused && currentSong && currentSong.url) {
-    _systemPaused = false;
-    prepareAudioOutput(false);
-    isPlaying = true;
-    audio.play().catch(function(err) { _playRejected(err); });
-    syncPlaybackUI();
-  }
+  resumeAfterInterruption();
 });
 
 if (typeof window.Capacitor !== 'undefined') {
   document.addEventListener('resume', function() {
-    if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume().catch(function(){});
-    if (_systemPaused && currentSong && currentSong.url) {
-      _systemPaused = false;
-      prepareAudioOutput(false);
-      isPlaying = true;
-      audio.play().catch(function(err) { _playRejected(err); });
-      syncPlaybackUI();
-    }
+    resumeAfterInterruption();
   });
 }
 

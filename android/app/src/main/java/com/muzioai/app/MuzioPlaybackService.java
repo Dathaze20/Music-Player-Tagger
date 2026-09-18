@@ -6,16 +6,22 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
 
@@ -39,6 +45,8 @@ public class MuzioPlaybackService extends Service {
     // carries the artwork as base64 and decodes a bitmap; re-sending it every
     // couple of seconds just to move a progress bar would be wasteful.
     static final String ACTION_POSITION = "com.muzioai.app.SVC_POSITION";
+    // Start/stop watching for the end of an interruption. See startResumeWatch().
+    static final String ACTION_WATCH_RESUME = "com.muzioai.app.SVC_WATCH_RESUME";
 
     // Notification broadcast actions (shared with MediaStorePlugin's receiver)
     private static final String ACTION_PREV       = "com.muzioai.app.ACTION_PREV";
@@ -46,6 +54,7 @@ public class MuzioPlaybackService extends Service {
     private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
     private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
     static final String         ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
+    static final String         ACTION_RESUME     = "com.muzioai.app.ACTION_RESUME";
     static final String         EXTRA_SEEK_MS     = "seek_ms";
 
     private static final String NOTIF_CHANNEL_ID = "muzio_playback";
@@ -80,6 +89,7 @@ public class MuzioPlaybackService extends Service {
         notifMgr  = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         ensureChannel();
         ensureMediaSession();
+        ensureNoisyReceiver();
     }
 
     @Override
@@ -87,6 +97,11 @@ public class MuzioPlaybackService extends Service {
         if (intent != null && ACTION_HIDE.equals(intent.getAction())) {
             stopSelf();
             return START_NOT_STICKY;
+        }
+        if (intent != null && ACTION_WATCH_RESUME.equals(intent.getAction())) {
+            if (intent.getBooleanExtra("watch", false)) startResumeWatch();
+            else stopResumeWatch();
+            return START_STICKY;
         }
         if (intent != null && ACTION_POSITION.equals(intent.getAction())) {
             updatePlaybackState(
@@ -116,6 +131,117 @@ public class MuzioPlaybackService extends Service {
         return START_STICKY;
     }
 
+    // ── Resuming after an interruption ───────────────────────────────────────
+
+    /*
+     * Why this exists, and why it does not touch audio focus.
+     *
+     * When something else takes the speaker — a phone call, a video in another
+     * app — Chromium pauses the element and the music stops. Getting it back
+     * afterwards was tied to the app becoming visible again: the only two
+     * things that resumed it were the visibilitychange and Capacitor resume
+     * events. Nobody reopens the music app after hanging up the phone, so it
+     * simply never came back.
+     *
+     * The obvious answer is an OnAudioFocusChangeListener, and that is what was
+     * tried before. It cannot work here: requesting focus from this service
+     * revoked the focus Chromium holds for the WebView's own element, Chromium
+     * paused on the loss, and pressing play started and stopped the song in one
+     * press. Whoever owns playback owns the focus, and here that is the WebView.
+     *
+     * So this watches instead of claiming. Two readings, neither of which needs
+     * a permission or a focus request:
+     *
+     *   getMode()       — MODE_NORMAL once a call has ended
+     *   isMusicActive() — false once nothing else is playing through the speaker
+     *
+     * Both clear only when the interruption is genuinely over, which is exactly
+     * the condition for picking the song back up. If another music app took over
+     * for good, isMusicActive() stays true and we never resume — handing it over
+     * is the correct behaviour and stays that way.
+     */
+
+    private static final long RESUME_POLL_MS   = 2000L;
+    private static final int  RESUME_MAX_TICKS = 150;  // give up after ~5 minutes
+    private static final long NOISY_GRACE_MS   = 5000L;
+
+    private Handler  resumeHandler;
+    private Runnable resumeTick;
+    private int      resumeTicks = 0;
+
+    // When the headphones came out, or Bluetooth dropped.
+    private long             lastNoisyAt = 0L;
+    private BroadcastReceiver noisyReceiver;
+
+    /*
+     * Pulling the headphones out must never start the song again on the
+     * loudspeaker. It looks exactly like the end of an interruption from here —
+     * the call is over, nothing else is playing — so without this the watch
+     * would helpfully blast the track out loud in a quiet room.
+     *
+     * Android announces it just before it reroutes the audio. The announcement
+     * and our own pause can arrive in either order, so it both cancels a watch
+     * already running and blocks one from starting for a few seconds after.
+     */
+    private void ensureNoisyReceiver() {
+        if (noisyReceiver != null) return;
+        noisyReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context ctx, Intent intent) {
+                lastNoisyAt = System.currentTimeMillis();
+                stopResumeWatch();
+            }
+        };
+        IntentFilter f = new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
+        try {
+            // A protected system broadcast, so NOT_EXPORTED is both correct and
+            // what API 34+ requires a registration to state.
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(noisyReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(noisyReceiver, f);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "noisy receiver: " + e.getMessage());
+            noisyReceiver = null;
+        }
+    }
+
+    private void startResumeWatch() {
+        stopResumeWatch();
+        // Without the headphone guard registered there is no way to tell a
+        // disconnect from the end of a call, and resuming out loud on the
+        // speaker is far worse than not resuming at all. Fail closed.
+        ensureNoisyReceiver();
+        if (noisyReceiver == null) return;
+        if (System.currentTimeMillis() - lastNoisyAt < NOISY_GRACE_MS) return;
+        final AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) return;
+        resumeHandler = new Handler(Looper.getMainLooper());
+        resumeTicks   = 0;
+        resumeTick = new Runnable() {
+            @Override
+            public void run() {
+                if (resumeHandler == null) return;
+                if (++resumeTicks > RESUME_MAX_TICKS) { stopResumeWatch(); return; }
+                boolean callOver   = am.getMode() == AudioManager.MODE_NORMAL;
+                boolean speakerFree = !am.isMusicActive();
+                if (callOver && speakerFree) {
+                    stopResumeWatch();
+                    broadcast(ACTION_RESUME);
+                    return;
+                }
+                resumeHandler.postDelayed(this, RESUME_POLL_MS);
+            }
+        };
+        resumeHandler.postDelayed(resumeTick, RESUME_POLL_MS);
+    }
+
+    private void stopResumeWatch() {
+        if (resumeHandler != null && resumeTick != null) resumeHandler.removeCallbacks(resumeTick);
+        resumeHandler = null;
+        resumeTick    = null;
+    }
+
     @Override
     public IBinder onBind(Intent intent) { return null; }
 
@@ -128,6 +254,11 @@ public class MuzioPlaybackService extends Service {
     @Override
     public void onDestroy() {
         isRunning = false;
+        stopResumeWatch();
+        if (noisyReceiver != null) {
+            try { unregisterReceiver(noisyReceiver); } catch (Exception ignored) {}
+            noisyReceiver = null;
+        }
         if (Build.VERSION.SDK_INT >= 33) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {
