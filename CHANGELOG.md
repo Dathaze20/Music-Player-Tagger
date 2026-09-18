@@ -7,6 +7,28 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.2
+
+- A featured artist no longer splits a song off its own album. A track credited
+  to "Sheek Louch/Dave East" was filed as an album of its own, one song long,
+  next to the album it belongs to — and it stayed behind when you edited the
+  real one. It is part of the album again, and editing the album covers it.
+  This is where a lot of the stray one-song albums came from
+- Editing an album keeps the guest's name. "Sheek Louch/Dave East" stays as it
+  is instead of being overwritten with "Sheek Louch"
+- Albums on an artist's page open properly. A guest verse on somebody else's
+  record — one Fabolous song on a DJ Clue tape — showed a card saying "1 song"
+  that opened onto an empty album. It now opens the record the song is on, so
+  you can follow a feature across to where it lives
+- An album no longer comes up empty right after you save it, which happened
+  whenever the album artist differed from the artist
+- Go to artist from a mixtape or compilation goes to someone who is actually on
+  it, instead of an empty page
+- **Music picks itself back up after a phone call**, without having to open the
+  app again. Same after another app borrows the speaker for a video. If you
+  properly hand over to another music app it stays handed over, and pulling out
+  your headphones will not start the song again out loud
+
 ## v1.7.1
 
 - The year is far more reliable. AI Fill was reading it off whichever single

@@ -333,6 +333,14 @@ var NativeBridge = (function() {
     return plugin.updatePlaybackPosition(opts).catch(function() {});
   }
 
+  // Ask Android to tell us when an interruption is over, so a song paused by a
+  // call or another app can pick itself back up without the app being reopened.
+  function watchForResume(watch) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.watchForResume) return Promise.resolve();
+    return plugin.watchForResume({ watch: !!watch }).catch(function() {});
+  }
+
   // Fetch an update and hand it to Android's installer, without going out to a
   // browser. onProgress receives {percent, bytes, total} as it downloads.
   function downloadAndInstallApk(url, fileName, onProgress) {
@@ -365,6 +373,7 @@ var NativeBridge = (function() {
            downloadAndInstallApk: downloadAndInstallApk,
            openInstallPermissionSettings: openInstallPermissionSettings,
            updatePlaybackPosition: updatePlaybackPosition,
+           watchForResume: watchForResume,
            saveToDownloads: saveToDownloads, readClipboard: readClipboard,
            getAppVersion: getAppVersion, openExternal: openExternal,
            requestPermissions: requestPermissions, openAppSettings: openAppSettings,

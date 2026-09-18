@@ -103,6 +103,7 @@ public class MediaStorePlugin extends Plugin {
     private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
     private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
     private static final String ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
+    private static final String ACTION_RESUME     = "com.muzioai.app.ACTION_RESUME";
 
     // Saved state for async activity callbacks
     private PluginCall savedWriteCall;
@@ -1378,7 +1379,8 @@ public class MediaStorePlugin extends Plugin {
                 } else if (ACTION_SEEK.equals(action)) {
                     ev = "seekTo";
                     seekMs = intent.getLongExtra(MuzioPlaybackService.EXTRA_SEEK_MS, 0L);
-                } else return;
+                } else if (ACTION_RESUME.equals(action)) { ev = "resume"; seekMs = -1; }
+                else return;
                 if (getBridge() == null || getBridge().getWebView() == null) return;
                 getBridge().getActivity().runOnUiThread(new Runnable() {
                     @Override public void run() {
@@ -1399,6 +1401,7 @@ public class MediaStorePlugin extends Plugin {
         filter.addAction(ACTION_NEXT);
         filter.addAction(ACTION_CLOSE);
         filter.addAction(ACTION_SEEK);
+        filter.addAction(ACTION_RESUME);
         // Use Application context — receiver must outlive Activity (service stays alive)
         Context appCtx = getContext().getApplicationContext();
         if (Build.VERSION.SDK_INT >= 33) {
@@ -1407,6 +1410,25 @@ public class MediaStorePlugin extends Plugin {
             appCtx.registerReceiver(notifReceiver, filter);
         }
         receiverRegistered = true;
+    }
+
+    /**
+     * Ask the service to watch for the end of an interruption, or to stop
+     * watching. Called when playback is paused by something other than the user
+     * and again as soon as the user takes control back.
+     */
+    @PluginMethod
+    public void watchForResume(PluginCall call) {
+        if (!MuzioPlaybackService.isRunning) { call.resolve(); return; }
+        Intent i = new Intent(getContext(), MuzioPlaybackService.class);
+        i.setAction(MuzioPlaybackService.ACTION_WATCH_RESUME);
+        i.putExtra("watch", Boolean.TRUE.equals(call.getBoolean("watch", false)));
+        try {
+            getContext().startService(i);
+        } catch (Exception e) {
+            Log.w(TAG, "watchForResume: " + e.getMessage());
+        }
+        call.resolve();
     }
 
     @PluginMethod
