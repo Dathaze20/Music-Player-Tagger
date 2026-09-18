@@ -35,6 +35,7 @@ const NAMES = [
   'getBestAlbumArtistKey', 'artistPageNameFor',
   'isUnknownArtistName', 'findArtistsFromAlbums',
   '_wordKey', 'artistFromAlbumName', 'isBrokenFile', 'albumsMissingArtist',
+  'getArtists',
 ];
 
 function loadLibrary(library) {
@@ -46,6 +47,7 @@ function loadLibrary(library) {
     ${vague}
     var songs = ${JSON.stringify(library)};
     var _albumCreditMap = null, _artistSongsCache = null, _albumSongsCache = null;
+    var _artistsCache = null, albumArtistsOnly = false, artistSortMode = 'az';
     function safeArtUrl(u) { return u || ''; }
     ${NAMES.map(extract).join('\n')}
     _buildSongCaches();
@@ -311,5 +313,43 @@ describe('what the bulk lookup counts as untagged', () => {
       { ...song('Two', 'Some Real Tape Vol 3', '',         'unknown', 2), size: 4000000 },
     ]);
     expect(api.albumsMissingArtist()).toHaveLength(1);
+  });
+});
+
+describe('the covers in an artist’s avatar', () => {
+  // A freshly tagged 24-track compilation sits at the front of the file list.
+  // The avatar must still show the artist's own early albums, the same four the
+  // artist page shows, rather than whichever cover the file order reached first.
+  const nas = () => {
+    const lib = [];
+    for (let n = 0; n < 24; n++) {
+      lib.push({ ...song(`Clue ${n}`, 'Best Of Clue Pt II', 'Nas', 'Nas', n + 1), year: '2001', albumArtUri: 'art:clue' });
+    }
+    lib.push({ ...song('NY State',   'Illmatic',       'Nas', 'Nas', 1), year: '1994', albumArtUri: 'art:illmatic' });
+    lib.push({ ...song('Street Dr',  'It Was Written', 'Nas', 'Nas', 1), year: '1996', albumArtUri: 'art:iww' });
+    lib.push({ ...song('Hate Me',    'I Am',           'Nas', 'Nas', 1), year: '1999', albumArtUri: 'art:iam' });
+    lib.push({ ...song('Nastradamus','Nastradamus',    'Nas', 'Nas', 1), year: '1999', albumArtUri: 'art:nostra' });
+    return loadLibrary(lib).getArtists().find(a => a.name === 'Nas');
+  };
+
+  it('uses the four oldest albums, not the first in file order', () => {
+    expect(nas().albumArtUris).toEqual(['art:illmatic', 'art:iww', 'art:iam', 'art:nostra']);
+  });
+
+  it('does not let a compilation take the whole circle', () => {
+    expect(nas().albumArtUris).not.toContain('art:clue');
+  });
+
+  it('still counts every album and song', () => {
+    expect(nas().albumCount).toBe(5);
+    expect(nas().songCount).toBe(28);
+  });
+
+  it('skips albums that have no cover rather than leaving a gap', () => {
+    const api = loadLibrary([
+      { ...song('A', 'No Art Album', 'X', 'X', 1), year: '2000', albumArtUri: '' },
+      { ...song('B', 'Has Art',      'X', 'X', 1), year: '2001', albumArtUri: 'art:b' },
+    ]);
+    expect(api.getArtists().find(a => a.name === 'X').albumArtUris).toEqual(['art:b']);
   });
 });

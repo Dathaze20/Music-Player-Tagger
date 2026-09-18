@@ -7,6 +7,14 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.13
+
+- **An artist's circle shows their own albums again.** It was picking the first
+  four covers in file order, which is no order at all — so tagging a 24-track
+  compilation to an artist put that cover at the front, and when it was the only
+  one that loaded it filled the whole circle. Nas's picture became a DJ Clue
+  tape. It now uses their earliest albums, the same four the artist page shows
+
 ## v1.7.12
 
 - **Find dead files is now on the Unknown Artist page too**, next to the album
