@@ -2740,6 +2740,11 @@ function albumsMissingArtist() {
     var list = _albumSongsCache[k];
     // Every file on it is a broken download — nothing worth tagging.
     if (list.every(isBrokenFile)) return;
+    // At least one song has to actually be missing its artist. An album whose
+    // album-artist field says "unknown" while every track on it is correctly
+    // credited is not untagged, and counting it both overstates the job and
+    // sends a lookup after an answer that is already there.
+    if (!list.some(function(s) { return isUnknownArtistName(s.artist); })) return;
     out.push({ album: album, songs: list });
   });
   return out.sort(function(a, b) { return b.songs.length - a.songs.length; });
@@ -2841,12 +2846,14 @@ function runBulkArtistFill() {
         var genre = String((r && r.genre) || '').trim();
         var rtype = String((r && r.releaseType) || '').trim();
         a.songs.forEach(function(s) {
-          s.artist = artist;
-          if (!s.albumArtist) s.albumArtist = artist;
+          // Only fill what is actually missing. An album can be filed under no
+          // album artist while its songs are correctly credited — writing over
+          // those would replace right answers with a guess.
+          if (isUnknownArtistName(s.artist)) { s.artist = artist; changed++; }
+          if (isUnknownArtistName(s.albumArtist)) s.albumArtist = artist;
           if (year  && !s.year)  s.year  = year;
           if (genre && !s.genre) s.genre = genre;
           if (rtype && !s.type && ['Album','Mixtape','EP','Single'].indexOf(rtype) !== -1) s.type = rtype;
-          changed++;
         });
         saveEditsBatch(a.songs);
       }
@@ -4911,10 +4918,17 @@ function showArtistMenu(artistName) {
   // menu rather than the main one, so leaving it off meant looking for it in
   // the one place it was not.
   var untagged = isUnknownArtistName(artistName) ? albumsMissingArtist().length : 0;
-  var extras = untagged > 0
-    ? [{ icon: '&#10024;', label: 'Look up ' + untagged + ' untagged album' + (untagged === 1 ? '' : 's'),
-         action: function() { runBulkArtistFill(); } }, 'divider']
-    : [];
+  var extras = [];
+  if (untagged > 0) {
+    // Both of these belong here, not only on the main list. Standing on the
+    // Unknown Artist page is when somebody wants them, and clearing out the
+    // dead files first is what makes the lookup worth running.
+    extras.push({ icon: '&#129529;', label: 'Find dead files',
+      action: function() { runDeadFileSweep(); } });
+    extras.push({ icon: '&#10024;', label: 'Look up ' + untagged + ' untagged album' + (untagged === 1 ? '' : 's'),
+      action: function() { runBulkArtistFill(); } });
+    extras.push('divider');
+  }
 
   openBottomSheet(headerHTML, extras.concat([
     { icon: '&#9654;',  label: 'Play',              action: function() { if (artistSongs.length) playSong(artistSongs[0], artistSongs); } },
