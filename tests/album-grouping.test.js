@@ -353,3 +353,35 @@ describe('the covers in an artist’s avatar', () => {
     expect(api.getArtists().find(a => a.name === 'X').albumArtUris).toEqual(['art:b']);
   });
 });
+
+describe('a cover chosen by hand', () => {
+  // Setting custom art on one album used to be drawn on its own, filling the
+  // whole circle — a separate branch that ran before the mosaic ever got a
+  // look in. That is what turned Nas's avatar into a DJ Clue tape.
+  const lib = [
+    { ...song('NY State', 'Illmatic',       'Nas', 'Nas', 1), year: '1994', albumArtUri: 'art:illmatic' },
+    { ...song('Street',   'It Was Written', 'Nas', 'Nas', 1), year: '1996', albumArtUri: 'art:iww' },
+    { ...song('Hate Me',  'I Am',           'Nas', 'Nas', 1), year: '1999', albumArtUri: 'art:iam' },
+    { ...song('Clue 1', 'Best Of Clue Pt II', 'Nas', 'Nas', 1), year: '2001', albumArtUri: 'art:clue', art: 'data:image/jpeg;base64,CLUE' },
+  ];
+  const nas = () => loadLibrary(lib).getArtists().find(a => a.name === 'Nas');
+
+  it('does not take over the whole circle', () => {
+    expect(nas().albumArtUris.length).toBe(4);
+    expect(nas().albumArtUris[0]).toBe('art:illmatic');
+  });
+
+  it('takes its own album’s place in the mosaic', () => {
+    // The compilation is the newest, so it sits last — as its cover, not its URI.
+    expect(nas().albumArtUris).toEqual([
+      'art:illmatic', 'art:iww', 'art:iam', 'data:image/jpeg;base64,CLUE',
+    ]);
+  });
+
+  it('is still used on its own when it is the only album', () => {
+    const api = loadLibrary([
+      { ...song('Only', 'Just One', 'Solo', 'Solo', 1), year: '2020', albumArtUri: 'art:one', art: 'data:image/jpeg;base64,PICKED' },
+    ]);
+    expect(api.getArtists()[0].albumArtUris).toEqual(['data:image/jpeg;base64,PICKED']);
+  });
+});

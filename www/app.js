@@ -131,6 +131,9 @@ function _applyLazyForUri(uri) {
 }
 
 function fetchThumbnail(uri) {
+  // A cover the user chose by hand is already the image. Nothing to fetch, and
+  // sending it round the art cache and the native bridge only loses it.
+  if (uri && uri.indexOf('data:') === 0) return Promise.resolve(uri);
   if (artCache[uri]) { var d = artCache[uri]; delete artCache[uri]; artCache[uri] = d; return Promise.resolve(d); } // LRU promote
   if (artInFlight[uri]) return artInFlight[uri];
   // Check IDB before the native bridge — IDB reads take ~5 ms vs ~100-200 ms for
@@ -214,6 +217,8 @@ function batchPrefetchWindowArt(data, start, end, rowsId, readAheadEnd) {
     var uris = item.albumArtUris ? item.albumArtUris : (item.albumArtUri ? [item.albumArtUri] : []);
     for (var j = 0; j < uris.length; j++) {
       var uri = uris[j];
+      // A data: cover is already in hand — there is nothing to look up.
+      if (uri && uri.indexOf('data:') === 0) continue;
       if (uri && !seen[uri] && !artCache[uri] && !artInFlight[uri]) {
         seen[uri] = true;
         missing.push(uri);
@@ -389,11 +394,9 @@ function artistRowHTML(a) {
       + 'flex-shrink:0;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:11px;font-weight:700;margin-right:6px;">'
       + (sel ? '&#10003;' : '') + '</div>';
   }
-  var artEl = (a.arts && a.arts.length > 0)
-    ? '<img src="' + a.arts[0] + '" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;object-fit:cover;">'
-    : (a.albumArtUris && a.albumArtUris.length > 0)
-      ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(a.name, 56, true) + '</div>'
-      : artHTML(a.name, 56, true);
+  var artEl = (a.albumArtUris && a.albumArtUris.length > 0)
+    ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(a.name, 56, true) + '</div>'
+    : artHTML(a.name, 56, true);
   var menuBtn = _msArtistMode ? '' : '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>';
   return '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
     + chkHtml + artEl
@@ -1732,33 +1735,36 @@ function getArtists() {
 
   songs.forEach(function(s) {
     var key = s.artist;
-    if (!map[key]) map[key] = { albums: {}, count: 0, arts: [], albumArtist: s.albumArtist || '' };
-    // Keep each album's year and cover so the mosaic can be built from the
-    // artist's own records in order, rather than from whatever the file list
-    // happened to reach first.
-    if (!map[key].albums[s.album]) {
-      map[key].albums[s.album] = { year: s.year, uri: s.albumArtUri || '' };
-    } else if (!map[key].albums[s.album].uri && s.albumArtUri) {
-      map[key].albums[s.album].uri = s.albumArtUri;
+    if (!map[key]) map[key] = { albums: {}, count: 0, albumArtist: s.albumArtist || '' };
+    // Keep each album's year, its cover, and any cover the user chose by hand,
+    // so the mosaic can be built from the artist's own records in order rather
+    // than from whatever the file list happened to reach first.
+    var custom = (s.art && s.art.indexOf('data:') === 0) ? s.art : '';
+    var al = map[key].albums[s.album];
+    if (!al) {
+      map[key].albums[s.album] = { year: s.year, uri: s.albumArtUri || '', custom: custom };
+    } else {
+      if (!al.uri && s.albumArtUri) al.uri = s.albumArtUri;
+      if (!al.custom && custom)     al.custom = custom;
     }
     map[key].count++;
-    var artUrl = s.art || '';
-    if (artUrl && (artUrl.startsWith('data:') || artUrl.startsWith('http://localhost')) && map[key].arts.indexOf(artUrl) === -1) {
-      map[key].arts.push(artUrl);
-    }
     if (!map[key].albumArtist && s.albumArtist) map[key].albumArtist = s.albumArtist;
   });
 
   /**
    * The four covers for an artist's avatar, oldest album first.
    *
-   * This used to take the first four distinct covers in file order, which is no
-   * order at all. Tagging a 24-track compilation to an artist put its cover at
-   * the front of their list, and when it was the only one that loaded it filled
-   * the whole circle — so Nas's avatar became a DJ Clue tape.
+   * Two things used to go wrong here, and they compounded.
    *
-   * Sorted the way the artist page sorts its albums, so the circle and the page
-   * you land on show the same records.
+   * The covers were taken in file order, which is no order at all — tagging a
+   * 24-track compilation to an artist put its cover at the front of their list.
+   * And a cover the user had chosen by hand was handled by a separate branch
+   * that drew it alone, filling the whole circle. Between them, Nas's picture
+   * became a DJ Clue tape he has one guest verse on.
+   *
+   * Now there is one path. Albums are sorted the way the artist page sorts
+   * them, and a hand-picked cover simply takes that album's place in the
+   * mosaic instead of replacing it.
    */
   function avatarUris(albums) {
     var ordered = Object.keys(albums).sort(function(a, b) {
@@ -1769,14 +1775,14 @@ function getArtists() {
     });
     var uris = [];
     for (var i = 0; i < ordered.length && uris.length < 4; i++) {
-      var u = albums[ordered[i]].uri;
+      var u = albums[ordered[i]].custom || albums[ordered[i]].uri;
       if (u && uris.indexOf(u) === -1) uris.push(u);
     }
     return uris;
   }
 
   var list = Object.keys(map).map(function(name) {
-    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, arts: map[name].arts, albumArtist: map[name].albumArtist, albumArtUris: avatarUris(map[name].albums) };
+    return { name: name, albumCount: Object.keys(map[name].albums).length, songCount: map[name].count, albumArtist: map[name].albumArtist, albumArtUris: avatarUris(map[name].albums) };
   });
 
   // Album artists filter: only show artists that appear as an albumArtist on at least one song
@@ -2643,9 +2649,7 @@ function renderArtists(el) {
     var artSize = cols === 3 ? 60 : 80;
     var gridParts = ['<div class="artist-grid grid-' + cols + '">'];
     artists.forEach(function(a) {
-      var artEl = (a.arts && a.arts.length > 0)
-        ? '<img src="' + a.arts[0] + '" style="width:' + artSize + 'px;height:' + artSize + 'px;border-radius:50%;object-fit:cover;">'
-        : (a.albumArtUris.length > 0
+      var artEl = (a.albumArtUris.length > 0
           ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="' + artSize + '" data-round="1">' + artHTML(a.name, artSize, true) + '</div>'
           : artHTML(a.name, artSize, true));
       gridParts.push('<div class="artist-grid-card" data-artist="' + escHtml(a.name) + '">'

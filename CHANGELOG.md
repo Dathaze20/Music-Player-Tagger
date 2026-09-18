@@ -7,6 +7,17 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.14
+
+- **The artist circle fix from the last version did not work** — there was a
+  second piece of code in front of it that I missed. When any album had a cover
+  you had picked by hand, that cover was drawn on its own and filled the whole
+  circle, so the album order never got a look in. Nas's picture stayed a DJ Clue
+  tape
+- There is now one way the circle is built, for everyone. Albums oldest first,
+  and a cover you chose by hand takes that album's place in the four rather than
+  replacing them
+
 ## v1.7.13
 
 - **An artist's circle shows their own albums again.** It was picking the first
