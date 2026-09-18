@@ -15,6 +15,7 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.media.MediaScannerConnection;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -1410,6 +1411,88 @@ public class MediaStorePlugin extends Plugin {
             appCtx.registerReceiver(notifReceiver, filter);
         }
         receiverRegistered = true;
+    }
+
+    // ─── Ringtone / notification / alarm ─────────────────────────────────────
+
+    /**
+     * Make a song the phone's default ringtone, notification sound or alarm.
+     *
+     * Changing any of those writes to Settings.System, which Android guards with
+     * WRITE_SETTINGS — a special permission that no runtime prompt can grant.
+     * The user has to turn it on in a system screen, so a missing grant comes
+     * back as its own result rather than an error: the caller explains what the
+     * screen is for before sending anyone to it.
+     */
+    @PluginMethod
+    public void setAsRingtone(PluginCall call) {
+        String uriStr = call.getString("contentUri", "");
+        String kind   = String.valueOf(call.getString("type", "ringtone")).toLowerCase();
+        if (uriStr == null || uriStr.isEmpty()) {
+            call.reject("setAsRingtone: no file");
+            return;
+        }
+
+        int type;
+        if ("notification".equals(kind))  type = RingtoneManager.TYPE_NOTIFICATION;
+        else if ("alarm".equals(kind))    type = RingtoneManager.TYPE_ALARM;
+        else                              type = RingtoneManager.TYPE_RINGTONE;
+
+        Context ctx = getContext();
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.System.canWrite(ctx)) {
+            JSObject res = new JSObject();
+            res.put("success", false);
+            res.put("needsPermission", true);
+            call.resolve(res);
+            return;
+        }
+
+        try {
+            Uri uri = Uri.parse(uriStr);
+
+            // Deliberately NOT setting MediaStore's IS_RINGTONE / IS_NOTIFICATION
+            // / IS_ALARM flag on the file.
+            //
+            // The obvious reason to set it is so the song also shows up in
+            // Android's own ringtone picker. The reason not to is that the
+            // library scan excludes those three flags — that is how system beeps
+            // are kept out of a music library — so flagging a song would delete
+            // it from My Music on the next scan. Someone setting their favourite
+            // track as their ringtone would watch it disappear.
+            //
+            // Settings stores the URI, so the ringtone plays either way. It may
+            // show under a plain name in Android's settings. That is the whole
+            // cost, and it is much the cheaper of the two.
+            RingtoneManager.setActualDefaultRingtoneUri(ctx, type, uri);
+
+            JSObject res = new JSObject();
+            res.put("success", true);
+            call.resolve(res);
+        } catch (Exception e) {
+            call.reject("setAsRingtone: " + e.getMessage());
+        }
+    }
+
+    /** Open the system screen where WRITE_SETTINGS is granted. */
+    @PluginMethod
+    public void openWriteSettingsScreen(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                                  Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+        } catch (Exception e) {
+            // Not every device exposes the per-app screen; the general one will do.
+            try {
+                Intent i2 = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
+                i2.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i2);
+            } catch (Exception e2) {
+                call.reject("Could not open the permission screen: " + e2.getMessage());
+                return;
+            }
+        }
+        call.resolve();
     }
 
     /**
