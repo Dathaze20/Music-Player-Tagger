@@ -1509,6 +1509,10 @@ public class MediaStorePlugin extends Plugin {
                    && (b[2] & 0xFF) == 0xB2 && (b[3] & 0xFF) == 0x75)                  return "WMA";
         if (n >= 4 && b[0] == 'M' && b[1] == 'A' && b[2] == 'C' && b[3] == ' ')        return "APE";
         if (n >= 4 && b[0] == 'F' && b[1] == 'O' && b[2] == 'R' && b[3] == 'M')        return "AIFF";
+        if (n >= 5 && b[0] == '#' && b[1] == '!' && b[2] == 'A' && b[3] == 'M' && b[4] == 'R')
+                                                                                       return "AMR voice recording";
+        // Must come after AMR: an AMR file starts "#!AMR", which is also how a
+        // shell script starts, and a voice message is not a script.
         if (n >= 4 && b[0] == '#' && b[1] == '!' )                                     return "a script, not audio";
         String s = new String(b, 0, Math.min(n, 12)).trim().toLowerCase();
         if (s.startsWith("<!do") || s.startsWith("<htm") || s.startsWith("<?xm")

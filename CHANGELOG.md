@@ -7,6 +7,16 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.10
+
+- A voice message is no longer called a script. AMR recordings — what Samsung
+  Messages saves — begin with the same two characters a shell script does, and
+  the check that spotted fake downloads was catching them too
+- A file in a format the app genuinely cannot decode now says so honestly,
+  instead of implying the file is broken. AMR and WMA play on Android but not in
+  the browser engine the app is built on; that is a limit of the app, not a
+  fault in the file
+
 ## v1.7.9
 
 - **"Format not supported" now tells you what is actually wrong.** That message
