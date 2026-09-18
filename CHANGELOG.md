@@ -7,6 +7,19 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.9
+
+- **"Format not supported" now tells you what is actually wrong.** That message
+  was a guess — the player reports the same error for everything it could not
+  start, and calling an .mp3 an unsupported format is plainly wrong. The app now
+  opens the file and looks, then says which it is: the file is gone, the file is
+  empty, Android will not let it be read, the download saved a web page instead
+  of a song, or the file is genuinely damaged
+- **"Why won't this play?" in a song's ⋮ menu** gives the same answer for any
+  song, whenever you want it
+- If Android can play a file and the app cannot, it now says so outright rather
+  than blaming the file
+
 ## v1.7.8
 
 - **Songs that said "format not supported" should play now.** The app asked
