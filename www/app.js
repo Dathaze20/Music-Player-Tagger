@@ -969,6 +969,8 @@ function saveLibraryIDB() {
       playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0,
       nativePath: s.nativePath || '', contentUri: s.contentUri || '',
       albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || '',
+      // Kept so a broken download stays recognisable without replaying it.
+      size: (typeof s.size === 'number') ? s.size : -1,
       aiAttempted: s.aiAttempted || 0, enrichAttempted: s.enrichAttempted || 0
     };
   });
@@ -1948,6 +1950,45 @@ function isUnknownArtistName(name) {
 var _VAGUE_ALBUM = /^(unknown( album)?|<unknown>|untitled|various( artists?)?|va|misc(ellaneous)?|greatest hits|hits|singles?|album|ep|lp|mixtape|music|songs?|audio|tracks?|downloads?|new folder|favou?rites?|playlist)$/i;
 
 /**
+ * A file Android reports as empty or a few KB is an interrupted download, not a
+ * song. Knowable from the scan, without waiting for it to fail on play.
+ */
+function isBrokenFile(s) {
+  return !!(s && typeof s.size === 'number' && s.size >= 0 && s.size < 16384);
+}
+
+/**
+ * An artist from your own library whose name appears in the album title.
+ *
+ * "Album_-_Best_of_Nas_-_Anniversary_Edition" says who it is by right there in
+ * the name. A compilation like that is in no music database, so every lookup
+ * comes back empty while the answer sits in the title — and with the whole
+ * album untagged there is no artist on it to copy from either.
+ *
+ * Both sides are reduced to space-separated words before matching, so a name
+ * only ever matches a whole word: "Nas" matches "Best of Nas" and not
+ * "Nashville". The longest match wins, so "Lil Wayne" beats "Lil", and names
+ * under three letters are skipped as too easy to collide with.
+ */
+function _wordKey(s) {
+  return ' ' + String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() + ' ';
+}
+
+function artistFromAlbumName(albumName) {
+  var hay = _wordKey(albumName);
+  if (hay.length < 5) return '';
+  if (!_artistSongsCache) _buildSongCaches();
+  var best = '';
+  Object.keys(_artistSongsCache).forEach(function(name) {
+    if (!name || name.length <= best.length || isUnknownArtistName(name)) return;
+    var needle = _wordKey(name);
+    if (needle.length < 5) return; // two letters or fewer once punctuation is gone
+    if (hay.indexOf(needle) !== -1) best = name;
+  });
+  return best;
+}
+
+/**
  * Songs with no artist sitting on an album whose other tracks all name the same
  * one.
  *
@@ -2682,6 +2723,142 @@ function fixUnknownArtistsFromAlbums() {
             + ' moved to the right artist', 4000);
 }
 
+// ─── Look up every untagged album ───
+
+// Albums filed under nobody, biggest first so the most songs are fixed soonest.
+// A vague title is skipped for the same reason it is skipped everywhere else —
+// there is nothing there to look up.
+function albumsMissingArtist() {
+  if (!_albumSongsCache) _buildSongCaches();
+  var out = [];
+  Object.keys(_albumSongsCache).forEach(function(k) {
+    var i = k.indexOf('|||');
+    if (i < 0) return;
+    var album = String(k.slice(0, i)).trim();
+    if (!isUnknownArtistName(k.slice(i + 3))) return;
+    if (album.length < 2 || _VAGUE_ALBUM.test(album)) return;
+    var list = _albumSongsCache[k];
+    // Every file on it is a broken download — nothing worth tagging.
+    if (list.every(isBrokenFile)) return;
+    out.push({ album: album, songs: list });
+  });
+  return out.sort(function(a, b) { return b.songs.length - a.songs.length; });
+}
+
+var _bulkFillStop = false;
+
+function _bulkProgressShow(total) {
+  _bulkProgressHide();
+  var el = document.createElement('div');
+  el.id = 'bulkFillBar';
+  el.className = 'bulk-fill-bar';
+  el.innerHTML =
+    '<div class="bulk-fill-top">'
+    + '<span class="bulk-fill-label" id="bulkFillLabel">Starting…</span>'
+    + '<button class="bulk-fill-stop" id="bulkFillStop">Stop</button>'
+    + '</div>'
+    + '<div class="bulk-fill-track"><div class="bulk-fill-fill" id="bulkFillFill"></div></div>'
+    + '<div class="bulk-fill-count" id="bulkFillCount">0 of ' + total + '</div>';
+  document.getElementById('app').appendChild(el);
+  // Sit above the mini player rather than on top of it — this runs for minutes
+  // and there is no reason to lose the controls for the whole of it.
+  var mini = document.getElementById('miniPlayer');
+  if (mini && !mini.classList.contains('hidden')) {
+    el.style.bottom = mini.offsetHeight + 'px';
+  }
+  document.getElementById('bulkFillStop').onclick = function() {
+    _bulkFillStop = true;
+    var l = document.getElementById('bulkFillLabel');
+    if (l) l.textContent = 'Stopping…';
+  };
+}
+
+function _bulkProgressUpdate(done, total, name, found) {
+  var l = document.getElementById('bulkFillLabel');
+  var f = document.getElementById('bulkFillFill');
+  var c = document.getElementById('bulkFillCount');
+  if (l) l.textContent = name;
+  if (f) f.style.width = (total ? (done / total * 100) : 0).toFixed(1) + '%';
+  if (c) c.textContent = done + ' of ' + total + ' · ' + found + ' found';
+}
+
+function _bulkProgressHide() {
+  var el = document.getElementById('bulkFillBar');
+  if (el) el.remove();
+}
+
+/**
+ * Run AI Fill over every album that has no artist.
+ *
+ * Paced deliberately. The music database asks for no more than a request a
+ * second and will start refusing if pushed, which on a run this long would turn
+ * into a few hundred albums coming back empty for no reason other than speed.
+ * Each album is saved as it finishes, so stopping half way keeps what was
+ * already found.
+ *
+ * Only empty fields are filled. An album that already has a year or a genre
+ * keeps them — this is here to fill gaps, not to overwrite work already done.
+ */
+function runBulkArtistFill() {
+  var albums = albumsMissingArtist();
+  if (!albums.length) {
+    showToast('No untagged album left to look up', 4000);
+    return;
+  }
+  var songCount = albums.reduce(function(n, a) { return n + a.songs.length; }, 0);
+  var mins = Math.max(1, Math.round(albums.length * 2.5 / 60));
+  if (!confirm(
+    albums.length + ' albums (' + songCount + ' songs) have no artist.\n\n'
+    + 'Look every one of them up? It takes around ' + mins + ' minute'
+    + (mins === 1 ? '' : 's') + ' — the music database only allows about one '
+    + 'request a second — and you can stop it at any point and keep what it found.'
+  )) return;
+
+  _bulkFillStop = false;
+  _bulkProgressShow(albums.length);
+
+  var found = 0;
+  var changed = 0;
+
+  function finish() {
+    _bulkProgressHide();
+    if (changed) { saveLibrary(); render(); }
+    showToast(found
+      ? '✓ Found the artist for ' + found + ' of ' + albums.length + ' albums'
+      : 'No artist could be found for any of them', 5000);
+  }
+
+  function step(i) {
+    if (_bulkFillStop || i >= albums.length) { finish(); return; }
+    var a = albums[i];
+    _bulkProgressUpdate(i, albums.length, a.album, found);
+
+    aiFill(a.songs[0]).then(function(r) {
+      var artist = String((r && (r.artist || r.albumArtist)) || '').trim();
+      if (artist && !isUnknownArtistName(artist)) {
+        found++;
+        var year  = String((r && r.year)  || '').trim();
+        var genre = String((r && r.genre) || '').trim();
+        var rtype = String((r && r.releaseType) || '').trim();
+        a.songs.forEach(function(s) {
+          s.artist = artist;
+          if (!s.albumArtist) s.albumArtist = artist;
+          if (year  && !s.year)  s.year  = year;
+          if (genre && !s.genre) s.genre = genre;
+          if (rtype && !s.type && ['Album','Mixtape','EP','Single'].indexOf(rtype) !== -1) s.type = rtype;
+          changed++;
+        });
+        saveEditsBatch(a.songs);
+      }
+    }).catch(function() {
+      // One album failing is not a reason to abandon the other two hundred.
+    }).then(function() {
+      setTimeout(function() { step(i + 1); }, 1200);
+    });
+  }
+  step(0);
+}
+
 function showOverflowMenu() {
   var existing = document.getElementById('overflowMenu');
   if (existing) { existing.remove(); return; }
@@ -2731,6 +2908,13 @@ function showOverflowMenu() {
       + ' unknown artist' + (_unknownFixable === 1 ? '' : 's') + '</div>';
   }
 
+  var _noArtistAlbums = songs.length > 0 ? albumsMissingArtist().length : 0;
+  if (_noArtistAlbums > 0) {
+    items += '<div class="overflow-divider"></div>'
+      + '<div class="overflow-item" id="omBulkFill">&#10024; Look up ' + _noArtistAlbums
+      + ' untagged album' + (_noArtistAlbums === 1 ? '' : 's') + '</div>';
+  }
+
   // Native-only: rescan option at the bottom of any tab menu
   if (songs.length > 0 && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
     items += '<div class="overflow-divider"></div>'
@@ -2777,6 +2961,11 @@ function showOverflowMenu() {
     menu.querySelectorAll('[data-song-sort]').forEach(function(item) {
       item.onclick = function() { sortMode = item.dataset.songSort; menu.remove(); render(); };
     });
+  }
+
+  var bulkFillBtn = menu.querySelector('#omBulkFill');
+  if (bulkFillBtn) {
+    bulkFillBtn.onclick = function() { menu.remove(); runBulkArtistFill(); };
   }
 
   var fixUnknownBtn = menu.querySelector('#omFixUnknown');
@@ -3453,6 +3642,7 @@ function songRowHTML(s, playing, showEdit) {
     + '</div>'
     + '<div class="song-meta">' + escHtml(s.artist) + (s.album && s.album !== 'Unknown Album' ? ' &bull; ' + escHtml(s.album) : '')
     + (s.type === 'Mixtape' ? '<span class="mixtape-tag"> &bull; Mixtape</span>' : '')
+    + (isBrokenFile(s) ? '<span class="song-broken"> &bull; &#9888; won’t play</span>' : '')
     + '</div></div>'
     + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
     + (playing ? eqBarsHTML(!isPlaying) : '<span class="song-duration">' + fmtTime(s.dur) + '</span>')
@@ -3657,7 +3847,9 @@ function renderAlbumDetail(el) {
       + '<div class="song-info">'
       + '<div class="song-title' + (playing ? ' playing' : '') + '">' + escHtml(s.title)
       + (s.feat ? '<span class="feat"> ft. ' + escHtml(s.feat) + '</span>' : '') + '</div>'
-      + '<div class="song-meta">' + escHtml(s.artist) + ' &bull; ' + fmtTime(s.dur) + '</div>'
+      + '<div class="song-meta">' + escHtml(s.artist) + ' &bull; ' + fmtTime(s.dur)
+      + (isBrokenFile(s) ? '<span class="song-broken"> &bull; &#9888; won’t play</span>' : '')
+      + '</div>'
       + '</div>'
       + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
       + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + heartSvg(s.fav, 20) + '</button>'
@@ -5528,6 +5720,14 @@ function aiFill(song) {
     // only thing that knows. Whoever the record is by is the right answer for
     // the tracks on it.
     if (!merged.artist && merged.albumArtist) merged.artist = merged.albumArtist;
+
+    // Last resort, and only for a song that has no artist of its own: the album
+    // title often names the artist outright. A bootleg compilation is in no
+    // database, so this is the only thing that answers for one.
+    if (!merged.artist && isUnknownArtistName(song.artist)) {
+      var fromTitle = artistFromAlbumName(lookupSong.album);
+      if (fromTitle) merged.artist = fromTitle;
+    }
     return merged;
   });
 }

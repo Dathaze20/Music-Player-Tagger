@@ -7,6 +7,22 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.6
+
+- **Look up every untagged album in one go.** The ⋮ menu offers it with the
+  count in the label. It works through them one at a time with a progress bar,
+  and you can stop it whenever you like and keep whatever it found
+- **The artist is taken from the album's own name when nothing else knows it.**
+  "Best of Nas - Anniversary Edition" says who it is by right there, and a
+  compilation like that is in no music database — so the answer was sitting in
+  the title while every lookup came back empty. It only matches whole words
+  against artists already in your library, so "Nashville" is not read as Nas
+- **A song that will not play says so in the list** instead of waiting to be
+  found out when you tap it. Android reports the file as empty or a few
+  kilobytes, which means the download never finished
+- Albums made up entirely of unfinished downloads are left out of the bulk
+  lookup — there is nothing there worth tagging
+
 ## v1.7.5
 
 - **AI Fill now fills in the artist on an album that came in untagged.** The
