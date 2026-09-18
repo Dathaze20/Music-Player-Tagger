@@ -33,13 +33,16 @@ const NAMES = [
   'albumArtistKeyOf', '_leadCredit', '_buildAlbumCreditMap', 'albumGroupKeyOf',
   '_buildSongCaches', 'getAlbumSongs', 'getArtistSongs', 'getArtistAlbums',
   'getBestAlbumArtistKey', 'artistPageNameFor',
+  'isUnknownArtistName', 'findArtistsFromAlbums',
 ];
 
 function loadLibrary(library) {
   const sep = SRC.match(/var _CREDIT_SEP = .*;/)[0];
+  const vague = SRC.match(/var _VAGUE_ALBUM = .*;/)[0];
   // eslint-disable-next-line no-new-func
   return new Function(`
     ${sep}
+    ${vague}
     var songs = ${JSON.stringify(library)};
     var _albumCreditMap = null, _artistSongsCache = null, _albumSongsCache = null;
     function safeArtUrl(u) { return u || ''; }
@@ -138,5 +141,71 @@ describe('a guest verse on somebody else’s record', () => {
     // DJ Clue is the album artist but performs nothing, so his page is empty.
     expect(api.artistPageNameFor('Best Of Clue Pt II', 'DJ Clue')).toBe('Fabolous');
     expect(api.artistPageNameFor('Street Dreams', 'Fabolous')).toBe('Fabolous');
+  });
+});
+
+describe('borrowing an artist from the rest of the album', () => {
+  const proposals = (library) =>
+    loadLibrary(library).findArtistsFromAlbums()
+      .map(f => `${f.song.title} -> ${f.artist}`).sort();
+
+  it('gives an artist-less track the name the rest of its album agrees on', () => {
+    expect(proposals([
+      song('Ambitionz',  'All Eyez On Me', '2Pac', null, 1),
+      song('All About U','All Eyez On Me', '2Pac', null, 2),
+      song('Skandalouz', 'All Eyez On Me', '',     '',   3),
+    ])).toEqual(['Skandalouz -> 2Pac']);
+  });
+
+  it('treats a guest credit as the same artist, not a disagreement', () => {
+    expect(proposals([
+      song('Intro',   'Gorillaween, Vol. 3 - EP', 'Sheek Louch',            null, 1),
+      song('Clear',   'Gorillaween, Vol. 3 - EP', 'Sheek Louch/Dave East',  null, 2),
+      song('Unknown', 'Gorillaween, Vol. 3 - EP', 'Unknown Artist',         '',   3),
+    ])).toEqual(['Unknown -> Sheek Louch']);
+  });
+
+  it('refuses when two artists share an album title', () => {
+    // Two different records both called "Greatest Hits 2" — there is no way to
+    // tell which one the untagged song belongs to, so it is left alone.
+    expect(proposals([
+      song('A side',  'Greatest Hits 2', 'Total', null, 1),
+      song('B side',  'Greatest Hits 2', 'SWV',   null, 1),
+      song('Mystery', 'Greatest Hits 2', '',      '',   2),
+    ])).toEqual([]);
+  });
+
+  it('refuses on an album name that identifies nothing', () => {
+    expect(proposals([
+      song('Known',   'Unknown Album', '2Pac', null, 1),
+      song('Mystery', 'Unknown Album', '',     '',   2),
+    ])).toEqual([]);
+    expect(proposals([
+      song('Known',   'Greatest Hits', '2Pac', null, 1),
+      song('Mystery', 'Greatest Hits', '',     '',   2),
+    ])).toEqual([]);
+  });
+
+  it('refuses when nobody on the album is named', () => {
+    expect(proposals([
+      song('One', 'Some Mixtape Vol 4', '', '', 1),
+      song('Two', 'Some Mixtape Vol 4', '', '', 2),
+    ])).toEqual([]);
+  });
+
+  it('leaves songs that already have an artist alone', () => {
+    expect(proposals([
+      song('One', 'Street Dreams', 'Fabolous', null, 1),
+      song('Two', 'Street Dreams', 'Fabolous', null, 2),
+    ])).toEqual([]);
+  });
+
+  it('knows which names mean the field was empty', () => {
+    const { isUnknownArtistName } = loadLibrary([]);
+    expect(isUnknownArtistName('')).toBe(true);
+    expect(isUnknownArtistName('Unknown Artist')).toBe(true);
+    expect(isUnknownArtistName('unknown')).toBe(true);
+    expect(isUnknownArtistName('2Pac')).toBe(false);
+    expect(isUnknownArtistName('VA')).toBe(false); // could be a real name
   });
 });

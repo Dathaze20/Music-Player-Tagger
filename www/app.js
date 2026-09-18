@@ -1935,6 +1935,65 @@ function getArtistSongs(name) {
   return _artistSongsCache[name] || [];
 }
 
+// ─── Borrowing an artist from the rest of the album ───
+
+// Only the names that mean "this field was empty". Deliberately short: treating
+// a real artist as unknown would move their songs to somebody else.
+function isUnknownArtistName(name) {
+  return /^(unknown artist|unknown|<unknown>)?$/i.test(String(name || '').trim());
+}
+
+// Album names that identify nothing. An untagged file usually has an untagged
+// album too, and "Unknown Album" is not evidence that two songs are related.
+var _VAGUE_ALBUM = /^(unknown( album)?|<unknown>|untitled|various( artists?)?|va|misc(ellaneous)?|greatest hits|hits|singles?|album|ep|lp|mixtape|music|songs?|audio|tracks?|downloads?|new folder|favou?rites?|playlist)$/i;
+
+/**
+ * Songs with no artist sitting on an album whose other tracks all name the same
+ * one.
+ *
+ * A file with an empty artist tag goes to "Unknown Artist" even when the rest
+ * of its album is tagged properly, which splits one record between a real
+ * artist and the unknown pile. Where the album is specific enough to identify
+ * and every named track on it agrees, that name is worth borrowing.
+ *
+ * Three things have to hold, because this is a guess and a wrong one puts
+ * somebody else's name on a song:
+ *
+ *   - the album name identifies a record, so "Unknown Album" is no evidence
+ *   - at least one track on it is named
+ *   - every named track agrees. Two artists on one title means two records
+ *     sharing a name, and there is no way to tell which one a stray belongs to
+ *
+ * A guest credit does not count as disagreement: "Sheek Louch" and "Sheek
+ * Louch/Dave East" are one artist for this purpose.
+ *
+ * Returns the proposals and applies nothing — the caller asks first.
+ */
+function findArtistsFromAlbums() {
+  var byAlbum = Object.create(null);
+  songs.forEach(function(s) {
+    var album = String(s.album || '').trim();
+    if (album.length < 2 || _VAGUE_ALBUM.test(album)) return;
+    if (!byAlbum[album]) byAlbum[album] = { named: Object.create(null), unknown: [] };
+    if (isUnknownArtistName(s.artist)) {
+      byAlbum[album].unknown.push(s);
+    } else {
+      var lead = _leadCredit(s.artist) || String(s.artist).trim();
+      byAlbum[album].named[lead] = true;
+    }
+  });
+
+  var out = [];
+  Object.keys(byAlbum).forEach(function(album) {
+    var g = byAlbum[album];
+    if (!g.unknown.length) return;
+    var names = Object.keys(g.named);
+    if (names.length !== 1) return; // nobody to borrow from, or no single answer
+    g.unknown.forEach(function(s) { out.push({ song: s, artist: names[0] }); });
+  });
+  return out;
+}
+
 /**
  * Whose artist page to open for an album.
  *
@@ -2588,6 +2647,41 @@ function renderArtists(el) {
   });
 }
 
+/**
+ * Offer to give artist-less songs the artist named by the rest of their album.
+ *
+ * Asks first, and says how many and which albums, because it is an inference
+ * rather than something read off the file. Applying it goes through the same
+ * edits store as any hand edit, so it survives a rescan and can be changed back
+ * in the tag editor one song at a time.
+ */
+function fixUnknownArtistsFromAlbums() {
+  var found = findArtistsFromAlbums();
+  if (!found.length) {
+    showToast('No artist-less song is on an album that names one', 4000);
+    return;
+  }
+  var albums = Object.create(null);
+  found.forEach(function(f) { albums[f.song.album] = f.artist; });
+  var names = Object.keys(albums);
+  var sample = names.slice(0, 4).map(function(a) { return '• ' + a + ' → ' + albums[a]; }).join('\n');
+
+  var ok = confirm(
+    found.length + ' song' + (found.length === 1 ? '' : 's') + ' with no artist sit on '
+    + names.length + ' album' + (names.length === 1 ? '' : 's') + ' where every other track names the same one.\n\n'
+    + sample + (names.length > 4 ? '\n• …and ' + (names.length - 4) + ' more' : '') + '\n\n'
+    + 'Give them that artist? You can change any of them in the tag editor afterwards.'
+  );
+  if (!ok) return;
+
+  found.forEach(function(f) { f.song.artist = f.artist; });
+  saveEditsBatch(found.map(function(f) { return f.song; }));
+  saveLibrary();
+  render();
+  showToast('✓ ' + found.length + ' song' + (found.length === 1 ? '' : 's')
+            + ' moved to the right artist', 4000);
+}
+
 function showOverflowMenu() {
   var existing = document.getElementById('overflowMenu');
   if (existing) { existing.remove(); return; }
@@ -2627,6 +2721,15 @@ function showOverflowMenu() {
   }
 
   if (!items) return;
+
+  // Only offered when there is actually something to fix, with the count in the
+  // label — an item that does nothing teaches you to ignore it.
+  var _unknownFixable = songs.length > 0 ? findArtistsFromAlbums().length : 0;
+  if (_unknownFixable > 0) {
+    items += '<div class="overflow-divider"></div>'
+      + '<div class="overflow-item" id="omFixUnknown">&#128295; Fix ' + _unknownFixable
+      + ' unknown artist' + (_unknownFixable === 1 ? '' : 's') + '</div>';
+  }
 
   // Native-only: rescan option at the bottom of any tab menu
   if (songs.length > 0 && typeof NativeBridge !== 'undefined' && NativeBridge.isNative()) {
@@ -2674,6 +2777,11 @@ function showOverflowMenu() {
     menu.querySelectorAll('[data-song-sort]').forEach(function(item) {
       item.onclick = function() { sortMode = item.dataset.songSort; menu.remove(); render(); };
     });
+  }
+
+  var fixUnknownBtn = menu.querySelector('#omFixUnknown');
+  if (fixUnknownBtn) {
+    fixUnknownBtn.onclick = function() { menu.remove(); fixUnknownArtistsFromAlbums(); };
   }
 
   var rescanBtn = menu.querySelector('#omRescanLib');

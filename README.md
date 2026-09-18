@@ -64,6 +64,7 @@ Drop the files in a `screenshots/` folder and link them here.
 - **Per-song editor** — full metadata, album art picker, AI fill, and a lyrics field (plain or LRC)
 - **Filename parsing** for untagged files — strips track numbers, `(prod. by …)`, and `(Official Audio)`-style noise, splits `Artist_-_Title` into its parts, converts underscores back to spaces, and pulls featured artists out into their own field
 - **Album name cleaning** — strips an uploader's `Album -` or `Mixtape -` label and tags like `[320kbps]`, so `Album_-_The_Blixky_Tape` becomes `The Blixky Tape`. Real names such as `The Album`, `LP1` and `Aquemini (Deluxe Edition)` are left alone
+- **Fix unknown artists from their albums** — a file with an empty artist tag lands under "Unknown Artist" even when the rest of its album is tagged, splitting one record between a real artist and the unknown pile. The overflow menu offers to give those songs the name the rest of their album agrees on, reporting the count and the albums first. Only where there is one clear answer: a vague album title, two artists sharing a title, or an album with nobody named on it are all left alone, and a guest credit does not count as a disagreement
 - **Junk value filters** — the 1970 Unix-epoch year that corrupt ID3 tags produce, and genre fields holding `Genre:` or `Unknown`, are treated as empty rather than shown as values
 - Custom album art applies everywhere it should: song rows, album grid, artist mosaic, and artist avatars
 

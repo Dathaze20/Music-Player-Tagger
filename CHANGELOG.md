@@ -7,6 +7,19 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.4
+
+- **Fix unknown artists from their albums.** A song whose artist tag is empty
+  goes to Unknown Artist even when the rest of its album is tagged properly. The
+  ⋮ menu at the top now offers to give those songs the artist the rest of their
+  album names — it says how many and on which albums, and asks before doing
+  anything
+- It only does this where there is one clear answer. An album whose name
+  identifies nothing ("Unknown Album", "Greatest Hits") is skipped, so is an
+  album title two different artists share, and a guest credit is not treated as
+  a disagreement. Anything it does can be changed in the tag editor like any
+  other edit
+
 ## v1.7.3
 
 - **Use any song as your ringtone, notification sound or alarm.** The three are
