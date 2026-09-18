@@ -7,6 +7,17 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.12
+
+- **Find dead files is now on the Unknown Artist page too**, next to the album
+  lookup, instead of only on the main list. That is where you go looking for it
+- **The untagged-album count was too high, and the lookup could have overwritten
+  good tags.** An album whose album-artist field says "unknown" was counted as
+  untagged even when every song on it was correctly credited — and the lookup
+  would then have replaced those real artist names with what it found. It now
+  only counts an album that genuinely has songs with no artist, and only ever
+  writes to a song that has none
+
 ## v1.7.11
 
 - **Find dead files.** In the ⋮ menu. It checks every song in your library for

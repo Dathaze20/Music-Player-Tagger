@@ -291,3 +291,25 @@ describe('which albums the bulk lookup will take on', () => {
     expect(isBrokenFile({})).toBe(false);
   });
 });
+
+describe('what the bulk lookup counts as untagged', () => {
+  it('skips an album whose songs are all correctly credited', () => {
+    // albumArtistKeyOf falls back to artist, so a file whose album-artist field
+    // literally says "unknown" keys as unknown while its tracks are fine. That
+    // album is not untagged and must not be offered up for a lookup that would
+    // then write over real artist names.
+    const api = loadLibrary([
+      { ...song('One', 'Some Real Tape Vol 3', 'Dru Hill', 'unknown', 1), size: 4000000 },
+      { ...song('Two', 'Some Real Tape Vol 3', 'Dru Hill', 'unknown', 2), size: 4000000 },
+    ]);
+    expect(api.albumsMissingArtist()).toHaveLength(0);
+  });
+
+  it('still takes the album when one track has no artist', () => {
+    const api = loadLibrary([
+      { ...song('One', 'Some Real Tape Vol 3', 'Dru Hill', 'unknown', 1), size: 4000000 },
+      { ...song('Two', 'Some Real Tape Vol 3', '',         'unknown', 2), size: 4000000 },
+    ]);
+    expect(api.albumsMissingArtist()).toHaveLength(1);
+  });
+});
