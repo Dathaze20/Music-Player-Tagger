@@ -4815,7 +4815,17 @@ function showArtistMenu(artistName) {
     + '<div class="bs-meta">' + artistAlbums.length + ' ' + (artistAlbums.length === 1 ? 'Album' : 'Albums') + ' &bull; ' + artistSongs.length + ' Songs</div>'
     + '</div>';
 
-  openBottomSheet(headerHTML, [
+  // Offered here as well as on the main list. Standing on the Unknown Artist
+  // page is exactly when somebody wants this, and the header dots open this
+  // menu rather than the main one, so leaving it off meant looking for it in
+  // the one place it was not.
+  var untagged = isUnknownArtistName(artistName) ? albumsMissingArtist().length : 0;
+  var extras = untagged > 0
+    ? [{ icon: '&#10024;', label: 'Look up ' + untagged + ' untagged album' + (untagged === 1 ? '' : 's'),
+         action: function() { runBulkArtistFill(); } }, 'divider']
+    : [];
+
+  openBottomSheet(headerHTML, extras.concat([
     { icon: '&#9654;',  label: 'Play',              action: function() { if (artistSongs.length) playSong(artistSongs[0], artistSongs); } },
     { icon: '&#8631;',  label: 'Play next',          action: function() { playNext(artistSongs); } },
     { icon: '&#8644;',  label: 'Add to queue',       action: function() { addToQueue(artistSongs); } },
@@ -4829,7 +4839,7 @@ function showArtistMenu(artistName) {
     { icon: '&#9998;',  label: 'Tag editor',          action: function() { selectedArtist = artistName; render(); showToast('Tap ⋮ on any song to edit its tags'); } },
     { icon: '&#128257;', label: 'Share all songs',    action: function() { shareSongs(artistSongs, artistName); } },
     { icon: '&#128465;', label: 'Delete all songs',   action: function() { deleteSongsFromDevice(artistSongs); } },
-  ]);
+  ]));
 }
 
 function showAlbumMenu(album) {
