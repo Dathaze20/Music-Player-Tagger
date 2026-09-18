@@ -34,6 +34,7 @@ const NAMES = [
   '_buildSongCaches', 'getAlbumSongs', 'getArtistSongs', 'getArtistAlbums',
   'getBestAlbumArtistKey', 'artistPageNameFor',
   'isUnknownArtistName', 'findArtistsFromAlbums',
+  '_wordKey', 'artistFromAlbumName', 'isBrokenFile', 'albumsMissingArtist',
 ];
 
 function loadLibrary(library) {
@@ -207,5 +208,86 @@ describe('borrowing an artist from the rest of the album', () => {
     expect(isUnknownArtistName('unknown')).toBe(true);
     expect(isUnknownArtistName('2Pac')).toBe(false);
     expect(isUnknownArtistName('VA')).toBe(false); // could be a real name
+  });
+});
+
+describe('reading the artist out of the album title', () => {
+  // A bootleg compilation is in no music database, so the title is the only
+  // thing that names the artist.
+  const library = [
+    song('Illmatic Intro', 'Illmatic',      'Nas',      null, 1),
+    song('Hate Me Now',    'I Am',          'Nas',      null, 2),
+    song('A Milli',        'Tha Carter III','Lil Wayne',null, 1),
+    song('Nashville Nite', 'Nashville',     'Someone',  null, 1),
+  ];
+  const fromName = (album) => loadLibrary(library).artistFromAlbumName(album);
+
+  it('finds an artist named in the album title', () => {
+    expect(fromName('Best of Nas - Anniversary Edition')).toBe('Nas');
+    expect(fromName('Album_-_Best_of_Nas_-_Anniversary_Edition')).toBe('Nas');
+  });
+
+  it('matches whole words only', () => {
+    // "Nashville" must not match the artist "Nas".
+    expect(fromName('Nashville Sessions')).toBe('');
+    expect(fromName('Greatest Nastiness')).toBe('');
+  });
+
+  it('prefers the longest name when two could match', () => {
+    expect(fromName('Best of Lil Wayne')).toBe('Lil Wayne');
+  });
+
+  it('returns nothing when no artist is named', () => {
+    expect(fromName('Summer Party Mix 4')).toBe('');
+    expect(fromName('')).toBe('');
+  });
+});
+
+describe('which albums the bulk lookup will take on', () => {
+  const broken = (title, album) => ({ ...song(title, album, '', '', 1), size: 0 });
+
+  it('takes an untagged album with a real name', () => {
+    const api = loadLibrary([
+      { ...song('One', 'Best of Nas - Anniversary Edition', '', '', 1), size: 4000000 },
+      { ...song('Two', 'Best of Nas - Anniversary Edition', '', '', 2), size: 4000000 },
+    ]);
+    const albums = api.albumsMissingArtist();
+    expect(albums).toHaveLength(1);
+    expect(albums[0].songs).toHaveLength(2);
+  });
+
+  it('skips albums that already have an artist', () => {
+    const api = loadLibrary([song('One', 'Illmatic', 'Nas', null, 1)]);
+    expect(api.albumsMissingArtist()).toHaveLength(0);
+  });
+
+  it('skips a title that identifies nothing', () => {
+    const api = loadLibrary([{ ...song('One', 'Unknown Album', '', '', 1), size: 4000000 }]);
+    expect(api.albumsMissingArtist()).toHaveLength(0);
+  });
+
+  it('skips an album that is nothing but broken downloads', () => {
+    const api = loadLibrary([
+      broken('One', 'Some Real Mixtape Vol 4'),
+      broken('Two', 'Some Real Mixtape Vol 4'),
+    ]);
+    expect(api.albumsMissingArtist()).toHaveLength(0);
+  });
+
+  it('keeps an album where only some files are broken', () => {
+    const api = loadLibrary([
+      broken('One', 'Some Real Mixtape Vol 4'),
+      { ...song('Two', 'Some Real Mixtape Vol 4', '', '', 2), size: 4000000 },
+    ]);
+    expect(api.albumsMissingArtist()).toHaveLength(1);
+  });
+
+  it('knows a broken download from a real file', () => {
+    const { isBrokenFile } = loadLibrary([]);
+    expect(isBrokenFile({ size: 0 })).toBe(true);
+    expect(isBrokenFile({ size: 900 })).toBe(true);
+    expect(isBrokenFile({ size: 4000000 })).toBe(false);
+    expect(isBrokenFile({ size: -1 })).toBe(false);   // MediaStore gave no size
+    expect(isBrokenFile({})).toBe(false);
   });
 });
