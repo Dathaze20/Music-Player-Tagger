@@ -5293,30 +5293,81 @@ audio.addEventListener('pause', function() {
   isPlaying = false;
   syncPlaybackUI();
 });
+/**
+ * The same file, asked for by its real path instead of its content URI.
+ *
+ * This is the one that rescues "format not supported" on a file every other app
+ * on the phone plays.
+ *
+ * Playback goes through Capacitor's local server, which works out the
+ * Content-Type of what it serves from the URL path alone — and a content:// URI
+ * turns into a path like /_capacitor_content_/media/external/audio/media/1234,
+ * which has no file extension on the end. So the type comes back empty for
+ * every song, and Chromium is left to identify the file from its bytes. It
+ * manages that for most of them and gives up on the rest, which is why some
+ * songs will not play here while Muzio, which decodes them natively and never
+ * involves a Content-Type at all, plays them all.
+ *
+ * The file's real path ends in .mp3 or .m4a, so asking for it that way hands
+ * the type over and the same file plays.
+ *
+ * Kept as a fallback rather than the primary URL: the content URI is the route
+ * Android actually guarantees, while reading by path depends on the media
+ * permission reaching that particular file. Nothing that works today changes.
+ */
+function altPlaybackUrl(song) {
+  if (!song || !song.nativePath) return '';
+  try {
+    var p = String(song.nativePath).replace(/^file:\/\//, '');
+    if (!/\.[a-z0-9]{2,5}$/i.test(p)) return ''; // no extension, nothing gained
+    return window.Capacitor.convertFileSrc(p) || '';
+  } catch (e) { return ''; }
+}
+
+// Which URLs have already been tried for a song, so each is attempted once and
+// the song is only declared unplayable when every route has failed.
 var _audioRetried = Object.create(null);
+
+function _nextPlaybackUrl(song) {
+  var tried = _audioRetried[song.id];
+  if (!tried) {
+    tried = _audioRetried[song.id] = Object.create(null);
+    if (song.url) tried[song.url] = true;
+  }
+  var candidates = [];
+  // A stored URL can be stale — a blob: from a previous session, or an older
+  // localhost format — so a freshly built content URL is worth one go.
+  if (song.contentUri) {
+    try { candidates.push(window.Capacitor.convertFileSrc(song.contentUri)); } catch (e) {}
+  }
+  var alt = altPlaybackUrl(song);
+  if (alt) candidates.push(alt);
+
+  for (var i = 0; i < candidates.length; i++) {
+    if (candidates[i] && !tried[candidates[i]]) {
+      tried[candidates[i]] = true;
+      return candidates[i];
+    }
+  }
+  return '';
+}
+
 audio.addEventListener('error', function() {
   if (!currentSong) return;
   isPlaying = false;
   syncPlaybackUI();
 
-  // One automatic retry: regenerate the URL from contentUri in case the
-  // stored URL was stale (blob: from a prior session, or old localhost format).
-  if (!_audioRetried[currentSong.id] && currentSong.contentUri) {
-    _audioRetried[currentSong.id] = true;
-    try {
-      var freshUrl = window.Capacitor.convertFileSrc(currentSong.contentUri);
-      if (freshUrl) {
-        currentSong.url = freshUrl;
-        audio.src = freshUrl;
-        audio.playbackRate = playbackRate;
-        isPlaying = true;
-        audio.play().catch(function(err) {
-          if (err && err.name === 'AbortError') return;
-          reportUnplayable(currentSong);
-        });
-        return;
-      }
-    } catch(e) {}
+  var next = _nextPlaybackUrl(currentSong);
+  if (next) {
+    currentSong.url = next;
+    audio.src = next;
+    audio.playbackRate = playbackRate;
+    isPlaying = true;
+    audio.play().catch(function(err) {
+      if (err && err.name === 'AbortError') return;
+      reportUnplayable(currentSong);
+    });
+    return;
   }
 
   reportUnplayable(currentSong);
@@ -5338,7 +5389,12 @@ function reportUnplayable(song) {
   } else if (code === 4) { reason = 'format not supported';
   } else if (code === 2) { reason = 'file could not be read';
   } else                 { reason = 'file could not be played'; }
-  showToast('Can\u2019t play \u2014 ' + reason + '. Tap \u22ee to delete it.', 4500);
+  // Name the format. "Format not supported" on its own says nothing about which
+  // format, which is the only thing that would explain why this one file is
+  // different from the thousands that play.
+  var m = song && song.fn ? String(song.fn).match(/\.([a-z0-9]{1,5})$/i) : null;
+  var ext = m ? ' (.' + m[1].toLowerCase() + ')' : '';
+  showToast('Can\u2019t play \u2014 ' + reason + ext + '. Tap \u22ee to delete it.', 4500);
 }
 
 /**

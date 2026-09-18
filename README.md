@@ -141,6 +141,12 @@ Resuming was therefore tied to the app becoming visible again, which never happe
 
 `ACTION_AUDIO_BECOMING_NOISY` is watched alongside it, because a headphone or Bluetooth disconnect looks identical to the end of an interruption from these two readings, and resuming there would play the track out loud on the speaker. A disconnect cancels the watch and blocks a new one briefly, in case the two arrive in the other order. If that receiver cannot be registered the watch does not run at all.
 
+**Why a song is asked for twice**
+
+Playback goes through Capacitor's local HTTP server, which derives the Content-Type of what it serves from the URL path alone. `convertFileSrc` turns a content:// URI into `/_capacitor_content_/media/external/audio/media/1234` — no file extension — so `URLConnection.guessContentTypeFromName` returns null and the stream sniffer behind it recognises neither MP3, M4A, FLAC, OGG nor WMA. Every song is therefore served with no Content-Type at all, leaving Chromium to identify the file from its bytes. It manages for most and gives up on the rest with `MEDIA_ERR_SRC_NOT_SUPPORTED`, which is why a file that plays in every other player on the phone could fail here: a native player decodes it directly and no Content-Type is ever involved.
+
+A song whose element errors is retried against `convertFileSrc(nativePath)`, whose path ends in `.mp3` or `.m4a` and so gets a real type. The content URI stays the primary route because it is the one Android guarantees, while path access depends on the media permission reaching that file; the fallback only ever runs after a failure, so nothing that already works changes. `_nextPlaybackUrl` tracks which URLs a song has been through, so each is tried once and "can't play" means every route failed.
+
 **Writing tags to a file that is playing**
 
 Android will not let the app rewrite a file the media player currently has open, so retagging an album used to write every file in it except the one being listened to — and the failure was discarded, so the only sign was that one song staying behind. A write that fails on the playing file is now held and retried once playback moves on, which is when the file is released. The queue is keyed by content URI, gives up after three attempts, and lives in memory: the edit itself is already in the edits store, so the worst case is a file whose tag catches up on the next run rather than immediately.
@@ -267,7 +273,7 @@ Both run in CI on every push.
 ## Known Limitations
 
 - **SD card tag writing** is implemented natively but no UI triggers the permission request, so it cannot currently be used.
-- **Damaged audio files** cannot be played. The WebView uses Chromium's decoders, which reject some truncated or malformed downloads. The app reports the reason, including the file size when a download is incomplete, so a broken file is easy to tell apart from an unsupported format.
+- **Damaged audio files** cannot be played. The WebView uses Chromium's decoders, which reject some truncated or malformed downloads. The app reports the reason and the file's extension, including the file size when a download is incomplete, so a broken file is easy to tell apart from an unsupported format. A file that fails is retried by its real path first — see the architecture note on Content-Type below — so only files Chromium genuinely cannot decode reach this state.
 - **Crossfade and the equalizer** rely on the Web Audio API and are unavailable on files the WebView cannot decode.
 - **Automated tests cover the pure helper functions only** — filename, LRC and time parsing, plus album grouping and artist-page navigation, which are lifted out of `app.js` by name since it has no exports. Playback, scanning, and the native layer are verified by hand on a device.
 - **AI Fill cannot always find a year.** A release missing from MusicBrainz, or one whose title is too short or generic to search on, may come back with a genre but no year. The app leaves the field empty and says "no year found" rather than estimating, since a confident wrong year is worse than a blank one — type it in yourself in that case.
