@@ -333,6 +333,14 @@ var NativeBridge = (function() {
     return plugin.updatePlaybackPosition(opts).catch(function() {});
   }
 
+  // Find out what a file that will not play actually is. Read-only.
+  function inspectAudioFile(contentUri, path) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.inspectAudioFile) return Promise.resolve(null);
+    return plugin.inspectAudioFile({ contentUri: contentUri || '', path: path || '' })
+      .catch(function() { return null; });
+  }
+
   // Set a song as the phone's ringtone, notification sound or alarm.
   // Resolves {success, needsPermission} — needsPermission means Android's
   // "modify system settings" switch is still off for this app.
@@ -391,6 +399,7 @@ var NativeBridge = (function() {
            openInstallPermissionSettings: openInstallPermissionSettings,
            updatePlaybackPosition: updatePlaybackPosition,
            watchForResume: watchForResume,
+           inspectAudioFile: inspectAudioFile,
            setAsRingtone: setAsRingtone,
            openWriteSettingsScreen: openWriteSettingsScreen,
            saveToDownloads: saveToDownloads, readClipboard: readClipboard,

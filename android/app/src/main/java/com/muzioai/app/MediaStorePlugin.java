@@ -14,6 +14,7 @@ import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaScannerConnection;
 import android.media.RingtoneManager;
 import android.net.Uri;
@@ -1411,6 +1412,109 @@ public class MediaStorePlugin extends Plugin {
             appCtx.registerReceiver(notifReceiver, filter);
         }
         receiverRegistered = true;
+    }
+
+    // ─── Why won't this play? ────────────────────────────────────────────────
+
+    /**
+     * What a file actually is, for a song the player has refused.
+     *
+     * The WebView reports one error code for everything it could not start, and
+     * the app was turning that into "format not supported" — which is actively
+     * misleading when the file is an .mp3, a format it plays thousands of. The
+     * real answer is one of several very different things: the file is gone,
+     * the file cannot be read, or the file is not audio at all despite its name
+     * (a failed download often saves the error page under the name you asked
+     * for). Guessing between those from a single error code is not possible.
+     *
+     * So look. Read-only, and nothing here touches playback.
+     */
+    @PluginMethod
+    public void inspectAudioFile(final PluginCall call) {
+        final String uriStr = String.valueOf(call.getString("contentUri", ""));
+        final String rawPath = String.valueOf(call.getString("path", ""));
+        call.setKeepAlive(true);
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSObject r = new JSObject();
+                Context ctx = getContext();
+
+                // The file itself, if we can see it by path at all.
+                try {
+                    String p = rawPath.replace("file://", "");
+                    if (!p.isEmpty()) {
+                        File f = new File(p);
+                        r.put("pathExists",   f.exists());
+                        r.put("pathReadable", f.canRead());
+                        r.put("pathSize",     f.exists() ? f.length() : -1L);
+                    } else {
+                        r.put("pathExists", false);
+                        r.put("pathReadable", false);
+                        r.put("pathSize", -1L);
+                    }
+                } catch (Exception e) {
+                    r.put("pathError", String.valueOf(e.getMessage()));
+                }
+
+                // Whether the content URI opens, and what the first bytes say it is.
+                byte[] head = new byte[16];
+                int got = -1;
+                try {
+                    InputStream is = ctx.getContentResolver().openInputStream(Uri.parse(uriStr));
+                    if (is == null) {
+                        r.put("opens", false);
+                        r.put("openError", "MediaStore returned nothing for this song");
+                    } else {
+                        r.put("opens", true);
+                        try { got = is.read(head); } finally { is.close(); }
+                    }
+                } catch (Exception e) {
+                    r.put("opens", false);
+                    r.put("openError", String.valueOf(e.getMessage()));
+                }
+                r.put("headBytes", got);
+                r.put("signature", got > 0 ? signatureOf(head, got) : "");
+
+                // What Android's own extractor makes of it — the thing every
+                // other music player on the phone relies on.
+                MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                try {
+                    mmr.setDataSource(ctx, Uri.parse(uriStr));
+                    r.put("androidMime",     String.valueOf(mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)));
+                    r.put("androidDuration", String.valueOf(mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)));
+                    r.put("androidHasAudio", String.valueOf(mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)));
+                } catch (Exception e) {
+                    r.put("androidError", String.valueOf(e.getMessage()));
+                } finally {
+                    try { mmr.release(); } catch (Exception ignored) {}
+                }
+
+                call.setKeepAlive(false);
+                call.resolve(r);
+            }
+        }).start();
+    }
+
+    /** What the first bytes of a file say it really is, whatever it is named. */
+    private static String signatureOf(byte[] b, int n) {
+        if (n >= 3 && b[0] == 'I' && b[1] == 'D' && b[2] == '3')                       return "MP3";
+        if (n >= 2 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xE0) == 0xE0)                  return "MP3";
+        if (n >= 4 && b[0] == 'f' && b[1] == 'L' && b[2] == 'a' && b[3] == 'C')        return "FLAC";
+        if (n >= 4 && b[0] == 'O' && b[1] == 'g' && b[2] == 'g' && b[3] == 'S')        return "OGG/Opus";
+        if (n >= 4 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F')        return "WAV";
+        if (n >= 8 && b[4] == 'f' && b[5] == 't' && b[6] == 'y' && b[7] == 'p')        return "MP4/M4A";
+        if (n >= 4 && (b[0] & 0xFF) == 0x30 && (b[1] & 0xFF) == 0x26
+                   && (b[2] & 0xFF) == 0xB2 && (b[3] & 0xFF) == 0x75)                  return "WMA";
+        if (n >= 4 && b[0] == 'M' && b[1] == 'A' && b[2] == 'C' && b[3] == ' ')        return "APE";
+        if (n >= 4 && b[0] == 'F' && b[1] == 'O' && b[2] == 'R' && b[3] == 'M')        return "AIFF";
+        if (n >= 4 && b[0] == '#' && b[1] == '!' )                                     return "a script, not audio";
+        String s = new String(b, 0, Math.min(n, 12)).trim().toLowerCase();
+        if (s.startsWith("<!do") || s.startsWith("<htm") || s.startsWith("<?xm")
+                || s.startsWith("<bod"))                                               return "a web page, not audio";
+        if (s.startsWith("{") || s.startsWith("["))                                    return "text, not audio";
+        return "unrecognised";
     }
 
     // ─── Ringtone / notification / alarm ─────────────────────────────────────

@@ -4927,6 +4927,12 @@ function showSongMenu(songId, songList) {
     { icon: '&#9835;', label: 'Add to playlist',   action: function() { showAddToPlaylistSheet(song); } },
     'divider',
     { icon: '&#9998;', label: 'Tag editor',        action: function() { openSongEditModal(songId); } },
+    { icon: '&#10068;', label: 'Why won’t this play?', action: function() {
+        showToast('Checking the file…', 2000);
+        explainUnplayable(song).then(function(msg) {
+          showToast(msg || 'Nothing wrong with the file that I can see.', 8000);
+        });
+      } },
     { icon: '&#9835;', label: 'Go to album',       action: function() { selectedAlbum = { name: song.album, artist: getBestAlbumArtistKey(song.album, song) }; render(); } },
     { icon: '&#9834;', label: 'Go to artist',      action: function() { selectedAlbum = null; selectedArtist = song.artist; render(); } },
     'divider',
@@ -5395,6 +5401,68 @@ function reportUnplayable(song) {
   var m = song && song.fn ? String(song.fn).match(/\.([a-z0-9]{1,5})$/i) : null;
   var ext = m ? ' (.' + m[1].toLowerCase() + ')' : '';
   showToast('Can\u2019t play \u2014 ' + reason + ext + '. Tap \u22ee to delete it.', 4500);
+
+  // The WebView gives one error code for everything it could not start, so that
+  // message is a guess. Go and look at the file, and replace it with the truth.
+  explainUnplayable(song).then(function(better) {
+    if (better) showToast(better, 7000);
+  });
+}
+
+/**
+ * Why a song really would not play, read off the file itself.
+ *
+ * Resolves to a sentence worth showing, or '' when there is nothing to add
+ * beyond what was already said.
+ */
+function explainUnplayable(song) {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()
+      || !NativeBridge.inspectAudioFile || !song) {
+    return Promise.resolve('');
+  }
+  return NativeBridge.inspectAudioFile(song.contentUri, song.nativePath).then(function(d) {
+    if (!d) return '';
+    var name = song.title || song.fn || 'That song';
+
+    // Nothing there to play. The library entry outlived the file \u2014 a download
+    // that was cleaned up, or a card that is not in the phone.
+    if (!d.opens && !d.pathExists) {
+      return name + ' is not on the phone any more. The file is gone but the '
+           + 'library still lists it \u2014 a rescan will clear it out.';
+    }
+    if (d.pathExists && d.pathSize === 0) {
+      return name + ' is an empty file (0 bytes). The download never started.';
+    }
+    if (!d.opens) {
+      return 'Android will not let the app read ' + name
+           + (d.openError ? ' \u2014 ' + d.openError : '.');
+    }
+
+    // It is there and readable, so what is it? A download that failed \u0447\u0430\u0441\u0442\u043e
+    // saves the error page under the name you asked for.
+    var sig = String(d.signature || '');
+    if (sig && sig.indexOf('not audio') !== -1) {
+      return name + ' is not really a song \u2014 it is ' + sig.replace(', not audio', '')
+           + ' saved with a music file\u2019s name. The download failed and saved the '
+           + 'error instead.';
+    }
+    if (sig === 'unrecognised') {
+      return name + ' does not start like any audio file. It is most likely a '
+           + 'download that was cut off part way.';
+    }
+
+    // Android's own extractor is what every other player on this phone uses.
+    var dur = parseInt(d.androidDuration, 10);
+    if (d.androidError || !dur) {
+      return name + ' looks like ' + (sig || 'audio') + ', but Android cannot read it '
+           + 'either \u2014 the file is damaged, not the wrong format.';
+    }
+
+    // Android can play it and we cannot. That is worth saying plainly.
+    return name + ' is ' + sig + ' and Android says it plays ('
+         + Math.round(dur / 1000) + 's). The app could not, which is a bug \u2014 '
+         + 'please report it.';
+  }).catch(function() { return ''; });
 }
 
 /**
