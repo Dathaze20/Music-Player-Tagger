@@ -7,6 +7,28 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.20
+
+- **AI Fill finds the year on the first tap.** It used to take three or four
+  goes while the album name came straight back — and that difference was the
+  clue. The name is in the first thing the app asks MusicBrainz for; the year is
+  only in the second. MusicBrainz allows one request a second and refuses the
+  rest, and the app was firing two or three at once, so the request carrying the
+  year was the one being turned away. Nothing retried it, so the field just
+  stayed empty. Requests now queue a second apart and a refusal is waited out
+  and asked again
+- **A fill takes about a second longer and works, instead of being instant and
+  empty three times over.** The button still says "Looking up…" while it waits
+- **The same album is never looked up twice.** Answers are kept for the session,
+  so the second song off a record fills instantly
+- **"AI Fill all unknown albums" is roughly twice as fast.** It had its own
+  one-second pause between albums, added to slow it down — but that only spaced
+  out the albums while the requests inside each one still went out together,
+  which was the part being refused. The queue handles pacing properly now, so
+  the extra pause is gone
+- With no signal, a fill still fails immediately rather than sitting through
+  retries that cannot leave the phone
+
 ## v1.7.19
 
 - **Search album results start with the artist's own records again.** Searching

@@ -57,6 +57,7 @@ Drop the files in a `screenshots/` folder and link them here.
 
 ### Tagging
 - **MusicBrainz lookup** — free, no key; year, genre, release type, and artist credit. Results take priority over AI guesses. The release group is looked up in full, so the year is the record's original release date rather than the date of whichever pressing a search happened to return, and the genre is the album's own. Falls back to the artist's genre when a release is too obscure to be in the database
+- **Requests are queued a second apart**, which is the rate MusicBrainz asks for, and a refusal is waited out and asked again. One fill needs two or three requests, and firing them together meant the one carrying the year was routinely turned away — which is why the year used to take several taps while the album name came back immediately. Answers are kept for the session, so a second song off the same record fills instantly
 - **Both lookups run at once**, and both are given the tidied album name, so a file called `Album_-_II` is searched for as `II`
 - **Google Gemini** (optional) — fills whatever MusicBrainz didn't, including subgenre and featured artists
 - **The artist is filled from whoever the record is by** when a song has none of its own. MusicBrainz credits a release rather than a track, so it only ever returns an album artist; without this an album that arrived completely untagged came back with a year and a genre but no artist, which is the one case where there is nothing in the library to copy from either
