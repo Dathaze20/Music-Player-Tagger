@@ -108,6 +108,7 @@ public class MediaStorePlugin extends Plugin {
     private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
     private static final String ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
     private static final String ACTION_RESUME     = "com.muzioai.app.ACTION_RESUME";
+    private static final String ACTION_NOISY_PAUSE = "com.muzioai.app.ACTION_NOISY_PAUSE";
 
     // Saved state for async activity callbacks
     private PluginCall savedWriteCall;
@@ -1384,6 +1385,7 @@ public class MediaStorePlugin extends Plugin {
                     ev = "seekTo";
                     seekMs = intent.getLongExtra(MuzioPlaybackService.EXTRA_SEEK_MS, 0L);
                 } else if (ACTION_RESUME.equals(action)) { ev = "resume"; seekMs = -1; }
+                else if (ACTION_NOISY_PAUSE.equals(action)) { ev = "noisyPause"; seekMs = -1; }
                 else return;
                 if (getBridge() == null || getBridge().getWebView() == null) return;
                 getBridge().getActivity().runOnUiThread(new Runnable() {
@@ -1406,6 +1408,7 @@ public class MediaStorePlugin extends Plugin {
         filter.addAction(ACTION_CLOSE);
         filter.addAction(ACTION_SEEK);
         filter.addAction(ACTION_RESUME);
+        filter.addAction(ACTION_NOISY_PAUSE);
         // Use Application context — receiver must outlive Activity (service stays alive)
         Context appCtx = getContext().getApplicationContext();
         if (Build.VERSION.SDK_INT >= 33) {

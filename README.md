@@ -33,7 +33,7 @@ Drop the files in a `screenshots/` folder and link them here.
 - Queue panel — see what's next, add to queue, clear
 - 5-band equalizer (60 Hz – 14 kHz) with presets
 - Background playback via a foreground service; keeps going with the screen off
-- Picks itself back up after a phone call or another app borrowing the speaker, without needing the app reopened. Handing over to another music app stays handed over, and unplugging headphones does not restart the song out loud
+- Picks itself back up after a phone call or another app borrowing the speaker, without needing the app reopened. Handing over to another music app stays handed over, and disconnecting headphones or Bluetooth pauses rather than switching to the phone's loudspeaker
 - Swipe a song row right to queue it, left to favorite it
 - Synced lyrics and playback position restore correctly when you return to the app
 
@@ -142,7 +142,7 @@ Playback happens in the WebView, and Chromium requests audio focus for the eleme
 
 Resuming was therefore tied to the app becoming visible again, which never happens: nobody reopens their music app after hanging up the phone. The service now watches instead of claiming, polling two readings that need neither a permission nor a focus request — `getMode()` returns to `MODE_NORMAL` once a call ends, and `isMusicActive()` goes false once nothing else holds the speaker. When both clear it broadcasts a resume into the WebView. If another music app took over for good, `isMusicActive()` stays true and playback is never taken back.
 
-`ACTION_AUDIO_BECOMING_NOISY` is watched alongside it, because a headphone or Bluetooth disconnect looks identical to the end of an interruption from these two readings, and resuming there would play the track out loud on the speaker. A disconnect cancels the watch and blocks a new one briefly, in case the two arrive in the other order. If that receiver cannot be registered the watch does not run at all.
+`ACTION_AUDIO_BECOMING_NOISY` is watched alongside it. That broadcast is only an announcement — Android sends it a moment before moving the sound to the loudspeaker so an app can pause itself, and pauses nothing on the app's behalf — so the service forwards it to the WebView as a pause, where the audio actually lives. It is recorded as a deliberate pause, not an interruption: a disconnect does not end, so nothing should pick it back up. It also cancels the resume watch and blocks a new one briefly, because a disconnect looks identical to the end of a call from these two readings and would otherwise start the track on the speaker it was just taken off. If that receiver cannot be registered the watch does not run at all.
 
 **Where an artist's four covers come from**
 

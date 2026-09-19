@@ -1521,6 +1521,34 @@ function watchForResume(on) {
   NativeBridge.watchForResume(on);
 }
 
+/**
+ * The headphones came off, or Bluetooth dropped.
+ *
+ * Android moves the sound to the phone's loudspeaker when that happens, so the
+ * only right answer is to stop — a track that was private a second ago must not
+ * carry on out loud in a room full of people.
+ *
+ * This is deliberately recorded as our own pause, not as an interruption. An
+ * interruption is something that ends, and ending it means playing again; this
+ * does not end, and there is nothing left to play it through. Marking it either
+ * way matters, because the resume watch reads a disconnect as the end of a call
+ * — the call is over, nothing else is holding the speaker — and would start the
+ * song again on the very speaker it was just taken off.
+ *
+ * Any interruption already being waited on is cleared for the same reason: the
+ * app coming back into view must not pick this one up.
+ */
+function pauseForOutputChange() {
+  _systemPaused = false;
+  watchForResume(false);
+  if (!isPlaying || !currentSong) return;
+  _ourPause = true;
+  audio.pause();
+  isPlaying = false;
+  pushPlaybackPosition(true);
+  syncPlaybackUI();
+}
+
 // Pick the song back up where it stopped. Shared by every route that can decide
 // an interruption is over: the app becoming visible again, Capacitor's resume
 // event, and Android telling us the speaker is free.
@@ -8738,6 +8766,9 @@ document.addEventListener('muzioMediaAction', function(e) {
   } else if (action === 'resume') {
     // Android says the call ended and nothing else is using the speaker.
     resumeAfterInterruption();
+  } else if (action === 'noisyPause') {
+    // Android is about to move the sound to the loudspeaker.
+    pauseForOutputChange();
   } else if (action === 'close') {
     if (isPlaying) togglePlay();
     _systemPaused = false;

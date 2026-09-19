@@ -7,6 +7,19 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.21
+
+- **Disconnecting Bluetooth headphones now pauses instead of switching to the
+  phone's loudspeaker.** Android announces the change a moment before it moves
+  the sound, so an app can stop itself — it does not stop anything for you. The
+  app was listening for that announcement but only using it to make sure the
+  song was not resumed later; nothing actually paused, so the music carried on
+  out loud through the phone. Unplugging wired headphones was the same
+- **It stays paused.** Coming back to the app, or Android reporting that an
+  interruption is over, will not start it again — a disconnect is not an
+  interruption that ends, and there is nothing left to play it through
+- Picking back up after a phone call is unchanged
+
 ## v1.7.20
 
 - **AI Fill finds the year on the first tap.** It used to take three or four
