@@ -7268,10 +7268,84 @@ document.getElementById('queueClearBtn').onclick = function() {
 var searchFilter = 'all';
 var _searchQuery = '';
 
+/**
+ * How well a search query matches one field, as a rank: 2 for a whole word,
+ * 1 for the start of one, 0 for no match at a word boundary.
+ *
+ * Plain substring matching is why searching "Nas" led with "Aijuswanaseing"
+ * and "Against All Odds — Tragedy Khadafi/Nasheim Myrick" instead of Illmatic:
+ * the letters n-a-s sit inside both, so both counted as his own records and
+ * then sorted to the top alphabetically. Matching only whole words fixes that
+ * but breaks typing, since "illm" would find nothing until the last three
+ * letters arrive.
+ *
+ * Ranking keeps both. What has been typed so far still finds the record, and
+ * a real name outranks a coincidence rather than being buried under it.
+ */
+function _matchRank(field, qKey) {
+  if (!field || qKey.length < 3) return 0;
+  var hay = _wordKey(field);
+  if (hay.indexOf(qKey) !== -1) return 2;              // ' nas ' inside ' illmatic nas '
+  if (hay.indexOf(qKey.slice(0, -1)) !== -1) return 1; // ' nas' — the start of a word
+  return 0;
+}
+
+/**
+ * The albums a search turns up, best first.
+ *
+ * Three tiers, because "Nas" has to mean Illmatic before it means anything
+ * else: records filed under that exact name, then names that merely start the
+ * same way ("Nasheim Myrick"), then records they only guest on. Within a tier
+ * the oldest comes first, the same order the artist's own page uses, so a
+ * search lands on the run of albums rather than in the middle of it.
+ *
+ * Keyed by what the album is actually filed under, so tapping a result opens
+ * the record rather than an album that does not exist under that name.
+ */
+function searchAlbumMatches(q) {
+  var qKey = _wordKey(q);
+  var seen = {};
+  var out = [];
+  songs.forEach(function(s) {
+    var artistKey = albumGroupKeyOf(s);
+    // The artist's own records: the album is filed under them, or their name is
+    // in the title. "2Pac" finding one album because it happens to be the only
+    // title with "2pac" in it is not what anybody means by searching a name.
+    var ownRank = Math.max(_matchRank(s.album, qKey), _matchRank(artistKey, qKey));
+    // Records they only appear on. Songs and artists already turn these up;
+    // albums being the one kind that did not was an oversight, and following a
+    // guest verse to the record it lives on is half the point of a search.
+    var guestHit = _matchRank(s.artist, qKey) > 0 || _matchRank(s.feat, qKey) > 0;
+    if (!ownRank && !guestHit) return;
+    var key = s.album + '|||' + artistKey;
+    var at = seen[key];
+    if (at === undefined) {
+      seen[key] = out.length;
+      out.push({ name: s.album, artist: artistKey, albumArtUri: s.albumArtUri,
+                 art: s.art, rank: ownRank, year: s.year });
+    } else {
+      var prev = out[at];
+      if (ownRank > prev.rank) prev.rank = ownRank; // a later track proves it is theirs
+      if (!prev.year && s.year) prev.year = s.year;
+    }
+  });
+  return out.sort(function(a, b) {
+    if (a.rank !== b.rank) return b.rank - a.rank;
+    var ya = parseInt(a.year) || 9999;
+    var yb = parseInt(b.year) || 9999;
+    if (ya !== yb) return ya - yb;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 function doSearch(q) {
   _searchQuery = q || '';
   if (!q) { render(); return; }
   var ql = q.toLowerCase();
+  // ' nas '. Punctuation-only queries reduce to nothing, in which case
+  // _matchRank returns 0 for everything and the plain substring pass below
+  // still answers.
+  var qKey = _wordKey(q);
   var main = document.getElementById('mainContent');
 
   var allSongMatches = songs.filter(function(s) {
@@ -7283,6 +7357,11 @@ function doSearch(q) {
       || (s.albumArtist && s.albumArtist.toLowerCase().indexOf(ql) !== -1);
   });
 
+  // Ordered the same way as the albums below: a whole-word match on the name
+  // first, then the start of one, then the rest. Encounter order put whoever
+  // happened to be earliest in the library on top, so "Nas" could lead with
+  // "Nasheim Myrick". Within a rank the bigger artist comes first — searching
+  // a name usually means the artist you have most of.
   var artistsSeen = {};
   var allArtistMatches = [];
   songs.forEach(function(s) {
@@ -7291,39 +7370,16 @@ function doSearch(q) {
       allArtistMatches.push(s.artist);
     }
   });
+  var _artistRank = {};
+  allArtistMatches.forEach(function(n) {
+    _artistRank[n] = _matchRank(n, qKey) * 1000000 + Math.min(getArtistSongs(n).length, 999999);
+  });
+  allArtistMatches.sort(function(a, b) {
+    if (_artistRank[a] !== _artistRank[b]) return _artistRank[b] - _artistRank[a];
+    return a.localeCompare(b);
+  });
 
-  // Keyed by what the album is actually filed under, so tapping a result opens
-  // the record rather than an album that does not exist under that name.
-  var albumsSeen = {};
-  var allAlbumMatches = [];
-  songs.forEach(function(s) {
-    var artistKey = albumGroupKeyOf(s);
-    var key = s.album + '|||' + artistKey;
-    // The artist's own records: the album is filed under them, or their name is
-    // in the title. "2Pac" finding one album because it happens to be the only
-    // title with "2pac" in it is not what anybody means by searching a name.
-    var ownHit = s.album.toLowerCase().indexOf(ql) !== -1
-              || artistKey.toLowerCase().indexOf(ql) !== -1;
-    // Records they only appear on. Songs and artists already turn these up;
-    // albums being the one kind that did not was an oversight, and following a
-    // guest verse to the record it lives on is half the point of a search.
-    var guestHit = (s.artist && s.artist.toLowerCase().indexOf(ql) !== -1)
-                || (s.feat && s.feat.toLowerCase().indexOf(ql) !== -1);
-    if (!ownHit && !guestHit) return;
-    var at = albumsSeen[key];
-    if (at === undefined) {
-      albumsSeen[key] = allAlbumMatches.length;
-      allAlbumMatches.push({ name: s.album, artist: artistKey, albumArtUri: s.albumArtUri, art: s.art, own: ownHit });
-    } else if (ownHit) {
-      allAlbumMatches[at].own = true; // a later track proves it is theirs
-    }
-  });
-  // Their own albums first. A compilation carrying one guest verse must not
-  // outrank the records they made.
-  allAlbumMatches.sort(function(a, b) {
-    if (!a.own !== !b.own) return a.own ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
+  var allAlbumMatches = searchAlbumMatches(q);
 
   var total = allArtistMatches.length + allAlbumMatches.length + allSongMatches.length;
   if (!total) {
@@ -7353,7 +7409,9 @@ function doSearch(q) {
   // How many of each kind the mixed list shows before offering the rest. Kept
   // short so every kind is reachable without scrolling past one of them — an
   // artist with 47 albums would otherwise bury the songs entirely.
-  var ALL_CAPS = { artists: 5, albums: 6, songs: 20 };
+  // Albums are cards, five to a row, so ten fills two rows exactly — anything
+  // past that is behind "See all".
+  var ALL_CAPS = { artists: 5, albums: 10, songs: 20 };
   var cap  = function(kind) { return searchFilter === kind ? 200 : ALL_CAPS[kind]; };
 
   function sectionHeader(label, shown, all) {
@@ -7397,12 +7455,20 @@ function doSearch(q) {
     parts.push(sectionHeader('Albums', albumMatches.length, allAlbumMatches.length));
     // Cards with the cover at a size worth looking at, the same shape the
     // artist page uses, rather than a 48px thumbnail in a list row.
-    parts.push('<div class="album-scroll search-album-scroll">');
+    // Five to a row in the mixed list, so ten albums read as a block instead of
+    // two cards and a long scroll down. The Albums tab has the whole page to
+    // itself, so it spreads out to three across and keeps the artist and song
+    // count under each cover.
+    var roomy = searchFilter === 'albums';
+    parts.push('<div class="album-scroll search-album-scroll' + (roomy ? ' search-album-roomy' : '') + '">');
     albumMatches.forEach(function(a) {
       var g = getGrad(a.name);
       var init = escHtml(a.name.split(' ').map(function(w){ return w[0] || ''; }).join('').substring(0, 2).toUpperCase());
       var custom = (a.art && a.art.indexOf('data:') === 0) ? a.art : '';
-      var artEl = '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:42px;font-weight:700;color:#fff;">' + init + '</div>'
+      // The initials size is set in CSS rather than inline, because the card is
+      // 5-across in the mixed list and 3-across on the Albums tab and 42px
+      // would spill out of the smaller one.
+      var artEl = '<div class="search-album-init" style="background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');">' + init + '</div>'
         + (custom
             ? '<img src="' + custom + '" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;">'
             : a.albumArtUri

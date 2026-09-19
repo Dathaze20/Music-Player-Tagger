@@ -35,7 +35,7 @@ const NAMES = [
   'getBestAlbumArtistKey', 'artistPageNameFor',
   'isUnknownArtistName', 'findArtistsFromAlbums',
   '_wordKey', 'artistFromAlbumName', 'isBrokenFile', 'albumsMissingArtist',
-  'getArtists',
+  'getArtists', '_matchRank', 'searchAlbumMatches',
 ];
 
 function loadLibrary(library) {
@@ -383,5 +383,87 @@ describe('a cover chosen by hand', () => {
       { ...song('Only', 'Just One', 'Solo', 'Solo', 1), year: '2020', albumArtUri: 'art:one', art: 'data:image/jpeg;base64,PICKED' },
     ]);
     expect(api.getArtists()[0].albumArtUris).toEqual(['data:image/jpeg;base64,PICKED']);
+  });
+});
+
+// ── Search: which albums a name turns up, and in what order ──
+//
+// Searching "Nas" led with "Aijuswanaseing" and "Against All Odds — Tragedy
+// Khadafi/Nasheim Myrick" instead of Illmatic. Two faults compounded: the
+// match was a plain substring, so n-a-s inside another word counted as his own
+// record, and the tie-break was alphabetical, so those two sorted to the top.
+describe('searching an artist finds their own albums first', () => {
+  const nasLibrary = [
+    { ...song('N.Y. State of Mind', 'Illmatic', 'Nas', 'Nas', 1), year: '1994' },
+    { ...song('The Message', 'It Was Written', 'Nas', 'Nas', 1), year: '1996' },
+    { ...song('Hate Me Now', 'I Am...', 'Nas', 'Nas', 1), year: '1999' },
+    // Not his: the letters n-a-s just happen to sit inside these.
+    { ...song('Halfway Thugs', 'Against All Odds', 'Tragedy Khadafi/Nasheim Myrick', null, 1), year: '2001' },
+    { ...song('Just Friends', 'Aijuswanaseing', 'Musiq Soulchild', null, 1), year: '2000' },
+    // His, but only as a guest.
+    { ...song('Clue Freestyle', 'The Professional', 'DJ Clue', 'DJ Clue', 1), year: '1998', feat: 'Nas' },
+  ];
+  const names = (q) => loadLibrary(nasLibrary).searchAlbumMatches(q).map(a => a.name);
+
+  it('leads with his oldest record, not an alphabetical accident', () => {
+    expect(names('Nas')[0]).toBe('Illmatic');
+  });
+
+  it('runs his own catalogue in release order', () => {
+    expect(names('Nas').slice(0, 3)).toEqual(['Illmatic', 'It Was Written', 'I Am...']);
+  });
+
+  it('does not count a name that merely contains the letters as his own', () => {
+    const ranked = loadLibrary(nasLibrary).searchAlbumMatches('Nas');
+    const byName = Object.fromEntries(ranked.map(a => [a.name, a.rank]));
+    expect(byName['Illmatic']).toBe(2);
+    expect(byName['Against All Odds']).toBe(1);       // "Nasheim" starts the same way
+    expect(byName['The Professional']).toBe(0);       // his, but only as a guest
+    expect(byName).not.toHaveProperty('Aijuswanaseing'); // mid-word: no match at all
+  });
+
+  it('puts a guest appearance behind every record of his own', () => {
+    const list = names('Nas');
+    expect(list.indexOf('The Professional')).toBeGreaterThan(list.indexOf('I Am...'));
+  });
+
+  it('still finds a record from a half-typed title', () => {
+    expect(names('Illm')).toContain('Illmatic');
+    expect(names('It Was Writ')).toContain('It Was Written');
+  });
+
+  it('keeps a mid-word coincidence out of the results entirely', () => {
+    expect(names('Nas')).not.toContain('Aijuswanaseing');
+  });
+});
+
+describe('_matchRank', () => {
+  let rank, key;
+  beforeEach(() => {
+    const api = loadLibrary([]);
+    rank = api._matchRank;
+    key = api._wordKey;
+  });
+
+  it('scores a whole word above the start of one, and a mid-word hit at zero', () => {
+    expect(rank('Nas', key('Nas'))).toBe(2);
+    expect(rank('Best of Nas', key('Nas'))).toBe(2);
+    expect(rank('Nasheim Myrick', key('Nas'))).toBe(1);
+    expect(rank('Aijuswanaseing', key('Nas'))).toBe(0);
+  });
+
+  it('matches across punctuation the way the library writes names', () => {
+    expect(rank('Tragedy Khadafi/Nasheim Myrick', key('Tragedy Khadafi'))).toBe(2);
+    expect(rank('I Am...', key('I Am'))).toBe(2);
+  });
+
+  it('ignores a query too short to mean anything', () => {
+    expect(rank('Nas', key('a'))).toBe(0);
+    expect(rank('Nas', key('!'))).toBe(0);
+  });
+
+  it('has nothing to say about a missing field', () => {
+    expect(rank('', key('Nas'))).toBe(0);
+    expect(rank(null, key('Nas'))).toBe(0);
   });
 });
