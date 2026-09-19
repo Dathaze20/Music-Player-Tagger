@@ -65,12 +65,12 @@ Drop the files in a `screenshots/` folder and link them here.
 - **Per-song editor** — full metadata, album art picker, AI fill, and a lyrics field (plain or LRC)
 - **Filename parsing** for untagged files — strips track numbers, `(prod. by …)`, and `(Official Audio)`-style noise, splits `Artist_-_Title` into its parts, converts underscores back to spaces, and pulls featured artists out into their own field
 - **Album name cleaning** — strips an uploader's `Album -` or `Mixtape -` label and tags like `[320kbps]`, so `Album_-_The_Blixky_Tape` becomes `The Blixky Tape`. Real names such as `The Album`, `LP1` and `Aquemini (Deluxe Edition)` are left alone
-- **Look up every untagged album at once** — one pass over every album with no artist, paced to MusicBrainz's roughly one request a second, with a progress bar and a Stop that keeps whatever has been found so far. Each album is saved as it completes, and only empty fields are filled
+- **Look up every untagged album at once** — one pass over every album with no artist, paced to MusicBrainz's roughly one request a second, with a progress bar and a Stop that keeps whatever has been found so far. Each album is saved as it completes, and only empty fields are filled — including the artist, since an album can be filed under no album artist while its tracks are correctly credited, and an album is only counted as untagged when a song on it genuinely has no artist
 - **The artist is read out of the album title** when nothing else knows it. A bootleg compilation like "Best of Nas - Anniversary Edition" is in no database and has no tagged track to copy from, but names its artist in the title. Matched whole-word against artists already in the library, longest name first, so "Nashville" is never read as Nas and "Lil Wayne" beats "Lil"
 - **Unfinished downloads are marked in the song list** — Android reports the file as empty or a few KB, which is knowable from the scan rather than by tapping it and waiting for the error. Albums made up entirely of them are skipped by the bulk lookup
 - **Fix unknown artists from their albums** — a file with an empty artist tag lands under "Unknown Artist" even when the rest of its album is tagged, splitting one record between a real artist and the unknown pile. The overflow menu offers to give those songs the name the rest of their album agrees on, reporting the count and the albums first. Only where there is one clear answer: a vague album title, two artists sharing a title, or an album with nobody named on it are all left alone, and a guest credit does not count as a disagreement
 - **Junk value filters** — the 1970 Unix-epoch year that corrupt ID3 tags produce, and genre fields holding `Genre:` or `Unknown`, are treated as empty rather than shown as values
-- Custom album art applies everywhere it should: song rows, album grid, artist mosaic, and artist avatars
+- Custom album art applies everywhere it should: song rows, album grid, artist mosaic, and artist avatars — in an avatar it takes its own album's place among the four rather than replacing them
 
 ### Sharing
 - **Android share sheet** — send a song, an album, or a selection to any app that handles audio, including Bluetooth and Quick Share
@@ -142,6 +142,12 @@ Playback happens in the WebView, and Chromium requests audio focus for the eleme
 Resuming was therefore tied to the app becoming visible again, which never happens: nobody reopens their music app after hanging up the phone. The service now watches instead of claiming, polling two readings that need neither a permission nor a focus request — `getMode()` returns to `MODE_NORMAL` once a call ends, and `isMusicActive()` goes false once nothing else holds the speaker. When both clear it broadcasts a resume into the WebView. If another music app took over for good, `isMusicActive()` stays true and playback is never taken back.
 
 `ACTION_AUDIO_BECOMING_NOISY` is watched alongside it, because a headphone or Bluetooth disconnect looks identical to the end of an interruption from these two readings, and resuming there would play the track out loud on the speaker. A disconnect cancels the watch and blocks a new one briefly, in case the two arrive in the other order. If that receiver cannot be registered the watch does not run at all.
+
+**Where an artist's four covers come from**
+
+The circle beside an artist and the mosaic on their page are built from the same albums, sorted by year, because they were once built from different things and disagreed. `artistCollageHTML` took the first four of `getArtistAlbums`; `getArtists` took the first four distinct covers in raw `songs` order, which is no order at all — so tagging a 24-track compilation to an artist put its cover at the front of their circle.
+
+A cover the user picked by hand was worse: it was handled by a branch that ran *before* the mosaic and drew that one cover alone at full size, so one custom cover anywhere in a catalogue became the whole avatar and no amount of ordering the data behind it made any difference. There is now a single path — `avatarUris` prefers an album's hand-picked cover over its MediaStore URI and returns four in album order — and `fetchThumbnail` resolves a `data:` URI straight through so a hand-picked cover renders inside the mosaic rather than being sent round a cache that would lose it.
 
 **Why a song is asked for twice**
 
