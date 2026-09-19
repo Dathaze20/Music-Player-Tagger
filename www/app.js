@@ -2894,7 +2894,13 @@ function runBulkArtistFill() {
     }).catch(function() {
       // One album failing is not a reason to abandon the other two hundred.
     }).then(function() {
-      setTimeout(function() { step(i + 1); }, 1200);
+      // No pause needed here any more. This gap existed to keep the bulk run
+      // from outpacing MusicBrainz, but it only spaced out the albums while the
+      // two or three requests inside each one still went out together — which
+      // is what was being rate-limited. The request queue paces them properly
+      // now, so this waited a second and a fifth per album for nothing. Just
+      // long enough to let the progress bar paint.
+      setTimeout(function() { step(i + 1); }, 30);
     });
   }
   step(0);
@@ -5810,6 +5816,109 @@ function handleFileImport(files) {
  */
 var _MB_UA = { 'User-Agent': 'MyMusic/2.0 (music-player-tagger)' };
 
+/**
+ * Every MusicBrainz request, one at a time and a second apart.
+ *
+ * MusicBrainz asks applications for no more than one request a second, and
+ * answers 503 when that is exceeded. One AI Fill fires two or three: the
+ * release search, then the release group, then sometimes the artist — each one
+ * the moment the last resolved, microseconds apart.
+ *
+ * That is why the year was the field that needed three or four taps while the
+ * album name came straight back. The name and the album artist are in the
+ * search result, so the first request — the only one not sent on the heels of
+ * another — answers them. The year is not: first-release-date exists only on
+ * the full release group, which is the second request, the one that gets
+ * turned away. When it was, there was no retry and nothing else carrying a
+ * year, so the field simply stayed empty. The genre never showed the problem
+ * because it has three chances: the release group, the artist, and Gemini in
+ * parallel.
+ *
+ * So requests queue behind one another with a gap, and a 503 is waited out and
+ * tried again rather than thrown away. One fill takes a couple of seconds
+ * instead of being fast and wrong three times over.
+ *
+ * Resolves to parsed JSON, or null — every caller already treats null as "no
+ * answer", so nothing here can throw into a fill.
+ */
+var MB_MIN_GAP_MS = 1100;  // their limit is one a second; the margin is for clock drift
+var MB_RETRIES    = 2;
+var MB_MAX_BACKOFF_MS = 5000;
+
+var _mbChain  = Promise.resolve();
+var _mbLastAt = 0;
+var _mbCache  = Object.create(null);
+
+function _mbWait(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+function _mbAttempt(url, timeoutMs, tries) {
+  _mbLastAt = Date.now();  // measured from when it is sent, not when it returns
+  var ctrl = new AbortController();
+  var tid  = setTimeout(function() { ctrl.abort(); }, timeoutMs);
+  return fetch(url, { signal: ctrl.signal, headers: _MB_UA }).then(function(res) {
+    clearTimeout(tid);
+    if (res.ok) return res.json().catch(function() { return null; });
+    // 503 is how MusicBrainz says "too fast"; 429 is the usual spelling of it.
+    if ((res.status === 503 || res.status === 429) && tries < MB_RETRIES) {
+      var after = parseFloat(res.headers.get('Retry-After'));
+      var wait  = after > 0 ? after * 1000 : MB_MIN_GAP_MS * (tries + 2);
+      return _mbWait(Math.min(wait, MB_MAX_BACKOFF_MS)).then(function() {
+        return _mbAttempt(url, timeoutMs, tries + 1);
+      });
+    }
+    return null;
+  }, function() {
+    clearTimeout(tid);
+    // Nothing reached MusicBrainz, so no allowance was spent and the next
+    // request in the queue has nothing to wait for. Clearing this is what keeps
+    // a fill on a phone with no signal failing in an instant, the way it always
+    // did, instead of sitting through a gap and a retry for every request.
+    //
+    // A connection that drops is not a rate limit, so it is not retried either:
+    // the retry above exists for a service asking to be slowed down, and
+    // spending seconds on a request that cannot leave the handset would cost
+    // more than the problem it was added to fix.
+    _mbLastAt = 0;
+    return null;
+  });
+}
+
+// Bounded, because a bulk fill over a few thousand albums would otherwise hold
+// every answer it ever got. Oldest out first; losing one only costs a repeat.
+var MB_CACHE_MAX = 400;
+var _mbCacheKeys = [];
+
+function _mbRemember(url, data) {
+  if (Object.prototype.hasOwnProperty.call(_mbCache, url)) return;
+  _mbCache[url] = data;
+  _mbCacheKeys.push(url);
+  while (_mbCacheKeys.length > MB_CACHE_MAX) delete _mbCache[_mbCacheKeys.shift()];
+}
+
+function _mbFetch(url, timeoutMs) {
+  // Answers are kept for the session. Tagging runs album by album, so the same
+  // release group and the same artist are asked for again and again — and a
+  // remembered answer costs neither a wait nor a request.
+  if (Object.prototype.hasOwnProperty.call(_mbCache, url)) {
+    return Promise.resolve(_mbCache[url]);
+  }
+  var run = _mbChain.then(function() {
+    if (Object.prototype.hasOwnProperty.call(_mbCache, url)) return _mbCache[url];
+    var gap = MB_MIN_GAP_MS - (Date.now() - _mbLastAt);
+    return (gap > 0 ? _mbWait(gap) : Promise.resolve()).then(function() {
+      return _mbAttempt(url, timeoutMs || 12000, 0);
+    }).then(function(data) {
+      if (data) _mbRemember(url, data);  // a rate-limited miss must not be remembered
+      return data;
+    });
+  });
+  // The queue moves on whether this one worked or not.
+  _mbChain = run.then(function() {}, function() {});
+  return run;
+}
+
 // The highest-voted tag that is actually a genre. MusicBrainz tags are free
 // text, so "american", "90s" and "female vocalists" sit in the same list.
 function _mbTopGenreTag(tags) {
@@ -5831,9 +5940,7 @@ function _mbYear(dateStr) {
 
 function _mbArtistTagGenre(mbid) {
   if (!mbid) return Promise.resolve('');
-  return fetch('https://musicbrainz.org/ws/2/artist/' + encodeURIComponent(mbid) + '?inc=tags&fmt=json',
-               { headers: _MB_UA })
-    .then(function(r) { return r.ok ? r.json() : null; })
+  return _mbFetch('https://musicbrainz.org/ws/2/artist/' + encodeURIComponent(mbid) + '?inc=tags&fmt=json')
     .then(function(ad) { return _mbTopGenreTag(ad && ad.tags); })
     .catch(function() { return ''; });
 }
@@ -5857,12 +5964,8 @@ function _mbArtistTagGenre(mbid) {
  */
 function _mbReleaseGroup(mbid) {
   if (!mbid) return Promise.resolve(null);
-  var ctrl = new AbortController();
-  var tid  = setTimeout(function() { ctrl.abort(); }, 8000);
-  return fetch('https://musicbrainz.org/ws/2/release-group/' + encodeURIComponent(mbid) + '?inc=tags&fmt=json',
-               { signal: ctrl.signal, headers: _MB_UA })
-    .then(function(r) { clearTimeout(tid); return r.ok ? r.json() : null; })
-    .catch(function() { clearTimeout(tid); return null; });
+  return _mbFetch('https://musicbrainz.org/ws/2/release-group/' + encodeURIComponent(mbid) + '?inc=tags&fmt=json', 8000)
+    .catch(function() { return null; });
 }
 
 function _mbArtistOnlyGenre(artistName) {
@@ -5871,10 +5974,7 @@ function _mbArtistOnlyGenre(artistName) {
   var url = 'https://musicbrainz.org/ws/2/artist?query='
           + encodeURIComponent('artist:"' + name.replace(/"/g, '') + '"')
           + '&fmt=json&limit=1';
-  var ctrl = new AbortController();
-  var tid  = setTimeout(function() { ctrl.abort(); }, 10000);
-  return fetch(url, { signal: ctrl.signal, headers: _MB_UA })
-    .then(function(res) { clearTimeout(tid); return res.ok ? res.json() : null; })
+  return _mbFetch(url, 10000)
     .then(function(d) {
       var a = d && d.artists && d.artists[0];
       // The same confidence bar the release search uses, so a loose name match
@@ -5884,7 +5984,7 @@ function _mbArtistOnlyGenre(artistName) {
         return g ? { genre: g } : null;
       });
     })
-    .catch(function() { clearTimeout(tid); return null; });
+    .catch(function() { return null; });
 }
 
 // Query MusicBrainz (free, no key) for album metadata — year, albumArtist, releaseType, genre.
@@ -5905,17 +6005,7 @@ function lookupMusicBrainz(song) {
           + encodeURIComponent(parts.join(' AND '))
           + '&fmt=json&limit=3';
 
-  var ctrl = new AbortController();
-  var tid  = setTimeout(function() { ctrl.abort(); }, 12000);
-
-  return fetch(url, {
-    signal:  ctrl.signal,
-    headers: _MB_UA
-  }).then(function(res) {
-    clearTimeout(tid);
-    if (!res.ok) return null;
-    return res.json();
-  }).then(function(data) {
+  return _mbFetch(url, 12000).then(function(data) {
     if (!data || !data.releases || !data.releases.length) return _mbArtistOnlyGenre(artist);
 
     // Pick the highest-confidence result; skip results with score < 75 to avoid
@@ -5984,7 +6074,7 @@ function lookupMusicBrainz(song) {
       }
       return Object.keys(result).length ? result : null;
     });
-  }).catch(function() { clearTimeout(tid); return null; });
+  }).catch(function() { return null; });
 }
 
 // Primary AI Fill: MusicBrainz first (free, always), Gemini fills remaining gaps if key set.
