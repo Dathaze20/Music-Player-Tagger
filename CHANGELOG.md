@@ -7,6 +7,15 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.15
+
+- **Setting a ringtone is one tap now.** The first time on a phone, Android has
+  to be told to allow it — and after you allowed it you had to go back and press
+  the same button again, which looks exactly like the first press not working.
+  It now finishes by itself when you come back from that screen
+- If you come back without turning the switch on, it says so instead of leaving
+  you wondering
+
 ## v1.7.14
 
 - **The artist circle fix from the last version did not work** — there was a

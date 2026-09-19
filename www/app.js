@@ -4843,6 +4843,9 @@ var RINGTONE_KINDS = {
   alarm:        'alarm sound'
 };
 
+// A ringtone somebody asked for that is waiting on Android's permission switch.
+var _pendingRingtone = null;
+
 function setSongAs(song, kind) {
   var what = RINGTONE_KINDS[kind] || kind;
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative() || !NativeBridge.setAsRingtone) {
@@ -4857,15 +4860,43 @@ function setSongAs(song, kind) {
     if (res && res.needsPermission) {
       var ok = confirm(
         'To set a ' + what + ', Android needs to let My Music change system settings.\n\n' +
-        'Open that screen now? Turn on "Allow modifying system settings", then come back and tap it again.'
+        'Open that screen now? Turn on "Allow modifying system settings" and come back — ' +
+        'it will finish by itself.'
       );
-      if (ok) NativeBridge.openWriteSettingsScreen();
+      if (ok) {
+        // Finish the job on the way back rather than making them find the menu
+        // again. A second press that looks exactly like the first is how
+        // somebody decides the feature is broken and stops using it.
+        _pendingRingtone = { song: song, kind: kind };
+        NativeBridge.openWriteSettingsScreen();
+      }
       return;
     }
     showToast('✓ ' + song.title + ' is now your ' + what);
   }).catch(function(err) {
     showToast('Could not set the ' + what + ': ' + (err && err.message ? err.message : String(err)), 5000);
   });
+}
+
+// Called when the app comes back to the front. One attempt only — if the switch
+// is still off, say so rather than asking again, which would be a loop.
+function retryPendingRingtone() {
+  if (!_pendingRingtone) return;
+  var p = _pendingRingtone;
+  _pendingRingtone = null;
+  var what = RINGTONE_KINDS[p.kind] || p.kind;
+  // Android takes a moment to register the switch after that screen closes.
+  setTimeout(function() {
+    NativeBridge.setAsRingtone(p.song.contentUri, p.kind).then(function(res) {
+      if (res && res.needsPermission) {
+        showToast('Not set — "Allow modifying system settings" is still off', 5000);
+        return;
+      }
+      showToast('✓ ' + p.song.title + ' is now your ' + what, 4000);
+    }).catch(function() {
+      showToast('Could not set the ' + what, 4000);
+    });
+  }, 700);
 }
 
 // Step through the speeds. Lives here rather than in the render so the menu can
@@ -8481,11 +8512,13 @@ document.addEventListener('visibilitychange', function() {
   // from the element's pause event, so gating this on it left a suspended
   // context running silently with no way back.
   resumeAfterInterruption();
+  retryPendingRingtone();
 });
 
 if (typeof window.Capacitor !== 'undefined') {
   document.addEventListener('resume', function() {
     resumeAfterInterruption();
+    retryPendingRingtone();
   });
 }
 
