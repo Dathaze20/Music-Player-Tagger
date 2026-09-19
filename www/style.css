@@ -3398,3 +3398,17 @@ body.cf-ls .app { overflow: visible !important; }
   font-size: 11px;
   color: var(--text-dim);
 }
+
+/* ─── Album results in search ─── */
+/* Same cards as an artist page uses, so a cover in search is worth looking at
+   rather than a 48px thumbnail in a list row. Wraps instead of scrolling
+   sideways: search results are read down the page, and a row you have to drag
+   hides everything past the third album. */
+.search-album-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  overflow-x: visible;
+  padding: 4px 16px 12px;
+}
+.search-album-scroll .album-scroll-item { width: 128px; }
