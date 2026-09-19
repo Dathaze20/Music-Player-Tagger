@@ -7,6 +7,15 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.18
+
+- **Search now finds the albums an artist is featured on**, not just their own.
+  Searching a name already brought up their guest verses as songs; the records
+  those verses live on were the one thing it would not show
+- Their own albums come first, so a compilation carrying a single guest verse
+  never outranks the records they made. A guest album is listed under whoever it
+  actually belongs to, so it is obvious which is which
+
 ## v1.7.17
 
 - **Searching an artist finds their albums.** It was only matching album titles,

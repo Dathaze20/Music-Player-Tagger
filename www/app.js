@@ -7299,15 +7299,30 @@ function doSearch(q) {
   songs.forEach(function(s) {
     var artistKey = albumGroupKeyOf(s);
     var key = s.album + '|||' + artistKey;
-    // Match the artist as well as the title. Searching a name should bring up
-    // that artist's records — "2Pac" finding one album, because it happens to
-    // be the only title with "2pac" in it, is not what anybody means by it.
-    var hit = s.album.toLowerCase().indexOf(ql) !== -1
-           || artistKey.toLowerCase().indexOf(ql) !== -1;
-    if (!albumsSeen[key] && hit) {
-      albumsSeen[key] = true;
-      allAlbumMatches.push({ name: s.album, artist: artistKey, albumArtUri: s.albumArtUri, art: s.art });
+    // The artist's own records: the album is filed under them, or their name is
+    // in the title. "2Pac" finding one album because it happens to be the only
+    // title with "2pac" in it is not what anybody means by searching a name.
+    var ownHit = s.album.toLowerCase().indexOf(ql) !== -1
+              || artistKey.toLowerCase().indexOf(ql) !== -1;
+    // Records they only appear on. Songs and artists already turn these up;
+    // albums being the one kind that did not was an oversight, and following a
+    // guest verse to the record it lives on is half the point of a search.
+    var guestHit = (s.artist && s.artist.toLowerCase().indexOf(ql) !== -1)
+                || (s.feat && s.feat.toLowerCase().indexOf(ql) !== -1);
+    if (!ownHit && !guestHit) return;
+    var at = albumsSeen[key];
+    if (at === undefined) {
+      albumsSeen[key] = allAlbumMatches.length;
+      allAlbumMatches.push({ name: s.album, artist: artistKey, albumArtUri: s.albumArtUri, art: s.art, own: ownHit });
+    } else if (ownHit) {
+      allAlbumMatches[at].own = true; // a later track proves it is theirs
     }
+  });
+  // Their own albums first. A compilation carrying one guest verse must not
+  // outrank the records they made.
+  allAlbumMatches.sort(function(a, b) {
+    if (!a.own !== !b.own) return a.own ? -1 : 1;
+    return a.name.localeCompare(b.name);
   });
 
   var total = allArtistMatches.length + allAlbumMatches.length + allSongMatches.length;
