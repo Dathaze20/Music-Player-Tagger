@@ -7274,7 +7274,6 @@ function doSearch(q) {
   var ql = q.toLowerCase();
   var main = document.getElementById('mainContent');
 
-  var SEARCH_CAP = 20;
   var allSongMatches = songs.filter(function(s) {
     return s.title.toLowerCase().indexOf(ql) !== -1
       || (s.artist && s.artist.toLowerCase().indexOf(ql) !== -1)
@@ -7300,7 +7299,12 @@ function doSearch(q) {
   songs.forEach(function(s) {
     var artistKey = albumGroupKeyOf(s);
     var key = s.album + '|||' + artistKey;
-    if (!albumsSeen[key] && s.album.toLowerCase().indexOf(ql) !== -1) {
+    // Match the artist as well as the title. Searching a name should bring up
+    // that artist's records — "2Pac" finding one album, because it happens to
+    // be the only title with "2pac" in it, is not what anybody means by it.
+    var hit = s.album.toLowerCase().indexOf(ql) !== -1
+           || artistKey.toLowerCase().indexOf(ql) !== -1;
+    if (!albumsSeen[key] && hit) {
       albumsSeen[key] = true;
       allAlbumMatches.push({ name: s.album, artist: artistKey, albumArtUri: s.albumArtUri, art: s.art });
     }
@@ -7331,13 +7335,23 @@ function doSearch(q) {
   parts.push('</div>');
 
   var show = function(kind) { return searchFilter === 'all' || searchFilter === kind; };
-  var cap  = function(kind) { return searchFilter === kind ? 200 : SEARCH_CAP; };
+  // How many of each kind the mixed list shows before offering the rest. Kept
+  // short so every kind is reachable without scrolling past one of them — an
+  // artist with 47 albums would otherwise bury the songs entirely.
+  var ALL_CAPS = { artists: 5, albums: 6, songs: 20 };
+  var cap  = function(kind) { return searchFilter === kind ? 200 : ALL_CAPS[kind]; };
 
   function sectionHeader(label, shown, all) {
     var more = all > shown
       ? ' <span style="float:right;font-size:12px;color:var(--primary);font-weight:400;">' + all + ' total</span>'
       : '';
     return '<div class="search-section-header">' + label + more + '</div>';
+  }
+
+  function seeAll(kind, shown, all) {
+    if (all <= shown) return '';
+    return '<div class="search-see-all"><button class="chip" data-search-filter="' + kind + '">'
+         + 'See all ' + all + ' ' + kind + '</button></div>';
   }
 
   var artistMatches = allArtistMatches.slice(0, cap('artists'));
@@ -7350,12 +7364,17 @@ function doSearch(q) {
         ? '<div class="art-lazy" data-lazy-uri="' + escHtml(artUri) + '" data-round="1" data-size="48" style="width:48px;height:48px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(name, 48, true) + '</div>'
         : artHTML(name, 48, true);
       var cnt = getArtistSongs(name).length;
+      // Albums as well as songs, the same as the main artists list. "137 songs"
+      // on its own says nothing about how much of an artist is actually here.
+      var albCnt = getArtistAlbums(name).length;
       parts.push('<div class="search-result-row" data-search-artist="' + escHtml(name) + '">'
         + artEl
         + '<div class="song-info"><div class="song-title">' + escHtml(name) + '</div>'
-        + '<div class="song-meta">' + cnt + ' song' + (cnt !== 1 ? 's' : '') + '</div></div>'
+        + '<div class="song-meta">' + albCnt + ' album' + (albCnt !== 1 ? 's' : '')
+        + ' &bull; ' + cnt + ' song' + (cnt !== 1 ? 's' : '') + '</div></div>'
         + '</div>');
     });
+    parts.push(seeAll('artists', artistMatches.length, allArtistMatches.length));
   }
 
   var albumMatches = allAlbumMatches.slice(0, cap('albums'));
@@ -7382,6 +7401,7 @@ function doSearch(q) {
         + '</div>');
     });
     parts.push('</div>');
+    parts.push(seeAll('albums', albumMatches.length, allAlbumMatches.length));
   }
 
   var songMatches = allSongMatches.slice(0, cap('songs'));
@@ -7390,6 +7410,7 @@ function doSearch(q) {
     songMatches.forEach(function(s) {
       parts.push(songRowHTML(s, currentSong && currentSong.id === s.id, true));
     });
+    parts.push(seeAll('songs', songMatches.length, allSongMatches.length));
   }
 
   main.innerHTML = parts.join('');

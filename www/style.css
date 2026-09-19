@@ -3412,3 +3412,12 @@ body.cf-ls .app { overflow: visible !important; }
   padding: 4px 16px 12px;
 }
 .search-album-scroll .album-scroll-item { width: 128px; }
+
+/* "See all N" under a truncated search section */
+.search-see-all {
+  padding: 2px 16px 14px;
+}
+.search-see-all .chip {
+  width: 100%;
+  justify-content: center;
+}

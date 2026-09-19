@@ -7,6 +7,17 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.17
+
+- **Searching an artist finds their albums.** It was only matching album titles,
+  so "2Pac" turned up one album — the one with "2pac" in its name — while his
+  other thirteen were ignored. It now matches the artist too
+- **"See all" under each section.** The mixed list shows a handful of each so
+  nothing buries anything else, and one tap opens the full set. An artist with
+  47 albums no longer pushes the songs off the bottom of the screen
+- **An artist in search says how many albums as well as songs**, the same as the
+  main artists list
+
 ## v1.7.16
 
 - **The keyboard goes away when you press enter.** It was staying up and
