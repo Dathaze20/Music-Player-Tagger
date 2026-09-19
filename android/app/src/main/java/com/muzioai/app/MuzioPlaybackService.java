@@ -55,6 +55,7 @@ public class MuzioPlaybackService extends Service {
     private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
     static final String         ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
     static final String         ACTION_RESUME     = "com.muzioai.app.ACTION_RESUME";
+    static final String         ACTION_NOISY_PAUSE = "com.muzioai.app.ACTION_NOISY_PAUSE";
     static final String         EXTRA_SEEK_MS     = "seek_ms";
 
     private static final String NOTIF_CHANNEL_ID = "muzio_playback";
@@ -174,14 +175,24 @@ public class MuzioPlaybackService extends Service {
     private BroadcastReceiver noisyReceiver;
 
     /*
-     * Pulling the headphones out must never start the song again on the
-     * loudspeaker. It looks exactly like the end of an interruption from here —
-     * the call is over, nothing else is playing — so without this the watch
-     * would helpfully blast the track out loud in a quiet room.
+     * Headphones out, or Bluetooth dropped: stop, and stay stopped.
      *
-     * Android announces it just before it reroutes the audio. The announcement
-     * and our own pause can arrive in either order, so it both cancels a watch
-     * already running and blocks one from starting for a few seconds after.
+     * ACTION_AUDIO_BECOMING_NOISY is only an announcement. Android sends it a
+     * moment before it moves the sound to the loudspeaker so that an app can
+     * pause itself — it does not pause anything on the app's behalf. This
+     * receiver used to take the hint and do nothing with it but note the time,
+     * on the assumption the WebView would handle its own. It does not: pulling
+     * the Bluetooth headphones off carried on playing, out loud, through the
+     * phone speaker.
+     *
+     * So the pause is sent to the WebView here, where the audio actually lives.
+     *
+     * The rest of this still matters. The announcement and the pause can arrive
+     * in either order, and to the resume watch a disconnect looks exactly like
+     * the end of an interruption — the call is over, nothing else is playing —
+     * so the watch is both cancelled and held off for a few seconds, or it
+     * would helpfully start the track again on the speaker it was just taken
+     * off.
      */
     private void ensureNoisyReceiver() {
         if (noisyReceiver != null) return;
@@ -189,6 +200,7 @@ public class MuzioPlaybackService extends Service {
             @Override public void onReceive(Context ctx, Intent intent) {
                 lastNoisyAt = System.currentTimeMillis();
                 stopResumeWatch();
+                broadcast(ACTION_NOISY_PAUSE);
             }
         };
         IntentFilter f = new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
