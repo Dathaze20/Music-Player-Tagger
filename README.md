@@ -52,7 +52,7 @@ Drop the files in a `screenshots/` folder and link them here.
 - Tap the album or artist name to jump straight to that page
 - Synced lyrics (LRC) with live line highlighting, in portrait and landscape
 - Repeat and shuffle toggles, with speed, add-to-playlist, the equalizer and the tag editor behind one menu in the header
-- Use the song as your ringtone, notification sound or alarm, from that same menu
+- Use the song as your ringtone, notification sound or alarm, from that same menu. The first time on a phone Android has to be told to allow it; the app completes the job on the way back from that screen rather than making you press the same button a second time, which reads as the first press having failed
 - Swipe the artwork left or right to change track. Swiping up and down still scrolls the lyrics, and a tap still shows and hides them
 
 ### Tagging
