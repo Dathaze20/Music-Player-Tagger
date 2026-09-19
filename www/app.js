@@ -7264,7 +7264,12 @@ document.getElementById('queueClearBtn').onclick = function() {
 
 // ─── Search ───
 
+// Which kind of result the search is showing. 'all' lists every kind in turn.
+var searchFilter = 'all';
+var _searchQuery = '';
+
 function doSearch(q) {
+  _searchQuery = q || '';
   if (!q) { render(); return; }
   var ql = q.toLowerCase();
   var main = document.getElementById('mainContent');
@@ -7278,7 +7283,6 @@ function doSearch(q) {
       || (s.genre && s.genre.toLowerCase().indexOf(ql) !== -1)
       || (s.albumArtist && s.albumArtist.toLowerCase().indexOf(ql) !== -1);
   });
-  var songMatches = allSongMatches.slice(0, SEARCH_CAP);
 
   var artistsSeen = {};
   var allArtistMatches = [];
@@ -7288,37 +7292,57 @@ function doSearch(q) {
       allArtistMatches.push(s.artist);
     }
   });
-  var artistMatches = allArtistMatches.slice(0, SEARCH_CAP);
 
+  // Keyed by what the album is actually filed under, so tapping a result opens
+  // the record rather than an album that does not exist under that name.
   var albumsSeen = {};
   var allAlbumMatches = [];
   songs.forEach(function(s) {
-    var key = s.album + '|||' + s.artist;
+    var artistKey = albumGroupKeyOf(s);
+    var key = s.album + '|||' + artistKey;
     if (!albumsSeen[key] && s.album.toLowerCase().indexOf(ql) !== -1) {
       albumsSeen[key] = true;
-      allAlbumMatches.push({ name: s.album, artist: s.artist, albumArtUri: s.albumArtUri });
+      allAlbumMatches.push({ name: s.album, artist: artistKey, albumArtUri: s.albumArtUri, art: s.art });
     }
   });
-  var albumMatches = allAlbumMatches.slice(0, SEARCH_CAP);
 
-  if (!songMatches.length && !artistMatches.length && !albumMatches.length) {
+  var total = allArtistMatches.length + allAlbumMatches.length + allSongMatches.length;
+  if (!total) {
     main.innerHTML = '<div class="empty-state"><div class="empty-icon">&#128269;</div><p>No results for &ldquo;' + escHtml(q) + '&rdquo;</p></div>';
     return;
   }
 
-  var parts = [];
+  // Artists, then albums, then songs. Searching a name is nearly always
+  // looking for the person or the record, and burying those under twenty song
+  // rows means scrolling past the answer to reach it.
+  var chips = [
+    ['all',     'All',     total],
+    ['artists', 'Artists', allArtistMatches.length],
+    ['albums',  'Albums',  allAlbumMatches.length],
+    ['songs',   'Songs',   allSongMatches.length]
+  ];
+  var parts = ['<div class="filter-chips">'];
+  chips.forEach(function(c) {
+    if (c[0] !== 'all' && !c[2]) return; // nothing of that kind to show
+    parts.push('<button class="chip' + (searchFilter === c[0] ? ' active' : '')
+      + '" data-search-filter="' + c[0] + '">' + c[1]
+      + '<span class="count">' + c[2] + '</span></button>');
+  });
+  parts.push('</div>');
 
-  if (songMatches.length) {
-    var moreSongs = allSongMatches.length > SEARCH_CAP ? ' <span style="float:right;font-size:12px;color:var(--primary);font-weight:400;">' + allSongMatches.length + ' total</span>' : '';
-    parts.push('<div class="search-section-header">Songs' + moreSongs + '</div>');
-    songMatches.forEach(function(s) {
-      parts.push(songRowHTML(s, currentSong && currentSong.id === s.id, true));
-    });
+  var show = function(kind) { return searchFilter === 'all' || searchFilter === kind; };
+  var cap  = function(kind) { return searchFilter === kind ? 200 : SEARCH_CAP; };
+
+  function sectionHeader(label, shown, all) {
+    var more = all > shown
+      ? ' <span style="float:right;font-size:12px;color:var(--primary);font-weight:400;">' + all + ' total</span>'
+      : '';
+    return '<div class="search-section-header">' + label + more + '</div>';
   }
 
-  if (artistMatches.length) {
-    var moreArtists = allArtistMatches.length > SEARCH_CAP ? ' <span style="float:right;font-size:12px;color:var(--primary);font-weight:400;">' + allArtistMatches.length + ' total</span>' : '';
-    parts.push('<div class="search-section-header">Artists' + moreArtists + '</div>');
+  var artistMatches = allArtistMatches.slice(0, cap('artists'));
+  if (show('artists') && artistMatches.length) {
+    parts.push(sectionHeader('Artists', artistMatches.length, allArtistMatches.length));
     artistMatches.forEach(function(name) {
       var artistAlbums = getArtistAlbums(name);
       var artUri = artistAlbums.length ? artistAlbums[0].albumArtUri : '';
@@ -7334,25 +7358,50 @@ function doSearch(q) {
     });
   }
 
-  if (albumMatches.length) {
-    var moreAlbums = allAlbumMatches.length > SEARCH_CAP ? ' <span style="float:right;font-size:12px;color:var(--primary);font-weight:400;">' + allAlbumMatches.length + ' total</span>' : '';
-    parts.push('<div class="search-section-header">Albums' + moreAlbums + '</div>');
+  var albumMatches = allAlbumMatches.slice(0, cap('albums'));
+  if (show('albums') && albumMatches.length) {
+    parts.push(sectionHeader('Albums', albumMatches.length, allAlbumMatches.length));
+    // Cards with the cover at a size worth looking at, the same shape the
+    // artist page uses, rather than a 48px thumbnail in a list row.
+    parts.push('<div class="album-scroll search-album-scroll">');
     albumMatches.forEach(function(a) {
-      var artEl = a.albumArtUri
-        ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-size="48" style="width:48px;height:48px;flex-shrink:0;border-radius:6px;overflow:hidden;">' + artHTML(a.name, 48) + '</div>'
-        : '<div style="width:48px;height:48px;flex-shrink:0;">' + artHTML(a.name, 48) + '</div>';
+      var g = getGrad(a.name);
+      var init = escHtml(a.name.split(' ').map(function(w){ return w[0] || ''; }).join('').substring(0, 2).toUpperCase());
+      var custom = (a.art && a.art.indexOf('data:') === 0) ? a.art : '';
+      var artEl = '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:42px;font-weight:700;color:#fff;">' + init + '</div>'
+        + (custom
+            ? '<img src="' + custom + '" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;">'
+            : a.albumArtUri
+              ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUri) + '" data-fill="1" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>'
+              : '');
       var cnt = getAlbumSongs(a.name, a.artist).length;
-      parts.push('<div class="search-result-row" data-search-album="' + escHtml(a.name) + '" data-search-album-artist="' + escHtml(a.artist) + '">'
-        + artEl
-        + '<div class="song-info"><div class="song-title">' + escHtml(a.name) + '</div>'
-        + '<div class="song-meta">' + escHtml(a.artist) + ' &bull; ' + cnt + ' songs</div></div>'
+      parts.push('<div class="album-scroll-item" data-search-album="' + escHtml(a.name) + '" data-search-album-artist="' + escHtml(a.artist) + '">'
+        + '<div class="album-scroll-art">' + artEl + '</div>'
+        + '<div class="album-scroll-name">' + escHtml(a.name) + '</div>'
+        + '<div class="album-scroll-year">' + escHtml(a.artist) + ' &bull; ' + cnt + ' song' + (cnt !== 1 ? 's' : '') + '</div>'
         + '</div>');
+    });
+    parts.push('</div>');
+  }
+
+  var songMatches = allSongMatches.slice(0, cap('songs'));
+  if (show('songs') && songMatches.length) {
+    parts.push(sectionHeader('Songs', songMatches.length, allSongMatches.length));
+    songMatches.forEach(function(s) {
+      parts.push(songRowHTML(s, currentSong && currentSong.id === s.id, true));
     });
   }
 
   main.innerHTML = parts.join('');
   initLazyArt(main);
   bindSongRows(main, songMatches);
+
+  main.querySelectorAll('[data-search-filter]').forEach(function(btn) {
+    btn.onclick = function() {
+      searchFilter = btn.dataset.searchFilter;
+      doSearch(_searchQuery);
+    };
+  });
 
   main.querySelectorAll('[data-search-artist]').forEach(function(row) {
     row.onclick = function() {
@@ -7399,8 +7448,14 @@ document.getElementById('searchBtn').onclick = function() {
   var input = document.getElementById('searchInput');
   if (!bar.classList.contains('hidden')) {
     input.value = '';
+    searchFilter = 'all';
     input.focus();
     input.oninput = function() { doSearch(input.value); };
+    // Enter means "I have finished typing" — put the keyboard away so the
+    // results are not left behind it.
+    input.onkeydown = function(e) {
+      if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); input.blur(); }
+    };
   } else {
     render();
   }

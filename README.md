@@ -44,7 +44,7 @@ Drop the files in a `screenshots/` folder and link them here.
 - **Playlists** — manual playlists, plus four that build themselves: Top Tracks, Last Added, Recently Played, Favorites
 - **Genres** — browse by genre with per-genre counts
 - **Favorites** — heart any song; available as its own view
-- **Search** — across title, artist, album, album artist, genre, and featured artists
+- **Search** — across title, artist, album, album artist, genre, and featured artists. Artists first, then albums as cover cards, then songs, with All / Artists / Albums / Songs filters carrying their counts. Enter dismisses the keyboard rather than leaving it over the results
 
 ### Now Playing
 - Full-screen album art with ambient colour sampled from the artwork

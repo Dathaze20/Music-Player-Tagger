@@ -7,6 +7,22 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.16
+
+- **The keyboard goes away when you press enter.** It was staying up and
+  covering the results you had just asked for
+- **Artists come first in search, then albums, then songs.** Searching a name is
+  nearly always looking for the person or the record, and those were buried
+  under twenty song rows
+- **Albums in search are cards with the cover at a proper size**, like on an
+  artist page, instead of a small thumbnail in a list row
+- **All / Artists / Albums / Songs buttons at the top of the results**, each with
+  its count, so you can go straight to the kind you are after. Picking one shows
+  many more of that kind than the mixed list does
+- Tapping an album in search opens the right record. It was keyed to the song's
+  own artist, so an album reached through a track with a guest credit could open
+  onto nothing
+
 ## v1.7.15
 
 - **Setting a ringtone is one tap now.** The first time on a phone, Android has
