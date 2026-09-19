@@ -3404,14 +3404,68 @@ body.cf-ls .app { overflow: visible !important; }
    rather than a 48px thumbnail in a list row. Wraps instead of scrolling
    sideways: search results are read down the page, and a row you have to drag
    hides everything past the third album. */
+/* Five covers to a row, so ten albums are two rows you take in at a glance.
+   A fixed 128px card only fit two across on a phone, which turned the album
+   results back into the list they were supposed to replace. */
 .search-album-scroll {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px 6px;
   overflow-x: visible;
   padding: 4px 16px 12px;
 }
-.search-album-scroll .album-scroll-item { width: 128px; }
+.search-album-scroll .album-scroll-item { width: auto; min-width: 0; }
+.search-album-scroll .album-scroll-art {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  margin-bottom: 5px;
+}
+/* Two lines of title rather than one truncated to nothing at this width. */
+.search-album-scroll .album-scroll-name {
+  font-size: 10px;
+  line-height: 1.25;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* No room for "Artist • 12 songs" under a 60px cover; the Albums tab shows it. */
+.search-album-scroll .album-scroll-year { display: none; }
+
+.search-album-init {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* The Albums tab has the page to itself, so the covers get room to breathe. */
+.search-album-roomy {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 10px;
+}
+.search-album-roomy .album-scroll-art { border-radius: 12px; margin-bottom: 8px; }
+.search-album-roomy .album-scroll-name { font-size: 12px; -webkit-line-clamp: 2; }
+.search-album-roomy .album-scroll-year {
+  display: block;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-album-roomy .search-album-init { font-size: 34px; }
 
 /* "See all N" under a truncated search section */
 .search-see-all {

@@ -7,6 +7,25 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.7.19
+
+- **Search album results start with the artist's own records again.** Searching
+  "Nas" led with *Aijuswanaseing* and *Against All Odds* instead of *Illmatic*:
+  the letters n-a-s sit inside both, and a plain substring match counted them as
+  his. A name now has to match a whole word, or the start of one, and the two
+  rank differently — so *Illmatic* beats *Nasheim Myrick* beats a guest verse.
+  Half-typed searches still work: "Illm" finds *Illmatic*
+- **Within each of those, oldest first**, the same order the artist's own page
+  uses, so a search lands at the start of their run of albums rather than in the
+  middle of it alphabetically
+- **Ten album covers, five to a row.** The cards were a fixed size that only fit
+  two across on a phone, which turned the album results back into the list they
+  were meant to replace. The Albums tab spreads out to three across and keeps the
+  artist and song count under each cover
+- **Artists in search are ordered too** — an exact match first, and within that
+  whoever you have the most songs by, instead of whoever happened to be earliest
+  in the library
+
 ## v1.7.18
 
 - **Search now finds the albums an artist is featured on**, not just their own.
