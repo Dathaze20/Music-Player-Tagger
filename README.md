@@ -40,7 +40,7 @@ Drop the files in a `screenshots/` folder and link them here.
 
 ### Library
 - **Artists** — virtual-scrolled list with a circular album-art mosaic, an A–Z jump strip, and list / 2-column / 3-column views. Sort A–Z, Z–A, or by song count
-- **Songs** — virtual-scrolled list built for libraries in the tens of thousands. Sort by title, artist, or date added
+- **Songs** — virtual-scrolled list built for libraries in the tens of thousands. Sort by title, artist, album (disc then track), year, duration, date added, or most played. Date added comes from when Android first saw the file, and is backfilled for music already in the library; most played counts plays, not recency. Every sort breaks ties on the title, so the order is stable between visits
 - **Albums** — 2-column virtual-scroll grid with filter chips (All / Albums / Mixtapes / EPs & Singles) and an A–Z strip. Sort A–Z, by year, or by song count
 - **Playlists** — manual playlists, plus four that build themselves: Top Tracks, Last Added, Recently Played, Favorites
 - **Genres** — browse by genre with per-genre counts
