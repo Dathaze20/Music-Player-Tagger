@@ -1909,8 +1909,10 @@ function getArtists() {
     list = list.filter(function(a) { return albumArtistSet[a.name]; });
   }
 
+  // Each falls through to the name, so artists level on song count come out in
+  // a fixed order rather than however the library happened to hold them.
   if (artistSortMode === 'za') list.sort(function(a, b) { return b.name.localeCompare(a.name); });
-  else if (artistSortMode === 'songs') list.sort(function(a, b) { return b.songCount - a.songCount; });
+  else if (artistSortMode === 'songs') list.sort(function(a, b) { return b.songCount - a.songCount || a.name.localeCompare(b.name); });
   else list.sort(function(a, b) { return a.name.localeCompare(b.name); }); // 'az' default
 
   _artistsCache = list;
@@ -3255,13 +3257,21 @@ var _SORT_LABELS = {
 function renderSongs(el) {
   if (songs.length === 0) { renderWelcome(el); return; }
   var sorted = songs.slice();
-  if (sortMode === 'title')    sorted.sort(function(a, b) { return a.title.localeCompare(b.title); });
-  else if (sortMode === 'artist')   sorted.sort(function(a, b) { return a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title); });
-  else if (sortMode === 'album')    sorted.sort(function(a, b) { return a.album.localeCompare(b.album) || (a.track||0) - (b.track||0); });
-  else if (sortMode === 'year')     sorted.sort(function(a, b) { return (parseInt(b.year)||0) - (parseInt(a.year)||0) || a.title.localeCompare(b.title); });
-  else if (sortMode === 'recent')   sorted.sort(function(a, b) { return (b.dateAdded||0) - (a.dateAdded||0); });
-  else if (sortMode === 'played')   sorted.sort(function(a, b) { return (b.lastPlayed||0) - (a.lastPlayed||0); });
-  else if (sortMode === 'duration') sorted.sort(function(a, b) { return (b.dur||0) - (a.dur||0); });
+  // Each of these falls through to the title, so songs that tie on the thing
+  // being sorted still come out in a fixed, readable order instead of whatever
+  // order the library happens to hold them in.
+  var byTitle = function(a, b) { return String(a.title || '').localeCompare(String(b.title || '')); };
+  if (sortMode === 'title')    sorted.sort(byTitle);
+  else if (sortMode === 'artist')   sorted.sort(function(a, b) { return String(a.artist || '').localeCompare(String(b.artist || '')) || byTitle(a, b); });
+  // Disc before track: a two-disc album was interleaving its disc ones and twos.
+  else if (sortMode === 'album')    sorted.sort(function(a, b) { return String(a.album || '').localeCompare(String(b.album || '')) || (a.disc||1) - (b.disc||1) || (a.track||0) - (b.track||0) || byTitle(a, b); });
+  else if (sortMode === 'year')     sorted.sort(function(a, b) { return (parseInt(b.year)||0) - (parseInt(a.year)||0) || byTitle(a, b); });
+  else if (sortMode === 'recent')   sorted.sort(function(a, b) { return (b.dateAdded||0) - (a.dateAdded||0) || byTitle(a, b); });
+  // Most played means most often, not most recently. This read lastPlayed, so
+  // a song played once yesterday outranked one played two hundred times last
+  // week — which is what "Recently played" means, and that list already exists.
+  else if (sortMode === 'played')   sorted.sort(function(a, b) { return (b.playCount||0) - (a.playCount||0) || (b.lastPlayed||0) - (a.lastPlayed||0) || byTitle(a, b); });
+  else if (sortMode === 'duration') sorted.sort(function(a, b) { return (b.dur||0) - (a.dur||0) || byTitle(a, b); });
 
   var sortLabel = _SORT_LABELS[sortMode] || 'Title';
   var totalH = sorted.length * VS_ROW_H;
@@ -3329,9 +3339,9 @@ function renderAlbums(el) {
     filtered = filtered.filter(function(a) { return a.genre === albumGenreFilter; });
   }
   if (albumSortMode === 'year') {
-    filtered.sort(function(a, b) { return (parseInt(b.year) || 0) - (parseInt(a.year) || 0); });
+    filtered.sort(function(a, b) { return (parseInt(b.year) || 0) - (parseInt(a.year) || 0) || a.name.localeCompare(b.name); });
   } else if (albumSortMode === 'songs') {
-    filtered.sort(function(a, b) { return b.songCount - a.songCount; });
+    filtered.sort(function(a, b) { return b.songCount - a.songCount || a.name.localeCompare(b.name); });
   } else {
     filtered.sort(function(a, b) { return a.name.localeCompare(b.name); });
   }
@@ -8836,6 +8846,7 @@ function nativeAutoScan() {
           ex.nativePath  = ns.nativePath  || ex.nativePath;
           ex.albumArtUri = ns.albumArtUri || ex.albumArtUri;
           ex.dur         = ns.dur         || ex.dur;
+          ex.dateAdded   = ns.dateAdded   || ex.dateAdded;
           if (typeof ns.size === 'number') ex.size = ns.size;
           return ex;
         });
@@ -8867,6 +8878,10 @@ function nativeAutoScan() {
         if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
         if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
         if (f.genre && !s.genre) s.genre = canonicalGenre(f.genre);
+        // Backfill: everything already in the library was stored with no date,
+        // so without this only newly scanned files would ever have one and
+        // "Date added" would stay useless for the whole existing library.
+        if (f.dateAdded && !s.dateAdded) { s.dateAdded = f.dateAdded; updated++; }
       });
       _libraryPreview = false;   // checked against MediaStore and the size is right
       if (updated > 0) { saveLibrary(); render(); }
@@ -8910,6 +8925,7 @@ function nativeAutoScan() {
       ex.nativePath  = ns.nativePath  || ex.nativePath;
       ex.albumArtUri = ns.albumArtUri || ex.albumArtUri;
       ex.dur         = ns.dur         || ex.dur;
+      ex.dateAdded   = ns.dateAdded   || ex.dateAdded;
       if (typeof ns.size === 'number') ex.size = ns.size;
       return ex;
     });

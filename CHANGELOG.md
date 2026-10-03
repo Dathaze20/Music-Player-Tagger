@@ -7,6 +7,26 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.8.1
+
+- **"Date added" works.** It never did. Android tells the app when it first saw
+  each file, but the step that turns a scan result into a song was quietly
+  dropping that date, so every song in the library was stored as having been
+  added at the same moment. The sort then had nothing to sort by: it ran, it
+  reordered nothing, and a mixtape downloaded an hour ago sat wherever it
+  happened to land. Newly downloaded music now appears at the top where you can
+  get at it
+- **Dates are filled in for music you already have**, not just for anything
+  downloaded from here on, so the list is useful immediately
+- **"Most played" now means most played.** It was sorting by when you last
+  played something, so a song played once yesterday beat one played two hundred
+  times last week
+- **Sorting by album keeps a two-disc album in order** — disc one, then disc
+  two, instead of interleaving both
+- **Every sort now has a fixed order for ties.** Songs that match on the thing
+  being sorted fall back to the title, so the list no longer shuffles items
+  around between visits
+
 ## v1.8.0
 
 Maintenance release: four bugs and a dependency refresh.

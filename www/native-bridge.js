@@ -52,6 +52,16 @@ var NativeBridge = (function() {
           genre:       canonicalGenre(f.genre),
           dur:         f.dur    || 0,
           size:        typeof f.size === 'number' ? f.size : -1,
+          // When Android first saw the file. This was being dropped here —
+          // the plugin has always sent it and toSong() has always looked for
+          // it, but this mapping in between never copied it across, so every
+          // song was stored with a date of zero and "Date added" sorted a list
+          // in which every entry tied. It looked like a working sort that
+          // simply never moved anything, and a mixtape downloaded an hour ago
+          // sat wherever it happened to land.
+          //
+          // MediaStore counts in seconds; everything else here is milliseconds.
+          dateAdded:   (typeof f.dateAdded === 'number' ? f.dateAdded : 0) * 1000,
         };
       });
     });
