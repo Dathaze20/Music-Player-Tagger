@@ -4562,6 +4562,19 @@ function initNpArtSwipe(el) {
   }, { passive: true });
 }
 
+/**
+ * What the repeat capsule says.
+ *
+ * The two outer controls were a pair of arrow symbols with no label, and which
+ * arrow meant repeat and which meant shuffle was anybody's guess — so was
+ * whether either was currently on, since the only difference was the colour of
+ * a glyph you had to recognise first. They are capsules with the word written
+ * in them now, filled in when the mode is active.
+ */
+function repeatPillLabel() {
+  return repeatMode === 'one' ? 'Repeat 1' : 'Repeat';
+}
+
 function renderNowPlaying() {
   if (!currentSong) return;
   var np = document.getElementById('nowPlaying');
@@ -4597,7 +4610,11 @@ function renderNowPlaying() {
     + '<div id="npAmbient"></div>'
     + '<div class="np-content">'
     + '<div class="np-header">'
-    + '<button id="npClose">&#8744;</button>'
+    + '<button id="npClose" title="Back" aria-label="Back">'
+    +   '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" '
+    +   'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    +   '<path d="M15 5l-7 7 7 7"/></svg>'
+    + '</button>'
     + '<div class="np-header-center"><div class="np-label">Playing From</div>'
     + '<div class="np-header-album" id="npAlbumBtn">' + escHtml(currentSong.album && currentSong.album !== 'Unknown Album' ? currentSong.album : currentSong.artist) + '</div></div>'
     + '<button id="npMenuBtn" title="More">&#8942;</button>'
@@ -4616,7 +4633,6 @@ function renderNowPlaying() {
     + '</span></div>'
     + '<div class="np-song-artist" id="npArtistBtn">' + escHtml(currentSong.artist) + '</div>'
     + '</div>'
-    + '<button id="npQueueBtn" title="Queue">&#9776;</button>'
     + '</div>'
     + '<div class="np-controls">'
     + '<div class="np-progress">'
@@ -4627,13 +4643,13 @@ function renderNowPlaying() {
     + '<div class="np-times"><span>' + fmtTime(currentTime) + '</span><span>' + fmtTime(duration) + '</span></div>'
     + '</div>'
     + '<div class="np-main-controls">'
-    + '<button id="npRepeat" class="np-ctrl' + (repeatMode !== 'off' ? ' active' : '') + '" style="font-size:20px;">'
-    + (repeatMode === 'off' ? '&#8594;' : repeatMode === 'all' ? '&#8635;' : '&#8635;<span style="font-size:11px;font-weight:700;vertical-align:super;margin-left:1px;">1</span>')
-    + '</button>'
+    + '<button id="npRepeat" class="np-pill' + (repeatMode !== 'off' ? ' active' : '')
+    + '" aria-pressed="' + (repeatMode !== 'off') + '">' + repeatPillLabel() + '</button>'
     + '<button id="npPrev" class="np-ctrl np-skip">&#9198;</button>'
     + '<button class="np-play-btn' + (isPlaying ? ' is-playing' : '') + '" id="npPlay">' + (isPlaying ? '&#10074;&#10074;' : '&#9654;') + '</button>'
     + '<button id="npNext" class="np-ctrl np-skip">&#9197;</button>'
-    + '<button id="npShuffle" class="np-ctrl' + (isShuffled ? ' active' : '') + '" style="font-size:20px;">&#8644;</button>'
+    + '<button id="npShuffle" class="np-pill' + (isShuffled ? ' active' : '')
+    + '" aria-pressed="' + isShuffled + '">Shuffle</button>'
     + '</div>'
     + '';
 
@@ -4703,9 +4719,8 @@ function renderNowPlaying() {
     var btn = document.getElementById('npRepeat');
     if (!btn) return;
     btn.classList.toggle('active', repeatMode !== 'off');
-    btn.innerHTML = repeatMode === 'off' ? '&#8594;'
-      : repeatMode === 'all' ? '&#8635;'
-      : '&#8635;<span style="font-size:11px;font-weight:700;vertical-align:super;margin-left:1px;">1</span>';
+    btn.setAttribute('aria-pressed', repeatMode !== 'off');
+    btn.textContent = repeatPillLabel();
   };
   document.getElementById('npShuffle').onclick = function() {
     isShuffled = !isShuffled;
@@ -4721,7 +4736,10 @@ function renderNowPlaying() {
       queue = played.concat(remaining);
     }
     var btn = document.getElementById('npShuffle');
-    if (btn) btn.classList.toggle('active', isShuffled);
+    if (btn) {
+      btn.classList.toggle('active', isShuffled);
+      btn.setAttribute('aria-pressed', isShuffled);
+    }
   };
   document.getElementById('npFav').onclick = function() {
     var s = songMap[currentSong.id];
@@ -4730,7 +4748,6 @@ function renderNowPlaying() {
     var btn = document.getElementById('npFav');
     if (btn) { btn.innerHTML = heartSvg(s.fav); btn.classList.toggle('fav-active', s.fav); }
   };
-  document.getElementById('npQueueBtn').onclick = function() { openQueuePanel(); };
   var _seekEl = document.getElementById('npSeek');
   _seekEl.addEventListener('touchstart', function() { _npSeeking = true; }, { passive: true });
   _seekEl.addEventListener('touchend', function(e) {
@@ -4947,10 +4964,12 @@ function openNowPlayingMenu() {
         action: function() { openSongEditModal(currentSong.id); } },
       { icon: '&#9835;', label: 'Add to playlist',
         action: function() { showAddToPlaylistSheet(currentSong); } },
+      { icon: '&#9776;', label: 'Up next \u2014 queue',
+        action: function() { openQueuePanel(); } },
       'divider',
       { icon: '&#9201;', label: 'Playback speed \u2014 ' + playbackRate + '\u00d7',
         action: function() { cyclePlaybackSpeed(); } },
-      { icon: '&#9776;', label: 'Equalizer' + (eqOn ? ' \u2014 on' : ''),
+      { icon: '&#127898;', label: 'Equalizer' + (eqOn ? ' \u2014 on' : ''),
         action: function() { openEqPanel(); } },
       'divider',
       { icon: '&#128241;', label: 'Use as ringtone',
