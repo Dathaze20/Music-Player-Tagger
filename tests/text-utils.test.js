@@ -100,3 +100,75 @@ describe('parseLRC', () => {
     expect(parseLRC(null)).toEqual([]);
   });
 });
+
+// Genre fields arrive from a file's own tag, from MusicBrainz as lowercase free
+// text, and from the model — none of which agree on spelling. A library ended
+// up with "RB", "rnb" and "R&b" as separate genres of the same music.
+describe('canonicalGenre', () => {
+  const { canonicalGenre } = TextUtils;
+
+  it('spells every form of R&B the same way', () => {
+    ['RB', 'rb', 'rnb', 'RnB', 'R n B', 'R&B', 'r&b', 'R & B',
+     'Rhythm and Blues', 'rhythm & blues'].forEach(g => {
+      expect(canonicalGenre(g)).toBe('R&B');
+    });
+  });
+
+  it('does not leave an acronym half-capitalised', () => {
+    // What capitalising only the first letter used to produce.
+    expect(canonicalGenre('edm')).toBe('EDM');
+    expect(canonicalGenre('idm')).toBe('IDM');
+    expect(canonicalGenre('uk garage')).toBe('UK Garage');
+    expect(canonicalGenre('ost')).toBe('Soundtrack');
+  });
+
+  it('hyphenates the compounds that are normally hyphenated', () => {
+    expect(canonicalGenre('hip hop')).toBe('Hip-Hop');
+    expect(canonicalGenre('HipHop')).toBe('Hip-Hop');
+    expect(canonicalGenre('neo soul')).toBe('Neo-Soul');
+    expect(canonicalGenre('lofi')).toBe('Lo-Fi');
+    expect(canonicalGenre('g funk')).toBe('G-Funk');
+  });
+
+  it('keeps a longer phrase together instead of casing word by word', () => {
+    expect(canonicalGenre('east coast hip hop')).toBe('East Coast Hip-Hop');
+    expect(canonicalGenre('contemporary r&b')).toBe('Contemporary R&B');
+    expect(canonicalGenre('lo-fi hip hop')).toBe('Lo-Fi Hip-Hop');
+  });
+
+  it('splits a field holding two genres and spells both', () => {
+    expect(canonicalGenre('Rap/Hip-Hop')).toBe('Rap / Hip-Hop');
+    expect(canonicalGenre('soul, funk')).toBe('Soul / Funk');
+  });
+
+  it('does not duplicate a genre written twice in one field', () => {
+    expect(canonicalGenre('Hip Hop/HipHop')).toBe('Hip-Hop');
+    expect(canonicalGenre('RB, rnb')).toBe('R&B');
+  });
+
+  it('leaves an unrecognised genre alone apart from its casing', () => {
+    expect(canonicalGenre('shoegaze')).toBe('Shoegaze');
+    expect(canonicalGenre('Bachata')).toBe('Bachata');
+    expect(canonicalGenre('outlaw country')).toBe('Outlaw Country');
+    expect(canonicalGenre('zamrock')).toBe('Zamrock');
+  });
+
+  it('does not match an acronym hiding inside a longer word', () => {
+    expect(canonicalGenre('Serbian Folk')).toBe('Serbian Folk');
+    expect(canonicalGenre('Ukulele')).toBe('Ukulele');
+  });
+
+  it('has nothing to say about an empty field', () => {
+    expect(canonicalGenre('')).toBe('');
+    expect(canonicalGenre(null)).toBe('');
+    expect(canonicalGenre('   ')).toBe('');
+  });
+
+  it('is stable — canonicalising twice changes nothing', () => {
+    ['RB', 'hip hop', 'Rap/Hip-Hop', 'edm', 'east coast hip hop', 'Shoegaze']
+      .forEach(g => {
+        const once = canonicalGenre(g);
+        expect(canonicalGenre(once)).toBe(once);
+      });
+  });
+});

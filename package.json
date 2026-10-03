@@ -4,14 +4,14 @@
   "description": "A pure HTML/CSS/JavaScript music player with AI-powered auto-tagging, wrapped with Capacitor for Android.",
   "main": "app.js",
   "dependencies": {
-    "@capacitor/android": "^8.4.1",
-    "@capacitor/cli": "^8.4.1",
-    "@capacitor/core": "^8.4.1",
-    "@capacitor/filesystem": "^8.1.2"
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/filesystem": "^8.1.4"
   },
   "devDependencies": {
-    "eslint": "^9.15.0",
-    "vitest": "^2.1.4"
+    "@capacitor/cli": "^8.5.2",
+    "eslint": "^10.12.0",
+    "vitest": "^5.0.3"
   },
   "scripts": {
     "test": "vitest run",

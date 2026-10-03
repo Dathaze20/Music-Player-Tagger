@@ -7,6 +7,44 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.8.0
+
+Maintenance release: four bugs and a dependency refresh.
+
+- **The music no longer dies when you switch apps.** Android kills this app's
+  web view whenever another app wants the memory — a camera or a video does it
+  readily — and rebuilding it leaves the song showing in the mini player but
+  without the address it plays from. Tapping play did nothing at all: no error,
+  no message, nothing to do but force-quit. The address is rebuilt from the
+  song's own file reference now, on the spot, and playback carries on from
+  where it stopped. If a file genuinely cannot be reopened it says so instead
+  of sitting there
+- **The song you were playing is found again even in a big library.** It was
+  looked up only among the first two thousand songs, and nothing looked again
+  once the rest had loaded
+- **No more "Library restored" notice, and no more song count stuck at 2000.**
+  Both had the same cause. The library is too big for the browser's small
+  storage, so the first two thousand songs load instantly and the rest arrive
+  from the database a moment later — but anything that saved in between wrote
+  those two thousand over the full copy. Backgrounding the app was enough. From
+  then on every launch found the library short, rebuilt it from scratch, and
+  announced it. Saving is now refused until the real library is in, and the
+  rebuild, when it is needed, is silent
+- **Genres are spelled properly and consistently.** "RB", "rnb", "R&b" and
+  "Rhythm and Blues" were four different genres of the same music, and the
+  music database's lowercase tags were capitalised one letter deep, so "r&b"
+  became "R&b" and "edm" became "Edm". Every genre is now written one way
+  wherever it comes from — the file, the database, or the AI — and the genres
+  already in your library are corrected once, automatically and silently
+- **AI Fill finds more years.** The lookup asked for three matching releases
+  and read the date off one of them. It now asks for five and takes the
+  earliest date any of them carries, which costs nothing — they all arrive in
+  the same answer — and rescues the common case where the best match has no
+  date but an older pressing beside it does
+- Capacitor updated to 8.5.2, test and lint tooling brought up to date, and a
+  critical advisory in a build dependency cleared. Nothing that ships inside
+  the app has a known vulnerability
+
 ## v1.7.21
 
 - **Disconnecting Bluetooth headphones now pauses instead of switching to the

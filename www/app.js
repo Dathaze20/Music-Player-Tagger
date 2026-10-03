@@ -983,14 +983,19 @@ function saveLibraryIDB() {
   }).catch(function() {});
 }
 
+// Resolves to the stored library, [] if there genuinely is none, or null if the
+// read failed. The caller needs those last two kept apart: an empty store means
+// nothing can be lost by saving over it, while a failed read means the full
+// library may still be sitting there unseen, and writing the preview on top of
+// it would destroy it.
 function loadLibraryIDB() {
   return openLibDb().then(function(db) {
     return new Promise(function(resolve) {
       var req = db.transaction(LIB_STORE, 'readonly').objectStore(LIB_STORE).get('library');
       req.onsuccess = function() { resolve(req.result || []); };
-      req.onerror = function() { resolve([]); };
+      req.onerror = function() { resolve(null); };
     });
-  }).catch(function() { return []; });
+  }).catch(function() { return null; });
 }
 
 // ─── Manual Edits Store ───
@@ -1082,7 +1087,9 @@ function applyEditsToSongs() {
     if (edit.album  !== undefined) s.album  = edit.album;
     if (edit.albumArtist !== undefined) s.albumArtist = edit.albumArtist;
     if (edit.year   !== undefined) s.year   = edit.year;
-    if (edit.genre  !== undefined) s.genre  = edit.genre;
+    // Canonicalised on the way in, so an edit saved before genres were
+    // spelled consistently cannot put the old spelling back every launch.
+    if (edit.genre  !== undefined) s.genre  = canonicalGenre(edit.genre);
     if (edit.track  !== undefined) s.track  = edit.track;
     if (edit.type   !== undefined) s.type   = edit.type;
     if (edit.feat   !== undefined) s.feat   = edit.feat;
@@ -1090,6 +1097,66 @@ function applyEditsToSongs() {
     if (edit.lyrics !== undefined) s.lyrics = edit.lyrics;
     if (edit.art && edit.art.indexOf('data:') === 0) s.art = edit.art;
   });
+}
+
+/**
+ * Spell the genres already in the library the one way, once.
+ *
+ * Everything that writes a genre now canonicalises it, but the library was
+ * filled before that was true, so it still holds whatever each source handed
+ * over: "RB" from a ripper's tag, "R&b" from a MusicBrainz tag that had only
+ * its first letter capitalised, and a model's own spelling beside both. They
+ * show up as separate genres on the Genres tab, which is the visible symptom.
+ *
+ * Only the spelling changes. A genre is replaced solely when canonicalising it
+ * produces something different, which is a renaming of what is already there —
+ * never a guess at what a song should be. Songs with no genre are left alone
+ * rather than given one.
+ *
+ * Saved edits are corrected in place too. They are re-applied over the library
+ * on every launch, so an edit still holding "RB" would put it back each time;
+ * only the genre field of records that already exist is touched, so nothing
+ * becomes a manual edit that was not one already.
+ */
+var _GENRE_REPAIR_KEY = 'muzio_genres_canonical_v1';
+
+function repairGenres() {
+  try { if (localStorage.getItem(_GENRE_REPAIR_KEY)) return 0; } catch (e) {}
+  if (!songs.length) return 0;   // nothing loaded yet; try again when it is
+
+  var fixed = 0;
+  songs.forEach(function(s) {
+    if (!s.genre) return;
+    var good = canonicalGenre(s.genre);
+    if (good && good !== s.genre) { s.genre = good; fixed++; }
+  });
+
+  var staleEdits = [];
+  Object.keys(_editsMap).forEach(function(key) {
+    var edit = _editsMap[key];
+    if (!edit || !edit.genre) return;
+    var good = canonicalGenre(edit.genre);
+    if (good && good !== edit.genre) { edit.genre = good; staleEdits.push(key); }
+  });
+  if (staleEdits.length) {
+    openLibDb().then(function(db) {
+      var st = db.transaction(EDITS_STORE, 'readwrite').objectStore(EDITS_STORE);
+      staleEdits.forEach(function(key) { st.put(_editsMap[key], key); });
+    }).catch(function() {});
+  }
+
+  if (fixed) {
+    _countsCache = null; _artistsCache = null; _albumsCache = null;
+    _artistSongsCache = null; _albumSongsCache = null; _spCache = null;
+    saveLibrary();
+  }
+  // Only recorded as done once it could actually be written down. Saving is
+  // refused while the library is still the preview, and marking it done then
+  // would retire the pass having changed nothing that outlives the session.
+  if (!_libraryPreview) {
+    try { localStorage.setItem(_GENRE_REPAIR_KEY, '1'); } catch (e) {}
+  }
+  return fixed;
 }
 
 // ─── Deferred file-tag writes ───
@@ -1244,7 +1311,28 @@ function deleteSongsFromDevice(songsToDelete) {
   }
 }
 
+/**
+ * True while `songs` holds only the localStorage preview.
+ *
+ * The real library is 6 MB at this size and localStorage tops out well below
+ * that, so on a large library the preview — the first two thousand songs — is
+ * always what loads first, and IndexedDB arrives about fifty milliseconds
+ * later with the rest.
+ *
+ * Anything that saved inside that window wrote the preview over the full copy
+ * in IndexedDB, because saveLibraryIDB() stores whatever `songs` currently is.
+ * One save was enough: backgrounding the app flushes, and so does starting a
+ * song. From then on IndexedDB held two thousand songs, the next launch found
+ * far fewer than MediaStore reports, and the app rebuilt the library from
+ * scratch and announced it — every single launch. That is the "Library
+ * restored" notice, and the song count sitting at two thousand until the
+ * rebuild finished and jumped it to fifteen.
+ */
+var _libraryPreview = false;
+
 function saveLibrary() {
+  // Never let the preview overwrite the real library.
+  if (_libraryPreview) return;
   _countsCache = null; _artistsCache = null; _albumsCache = null;
   _artistSongsCache = null; _albumSongsCache = null; _spCache = null; _albumCreditMap = null;
   songMap = Object.create(null);
@@ -1290,6 +1378,7 @@ function loadLibrary() {
   try {
     var raw = localStorage.getItem('muzio_library');
     if (!raw) return [];
+    _libraryPreview = localStorage.getItem('muzio_library_partial') === '1';
     var data = JSON.parse(raw);
     return data.map(function(s) {
       s.id = genId();
@@ -1725,7 +1814,9 @@ function cleanFileGenre(g) {
   if (!low) return '';
   if (['genre','unknown','unknown genre','none','n/a','na','null','other','music','misc','miscellaneous','(none)','undefined'].indexOf(low) !== -1) return '';
   if (/^\(\s*\d+\s*\)$/.test(low)) return '';   // a bare ID3 numeric code
-  return v;
+  // Spelled the one way, so "RB", "rnb" and "Rhythm & Blues" stop being three
+  // different genres of the same music.
+  return canonicalGenre(v);
 }
 
 function _mbIsGenreTag(name) {
@@ -5330,7 +5421,7 @@ function playSong(song, songList) {
   }
   currentTime = 0;
   duration = song.dur || 0;
-  if (song.url) {
+  if (ensureSongUrl(song)) {
     isPlaying = true;
     if (prepareAudioOutput(crossfadeDur > 0)) {
       _gainMain.gain.cancelScheduledValues(_audioCtx.currentTime);
@@ -5372,7 +5463,7 @@ function syncPlaybackUI() {
 }
 
 function togglePlay() {
-  if (!currentSong || !currentSong.url) return;
+  if (!currentSong) return;
   _haptic(10);
   if (isPlaying) {
     _ourPause = true;
@@ -5381,6 +5472,13 @@ function togglePlay() {
     isPlaying = false;
     watchForResume(false); // a deliberate pause is not an interruption
   } else {
+    // After the WebView has been killed and rebuilt, the song is back but its
+    // address and the element's source are not. Rebuild both rather than
+    // returning silently, which is what made the app look frozen.
+    if (!attachCurrentSong()) {
+      showToast('Could not reopen that file — try Rescan Library', 3500);
+      return;
+    }
     _systemPaused = false;
     watchForResume(false);
     prepareAudioOutput(false);
@@ -5732,7 +5830,10 @@ function primeRestoredSong() {
   duration    = match.dur || 0;
   // Never disturb playback that has already started.
   if (isPlaying || audio.src) { _restoreSongFn = null; return; }
-  if (!match.url) return;          // scan has not handed out urls yet — try later
+  // Rebuilt from the song's own content URI when the reload blanked it, so the
+  // restored song is ready to play immediately instead of only after a scan
+  // has got round to handing the addresses back out.
+  if (!ensureSongUrl(match)) return;   // no URI to rebuild from — try again later
   _restoreSongFn = null;
   audio.src = match.url;
   audio.playbackRate = playbackRate;
@@ -5744,6 +5845,62 @@ function primeRestoredSong() {
       try { audio.currentTime = target; } catch (e) {}
     });
   }
+}
+
+/**
+ * The song's playable address, rebuilt if the WebView has lost it.
+ *
+ * Every song plays from a localhost URL the WebView mints out of a content://
+ * URI, and that URL does not survive a reload — both the localStorage load and
+ * the IndexedDB load blank it, and it is only handed back by the startup scan.
+ *
+ * Android kills this WebView whenever it wants the memory back, which another
+ * app opening a camera or a video does readily. Coming back, the activity is
+ * recreated and the page reloads. The mini player still shows the song, because
+ * that much is restored from saved state, but its URL is gone with the old
+ * WebView — and togglePlay() returned silently on an empty URL, so the song sat
+ * there and the play button did nothing at all. No error, no toast, nothing to
+ * do but force-quit: the app looked frozen.
+ *
+ * Nothing had to be waited for. The URI the URL is minted from is stored on the
+ * song, so it can be rebuilt on the spot.
+ */
+function ensureSongUrl(song) {
+  if (!song) return '';
+  if (song.url) return song.url;
+  var cap = typeof window !== 'undefined' && window.Capacitor;
+  if (!cap || !cap.convertFileSrc) return '';
+  try {
+    if (song.contentUri) {
+      song.url = cap.convertFileSrc(song.contentUri) || '';
+    } else if (song.nativePath) {
+      song.url = cap.convertFileSrc(song.nativePath.replace('file://', '')) || '';
+    }
+  } catch (e) {}
+  return song.url || '';
+}
+
+/**
+ * Point the audio element at the current song if it is not already loaded.
+ *
+ * The element is part of the page, so a reload leaves it empty even once the
+ * song and its URL are back. Calling play() on an empty element does nothing,
+ * which is the second half of the same frozen state.
+ */
+function attachCurrentSong() {
+  if (!currentSong) return false;
+  if (!ensureSongUrl(currentSong)) return false;
+  if (audio.src) return true;
+  audio.src = currentSong.url;
+  audio.playbackRate = playbackRate;
+  var target = currentTime || 0;
+  if (target > 0) {
+    audio.addEventListener('loadedmetadata', function once() {
+      audio.removeEventListener('loadedmetadata', once);
+      try { audio.currentTime = target; } catch (e) {}
+    });
+  }
+  return true;
 }
 
 /**
@@ -5954,8 +6111,9 @@ function _mbTopGenreTag(tags) {
     .sort(function(a, b) { return (b.count || 0) - (a.count || 0); })
     .filter(function(t) { return _mbIsGenreTag(t.name); });
   if (!list.length || !list[0].name) return '';
-  var g = list[0].name;
-  return g.charAt(0).toUpperCase() + g.slice(1);
+  // MusicBrainz tags are lowercase free text. Capitalising the first letter and
+  // nothing else turned "r&b" into "R&b" and "edm" into "Edm".
+  return canonicalGenre(list[0].name);
 }
 
 // A four-digit year out of a MusicBrainz date, which may be "2022",
@@ -6029,9 +6187,12 @@ function lookupMusicBrainz(song) {
   // No inc= here: it is a parameter of a lookup, not of a search. A release
   // search already carries the artist credit and a stub release group, and
   // anything more has to be fetched on its own below.
+  // Five rather than three. They all arrive in this one response, so the extra
+  // two cost nothing, and each is another chance at a date when the best match
+  // turns out not to carry one.
   var url = 'https://musicbrainz.org/ws/2/release?query='
           + encodeURIComponent(parts.join(' AND '))
-          + '&fmt=json&limit=3';
+          + '&fmt=json&limit=5';
 
   return _mbFetch(url, 12000).then(function(data) {
     if (!data || !data.releases || !data.releases.length) return _mbArtistOnlyGenre(artist);
@@ -6062,9 +6223,20 @@ function lookupMusicBrainz(song) {
       if (ac[0] && ac[0].artist) artistMbid = ac[0].artist.id || '';
     }
 
-    // The date on this particular release — a pressing, which may be a reissue
-    // years after the fact. Only used if the release group cannot be reached.
-    var relYear = _mbYear(rel.date);
+    // Dates on the individual releases — pressings, so any one of them may be a
+    // reissue years after the fact, and plenty carry no date at all. Only used
+    // if the release group cannot be reached.
+    //
+    // The earliest across every result is taken rather than the date on the one
+    // chosen for its metadata. A record's best-matching entry is frequently a
+    // later edition with the original sitting right beside it in the same
+    // response, and often the chosen one has no date while another does — so
+    // asking only that one threw away a year that had already been fetched.
+    var relYear = '';
+    data.releases.forEach(function(r) {
+      var y = _mbYear(r.date);
+      if (y && (!relYear || y < relYear)) relYear = y;
+    });
     var rgStub  = rel['release-group'] || null;
 
     return _mbReleaseGroup(rgStub ? rgStub.id : '').then(function(rgFull) {
@@ -6155,6 +6327,11 @@ function aiFill(song) {
     // untagged has no artist anywhere to borrow from, and the database is the
     // only thing that knows. Whoever the record is by is the right answer for
     // the tracks on it.
+    // Whichever of the two answered, the genre is spelled the same way the rest
+    // of the library spells it. The model is asked for a specific subgenre and
+    // writes it however it likes; the database writes lowercase free text.
+    if (merged.genre) merged.genre = canonicalGenre(merged.genre);
+
     if (!merged.artist && merged.albumArtist) merged.artist = merged.albumArtist;
 
     // Last resort, and only for a song that has no artist of its own: the album
@@ -6798,7 +6975,7 @@ function openSongEditModal(songId) {
     song.album       = document.getElementById('teAlbum').value.trim();
     song.albumArtist = document.getElementById('teAlbumArtist').value.trim();
     song.year        = document.getElementById('teYear').value.trim();
-    song.genre       = document.getElementById('teGenre').value.trim();
+    song.genre       = canonicalGenre(document.getElementById('teGenre').value);
     song.track       = parseInt(document.getElementById('teTrack').value) || 0;
     song.feat        = document.getElementById('teFeat').value.trim();
     song.type        = selectedType;
@@ -7075,7 +7252,7 @@ function openEditModal(albumName, artistName) {
     var newAlbumArtist = document.getElementById('editAlbumArtist').value.trim();
     var newAlbum       = document.getElementById('editAlbum').value.trim();
     var newYear        = document.getElementById('editYear').value.trim();
-    var newGenre       = document.getElementById('editGenre').value.trim();
+    var newGenre       = canonicalGenre(document.getElementById('editGenre').value);
 
     // albumSongs is already computed in the outer openEditModal scope — use it
     // directly so we update exactly the same songs that were shown in the dialog.
@@ -8558,10 +8735,22 @@ loadAllEdits().then(function(edits) {
   }
   applyEditsToSongs(); // always re-apply after IDB load
   _idbLoading = false;
+  // IndexedDB has had its say, so whatever is in memory now is the best copy
+  // there is and saving it can no longer lose anything — unless the read
+  // itself failed, in which case the full library may still be sitting there
+  // unseen and the preview must not be written over it.
+  if (saved !== null) _libraryPreview = false;
   // If the loaded library is smaller than the true count (localStorage quota truncated it
   // or IDB was overwritten with a partial snapshot), trigger a full rescan to recover.
   var _storedCount = parseInt(localStorage.getItem('muzio_library_count') || '0');
   if (_storedCount > 0 && songs.length < _storedCount) _forceRescan = true;
+  // The song that was playing is looked up by filename, and at the first
+  // attempt the only songs loaded were the localStorage preview — the first two
+  // thousand. Anything past that was simply not found, and nothing looked
+  // again, so coming back to the app left the track unrestored. The full
+  // library is here now.
+  primeRestoredSong();
+  repairGenres();   // once, silently, now the whole library is here
   scheduleStartupRender();
   nativeAutoScan();
 }).catch(function() {
@@ -8620,6 +8809,7 @@ function nativeAutoScan() {
         }
       } catch(e) {}
     });
+    primeRestoredSong();  // addresses are back, so the restored song can play
     render();
     backgroundLoadAllArt();
 
@@ -8654,10 +8844,12 @@ function nativeAutoScan() {
         _countsCache = null; _artistsCache = null; _albumsCache = null;
         _artistSongsCache = null; _albumSongsCache = null; _spCache = null; _albumCreditMap = null;
         applyEditsToSongs();
+        _libraryPreview = false;   // rebuilt from MediaStore: this is the full set
         saveLibrary();
         render();
         backgroundLoadAllArt();
-        showToast('Library restored: ' + songs.length + ' songs', 3000);
+        // Deliberately silent. This is recovery housekeeping, and announcing it
+        // on every launch made a routine background step look like a warning.
         return;
       }
 
@@ -8674,8 +8866,9 @@ function nativeAutoScan() {
         if (f.art && !s.art) { s.art = f.art; updated++; }
         if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
         if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
-        if (f.genre && !s.genre) s.genre = f.genre;
+        if (f.genre && !s.genre) s.genre = canonicalGenre(f.genre);
       });
+      _libraryPreview = false;   // checked against MediaStore and the size is right
       if (updated > 0) { saveLibrary(); render(); }
     }).catch(function() {});
     return;
@@ -8723,6 +8916,7 @@ function nativeAutoScan() {
 
     applyEditsToSongs(); // restore manual edits on top of fresh scan data
     primeRestoredSong();  // urls exist now, so the leftover song can be played
+    _libraryPreview = false;   // a full scan is the whole library by definition
     saveLibrary();
     render();
     backgroundLoadAllArt();
