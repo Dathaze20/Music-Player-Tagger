@@ -42,6 +42,8 @@ module.exports = [
         escHtml: 'readonly',
         parseFileName: 'readonly',
         parseLRC: 'readonly',
+        canonicalGenre: 'readonly',
+        genreKey: 'readonly',
       },
     },
     rules: {

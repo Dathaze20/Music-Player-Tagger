@@ -49,7 +49,7 @@ var NativeBridge = (function() {
           disc:        f.disc   || 1,
           track:       f.track  || 0,
           year:        f.year   || '',
-          genre:       f.genre  || '',
+          genre:       canonicalGenre(f.genre),
           dur:         f.dur    || 0,
           size:        typeof f.size === 'number' ? f.size : -1,
         };
@@ -130,7 +130,7 @@ var NativeBridge = (function() {
       disc:        fileInfo.disc  || 1,
       track:       fileInfo.track || 0,
       year:        fileInfo.year  || '',
-      genre:       fileInfo.genre || '',
+      genre:       canonicalGenre(fileInfo.genre),
       art:         fileInfo.art   || '',   // album art URL from MediaStore
       lyrics: '', syncedLyrics: '',
       dur:         fileInfo.dur || 0,
