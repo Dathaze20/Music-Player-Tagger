@@ -7,6 +7,28 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.8.2
+
+Now Playing screen.
+
+- **The arrow at the top left points back**, which is what it does. It was a
+  downward chevron, which says "put this away downwards" and reads as nothing
+  much at all
+- **Repeat and shuffle are labelled buttons instead of two bare arrows.** They
+  sit where the symbols sat and say what they are, and when one is on it fills
+  in solid rather than changing to a slightly different shade of grey. Repeat
+  reads "Repeat 1" when it is repeating the one track. Both are a fixed width,
+  so the row no longer shifts sideways under your thumb as the label changes
+- **The three-line button beside the song title is gone.** It opened the queue,
+  which is not what three lines next to an album title look like they do. The
+  queue is in the ⋮ menu as "Up next", and the title gets the room back
+- The equalizer gets its own icon in that menu rather than sharing one with the
+  queue
+
+Shuffle shows as on because it is on: the big shuffle button on the Songs list
+turns it on and it stays on until you turn it off. That has not changed — it is
+just possible to see now.
+
 ## v1.8.1
 
 - **"Date added" works.** It never did. Android tells the app when it first saw

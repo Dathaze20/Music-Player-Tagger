@@ -3475,3 +3475,93 @@ body.cf-ls .app { overflow: visible !important; }
   width: 100%;
   justify-content: center;
 }
+
+/* ─── Now Playing: repeat / shuffle as labelled capsules ─────────────────
+   They were two unlabelled arrow glyphs either side of the transport. Which
+   was which was a guess, and whether either was on came down to noticing the
+   colour of a symbol you had to recognise first. A capsule with the word in it
+   says both at once: what it does, and — filled in or not — whether it is on.
+
+   These rules sit at the end of the file and carry !important because
+   .np-main-controls button above sets a fixed width, zero padding and a 20px
+   font on everything in that row. */
+.np-main-controls .np-pill {
+  width: auto !important;
+  min-width: 0 !important;
+  height: 30px !important;
+  padding: 0 10px !important;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.20);
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.78);
+  font-size: 11px !important;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.14s, border-color 0.14s, color 0.14s,
+              transform 0.12s cubic-bezier(0.34,1.56,0.64,1);
+}
+/* On is unmistakable: filled, not a slightly different shade of grey. */
+.np-main-controls .np-pill.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #04221f;
+  box-shadow: 0 0 14px rgba(0,200,190,0.40);
+}
+.np-main-controls .np-pill:active { transform: scale(0.92); }
+
+/* Both capsules are one fixed width, wide enough for the longest label the
+   repeat button ever shows ("Repeat 1"). Sizing them to their text instead
+   made the whole row re-centre as the label changed, nudging the play button
+   sideways under the thumb mid-cycle — and at 360px the longest label pushed
+   the row off the edge of the screen. */
+.np-main-controls .np-pill {
+  width: 62px !important;
+  min-width: 62px !important;
+  max-width: 62px !important;
+  padding: 0 4px !important;
+}
+/* The capsules are wider than the glyphs they replace, so the width comes back
+   from the gaps and from the controls row adopting the narrower side padding
+   the rest of the screen already uses. The seek bar gets slightly wider with
+   it, which is no loss. */
+.np-main-controls { gap: 9px; }
+.np-controls { padding-left: 12px; padding-right: 12px; }
+@media (max-width: 400px) {
+  .np-main-controls { gap: 6px; }
+  .np-main-controls .np-pill { font-size: 10.5px !important; }
+  /* 54px is still a comfortable touch target and buys the row the last few
+     pixels it needs on a narrow phone. */
+  .now-playing .np-skip,
+  .now-playing .np-main-controls button.np-skip {
+    width: 54px !important; min-width: 54px !important; max-width: 54px !important;
+    height: 54px !important; min-height: 54px !important; max-height: 54px !important;
+  }
+}
+
+/* The title had a hamburger crowding it; with that gone it gets the room. */
+.np-info-row { gap: 10px; }
+
+/* Very narrow phones (320px and under). The capsules need more room than the
+   two glyphs did, and at this width the transport simply has to be smaller to
+   keep everything on one line. Nothing here applies at 360px and up. */
+@media (max-width: 340px) {
+  .np-controls { padding-left: 10px; padding-right: 10px; }
+  .np-main-controls { gap: 4px; }
+  .np-main-controls .np-pill {
+    width: 54px !important; min-width: 54px !important; max-width: 54px !important;
+    font-size: 10px !important; padding: 0 3px !important;
+  }
+  .now-playing .np-skip,
+  .now-playing .np-main-controls button.np-skip {
+    width: 48px !important; min-width: 48px !important; max-width: 48px !important;
+    height: 48px !important; min-height: 48px !important; max-height: 48px !important;
+  }
+  .now-playing .np-play-btn,
+  .np-play-btn {
+    width: 68px !important; min-width: 68px !important; max-width: 68px !important;
+    height: 68px !important; min-height: 68px !important; max-height: 68px !important;
+  }
+}
