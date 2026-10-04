@@ -6,8 +6,6 @@ It is a full player, not a tag editor with a play button: browse by artist, albu
 
 Built as **pure HTML/CSS/JavaScript with zero build tools** for the web layer, wrapped with **Capacitor 8 and a hand-written native Java plugin** for Android.
 
-The Android application ID is `io.github.dathaze20.mymusic`. It was `com.muzioai.app` until v1.9.0 — an unrelated Play app called Muzio has over a hundred million installs, and an application ID cannot be changed once an app is published, so it was corrected before any store release.
-
 Tested against a real 15,000-song library on a physical device.
 
 ---
@@ -21,7 +19,7 @@ Tested against a real 15,000-song library on a physical device.
 
 ### AI-assisted metadata repair — before and after
 
-A single-track rip of *Street Cinema* with no album artist, no year and no genre. One tap of **AI Fill** resolves all three from MusicBrainz, and the button turns to Done.
+A single-track rip of *Street Cinema* with no album artist, no year and no genre. One tap of **AI Fill** resolves all three automatically, and the button turns to Done.
 
 | Before | After |
 |:---:|:---:|
@@ -270,6 +268,7 @@ Then `./gradlew assembleRelease bundleRelease`.
 | Lyrics | LRC parsing with time-aligned highlighting |
 | QR codes | ZXing, generated natively |
 | Mobile shell | Capacitor 8 (min SDK 24, target SDK 36) |
+| Application ID | `io.github.dathaze20.mymusic` |
 | Native Android | `MediaStorePlugin.java` — scanning, permissions, art decoding, tag writing, delete, file save, clipboard, sharing, WiFi server |
 | Background audio | `MuzioPlaybackService.java` — foreground service with `MediaSession` |
 | CI | GitHub Actions — lint and unit tests on every push; debug/release APK + AAB builds; signed GitHub Releases |
