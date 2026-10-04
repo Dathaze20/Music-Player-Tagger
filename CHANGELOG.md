@@ -7,6 +7,18 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.8.3
+
+- **"Date added" keeps working after a restart.** The previous release taught
+  the app to read the date Android records for each file, but the main library
+  store was still not saving it — the date reached the small quick-access copy
+  and was dropped on the way into the real one. It survived each session only
+  because the app rebuilt it from scratch during the next scan, so the sort was
+  wrong for the first few seconds of every launch. It is stored properly now
+- A set of tests now compares the lists of fields a song is written out with,
+  in each of the places that write one. Both of the dropped-field bugs from the
+  last two releases are caught by them
+
 ## v1.8.2
 
 Now Playing screen.
