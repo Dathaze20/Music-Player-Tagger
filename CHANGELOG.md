@@ -7,6 +7,16 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.8.4
+
+- **Export Backup now saves your play counts and play history too.** It already
+  carried every tag you had fixed, your favourites, playlists, profile and any
+  album art you had chosen — but not how often you had played things, so a
+  restore brought everything back except "Most played", which came back empty.
+  Older backup files still import; they simply have no play history in them
+
+Worth taking a fresh backup from the menu after installing this one.
+
 ## v1.8.3
 
 - **"Date added" keeps working after a restart.** The previous release taught
