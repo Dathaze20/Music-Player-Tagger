@@ -23,10 +23,10 @@ def appVersionName = System.getenv('APP_VERSION_NAME') ?: '1.1'
 def appVersionCode = (System.getenv('APP_VERSION_CODE') ?: '2') as int
 
 android {
-    namespace = "com.muzioai.app"
+    namespace = "io.github.dathaze20.mymusic"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.muzioai.app"
+        applicationId "io.github.dathaze20.mymusic"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode appVersionCode

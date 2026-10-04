@@ -1,4 +1,4 @@
-package com.muzioai.app;
+package io.github.dathaze20.mymusic;
 
 import android.app.Activity;
 import android.app.PendingIntent;
@@ -101,14 +101,14 @@ public class MediaStorePlugin extends Plugin {
     private static final String PREFS_NAME             = "muzio_prefs";
     private static final String PREF_SAF_URI           = "saf_tree_uri";
 
-    // Broadcast actions — must match MuzioPlaybackService constants
-    private static final String ACTION_PREV       = "com.muzioai.app.ACTION_PREV";
-    private static final String ACTION_PLAY_PAUSE = "com.muzioai.app.ACTION_PLAY_PAUSE";
-    private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
-    private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
-    private static final String ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
-    private static final String ACTION_RESUME     = "com.muzioai.app.ACTION_RESUME";
-    private static final String ACTION_NOISY_PAUSE = "com.muzioai.app.ACTION_NOISY_PAUSE";
+    // Broadcast actions — must match PlaybackService constants
+    private static final String ACTION_PREV       = "io.github.dathaze20.mymusic.ACTION_PREV";
+    private static final String ACTION_PLAY_PAUSE = "io.github.dathaze20.mymusic.ACTION_PLAY_PAUSE";
+    private static final String ACTION_NEXT       = "io.github.dathaze20.mymusic.ACTION_NEXT";
+    private static final String ACTION_CLOSE      = "io.github.dathaze20.mymusic.ACTION_CLOSE";
+    private static final String ACTION_SEEK       = "io.github.dathaze20.mymusic.ACTION_SEEK";
+    private static final String ACTION_RESUME     = "io.github.dathaze20.mymusic.ACTION_RESUME";
+    private static final String ACTION_NOISY_PAUSE = "io.github.dathaze20.mymusic.ACTION_NOISY_PAUSE";
 
     // Saved state for async activity callbacks
     private PluginCall savedWriteCall;
@@ -126,7 +126,7 @@ public class MediaStorePlugin extends Plugin {
     private volatile boolean fileServerActive = false;
 
     // ─── Notification button receiver ─────────────────────────────────────────
-    // Receives ACTION_PREV/PLAY_PAUSE/NEXT/CLOSE from MuzioPlaybackService
+    // Receives ACTION_PREV/PLAY_PAUSE/NEXT/CLOSE from PlaybackService
     // and dispatches the corresponding JS event to the WebView.
     private BroadcastReceiver notifReceiver;
     private boolean           receiverRegistered = false;
@@ -1358,7 +1358,7 @@ public class MediaStorePlugin extends Plugin {
 
     private String nvl(String s) { return s == null ? "" : s; }
 
-    // ─── Media notification — delegated to MuzioPlaybackService ──────────────
+    // ─── Media notification — delegated to PlaybackService ──────────────
 
     /**
      * Ensures the local broadcast receiver is registered so that button presses
@@ -1383,7 +1383,7 @@ public class MediaStorePlugin extends Plugin {
                     ev = "close"; seekMs = -1;
                 } else if (ACTION_SEEK.equals(action)) {
                     ev = "seekTo";
-                    seekMs = intent.getLongExtra(MuzioPlaybackService.EXTRA_SEEK_MS, 0L);
+                    seekMs = intent.getLongExtra(PlaybackService.EXTRA_SEEK_MS, 0L);
                 } else if (ACTION_RESUME.equals(action)) { ev = "resume"; seekMs = -1; }
                 else if (ACTION_NOISY_PAUSE.equals(action)) { ev = "noisyPause"; seekMs = -1; }
                 else return;
@@ -1725,9 +1725,9 @@ public class MediaStorePlugin extends Plugin {
      */
     @PluginMethod
     public void watchForResume(PluginCall call) {
-        if (!MuzioPlaybackService.isRunning) { call.resolve(); return; }
-        Intent i = new Intent(getContext(), MuzioPlaybackService.class);
-        i.setAction(MuzioPlaybackService.ACTION_WATCH_RESUME);
+        if (!PlaybackService.isRunning) { call.resolve(); return; }
+        Intent i = new Intent(getContext(), PlaybackService.class);
+        i.setAction(PlaybackService.ACTION_WATCH_RESUME);
         i.putExtra("watch", Boolean.TRUE.equals(call.getBoolean("watch", false)));
         try {
             getContext().startService(i);
@@ -1775,12 +1775,12 @@ public class MediaStorePlugin extends Plugin {
      */
     @PluginMethod
     public void updatePlaybackPosition(PluginCall call) {
-        if (!MuzioPlaybackService.isRunning) { call.resolve(); return; }
+        if (!PlaybackService.isRunning) { call.resolve(); return; }
         Double posD = call.getDouble("position", 0.0);
         Double durD = call.getDouble("duration", 0.0);
         Double spdD = call.getDouble("speed", 1.0);
-        Intent i = new Intent(getContext(), MuzioPlaybackService.class);
-        i.setAction(MuzioPlaybackService.ACTION_POSITION);
+        Intent i = new Intent(getContext(), PlaybackService.class);
+        i.setAction(PlaybackService.ACTION_POSITION);
         i.putExtra("playing",  Boolean.TRUE.equals(call.getBoolean("playing", false)));
         i.putExtra("position", posD != null ? posD.longValue() : 0L);
         i.putExtra("duration", durD != null ? durD.longValue() : 0L);
@@ -1801,7 +1801,7 @@ public class MediaStorePlugin extends Plugin {
         call.resolve();
     }
 
-    /** Packages the call params into an Intent and starts/updates MuzioPlaybackService. */
+    /** Packages the call params into an Intent and starts/updates PlaybackService. */
     private void sendToService(PluginCall call) {
         String  title   = nvl(call.getString("title",   ""));
         String  artist  = nvl(call.getString("artist",  ""));
@@ -1814,8 +1814,8 @@ public class MediaStorePlugin extends Plugin {
         long position = posD != null ? posD.longValue() : 0L;
         long duration = durD != null ? durD.longValue() : 0L;
 
-        Intent intent = new Intent(getContext(), MuzioPlaybackService.class);
-        intent.setAction(MuzioPlaybackService.ACTION_UPDATE);
+        Intent intent = new Intent(getContext(), PlaybackService.class);
+        intent.setAction(PlaybackService.ACTION_UPDATE);
         intent.putExtra("title",    title);
         intent.putExtra("artist",   artist);
         intent.putExtra("album",    album);
@@ -1826,7 +1826,7 @@ public class MediaStorePlugin extends Plugin {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                    && !MuzioPlaybackService.isRunning) {
+                    && !PlaybackService.isRunning) {
                 getContext().startForegroundService(intent);
             } else {
                 getContext().startService(intent);
@@ -1875,8 +1875,8 @@ public class MediaStorePlugin extends Plugin {
 
     private void stopService() {
         try {
-            Intent intent = new Intent(getContext(), MuzioPlaybackService.class);
-            intent.setAction(MuzioPlaybackService.ACTION_HIDE);
+            Intent intent = new Intent(getContext(), PlaybackService.class);
+            intent.setAction(PlaybackService.ACTION_HIDE);
             getContext().startService(intent);
         } catch (Exception ignored) {}
     }

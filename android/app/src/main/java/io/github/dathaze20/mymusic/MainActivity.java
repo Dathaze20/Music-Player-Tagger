@@ -1,4 +1,4 @@
-package com.muzioai.app;
+package io.github.dathaze20.mymusic;
 
 import android.os.Bundle;
 import androidx.activity.OnBackPressedCallback;

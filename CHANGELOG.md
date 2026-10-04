@@ -7,6 +7,33 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.0
+
+**This one installs as a separate app. Read this before you install it.**
+
+The app's internal Android identity was `com.muzioai.app`. "Muzio" is an
+unrelated music player with over a hundred million installs on Google Play, and
+that identity is permanent once an app is published there — Google will not let
+it be changed afterwards, and an app cannot be published under a name that
+leans on somebody else's. It is now `io.github.dathaze20.mymusic`, which is
+unambiguously yours.
+
+Android treats a changed identity as a different app, so:
+
+- **It will not install over the old one.** You will have My Music twice until
+  you remove the old one
+- **The new app cannot see the old one's data.** Your music files are untouched
+  and rescan by themselves, but tags you have fixed, favourites, playlists and
+  play history live in the old app's private storage
+
+So: export a backup from the old app first, install this, then import it. The
+previous release added play history to the backup, so nothing is lost.
+
+- Check for Updates works exactly as before once you are on this version. It
+  reads the installed version at runtime rather than from a fixed name, so
+  every update after this one installs over the top normally. Only this single
+  crossover behaves as a fresh install
+
 ## v1.8.4
 
 - **Export Backup now saves your play counts and play history too.** It already

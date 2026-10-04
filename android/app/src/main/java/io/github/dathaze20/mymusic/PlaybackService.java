@@ -1,4 +1,4 @@
-package com.muzioai.app;
+package io.github.dathaze20.mymusic;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -34,28 +34,28 @@ import android.util.Log;
  * via startService(Intent); hardware/BT button callbacks are forwarded back
  * to the WebView via local broadcasts caught by MediaStorePlugin.
  */
-public class MuzioPlaybackService extends Service {
+public class PlaybackService extends Service {
 
-    private static final String TAG = "MuzioPlaybackService";
+    private static final String TAG = "PlaybackService";
 
     // Intent actions used between the plugin and this service
-    static final String ACTION_UPDATE = "com.muzioai.app.SVC_UPDATE";
-    static final String ACTION_HIDE   = "com.muzioai.app.SVC_HIDE";
+    static final String ACTION_UPDATE = "io.github.dathaze20.mymusic.SVC_UPDATE";
+    static final String ACTION_HIDE   = "io.github.dathaze20.mymusic.SVC_HIDE";
     // Position-only refresh. Separate from ACTION_UPDATE because that one
     // carries the artwork as base64 and decodes a bitmap; re-sending it every
     // couple of seconds just to move a progress bar would be wasteful.
-    static final String ACTION_POSITION = "com.muzioai.app.SVC_POSITION";
+    static final String ACTION_POSITION = "io.github.dathaze20.mymusic.SVC_POSITION";
     // Start/stop watching for the end of an interruption. See startResumeWatch().
-    static final String ACTION_WATCH_RESUME = "com.muzioai.app.SVC_WATCH_RESUME";
+    static final String ACTION_WATCH_RESUME = "io.github.dathaze20.mymusic.SVC_WATCH_RESUME";
 
     // Notification broadcast actions (shared with MediaStorePlugin's receiver)
-    private static final String ACTION_PREV       = "com.muzioai.app.ACTION_PREV";
-    private static final String ACTION_PLAY_PAUSE = "com.muzioai.app.ACTION_PLAY_PAUSE";
-    private static final String ACTION_NEXT       = "com.muzioai.app.ACTION_NEXT";
-    private static final String ACTION_CLOSE      = "com.muzioai.app.ACTION_CLOSE";
-    static final String         ACTION_SEEK       = "com.muzioai.app.ACTION_SEEK";
-    static final String         ACTION_RESUME     = "com.muzioai.app.ACTION_RESUME";
-    static final String         ACTION_NOISY_PAUSE = "com.muzioai.app.ACTION_NOISY_PAUSE";
+    private static final String ACTION_PREV       = "io.github.dathaze20.mymusic.ACTION_PREV";
+    private static final String ACTION_PLAY_PAUSE = "io.github.dathaze20.mymusic.ACTION_PLAY_PAUSE";
+    private static final String ACTION_NEXT       = "io.github.dathaze20.mymusic.ACTION_NEXT";
+    private static final String ACTION_CLOSE      = "io.github.dathaze20.mymusic.ACTION_CLOSE";
+    static final String         ACTION_SEEK       = "io.github.dathaze20.mymusic.ACTION_SEEK";
+    static final String         ACTION_RESUME     = "io.github.dathaze20.mymusic.ACTION_RESUME";
+    static final String         ACTION_NOISY_PAUSE = "io.github.dathaze20.mymusic.ACTION_NOISY_PAUSE";
     static final String         EXTRA_SEEK_MS     = "seek_ms";
 
     private static final String NOTIF_CHANNEL_ID = "muzio_playback";

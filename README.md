@@ -6,6 +6,8 @@ It is a full player, not a tag editor with a play button: browse by artist, albu
 
 Built as **pure HTML/CSS/JavaScript with zero build tools** for the web layer, wrapped with **Capacitor 8 and a hand-written native Java plugin** for Android.
 
+The Android application ID is `io.github.dathaze20.mymusic`. It was `com.muzioai.app` until v1.9.0 — an unrelated Play app called Muzio has over a hundred million installs, and an application ID cannot be changed once an app is published, so it was corrected before any store release.
+
 Tested against a real 15,000-song library on a physical device.
 
 ---
