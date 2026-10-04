@@ -26,6 +26,10 @@ A single-track rip of *Street Cinema* with no album artist, no year and no genre
 | <img src="screenshots/03-ai-fill-before.jpg" alt="Edit Album dialog before AI Fill: Album Artist, Year and Genre fields are all empty, showing only their grey placeholder text" width="340"> | <img src="screenshots/04-ai-fill-after.jpg" alt="The same dialog after AI Fill: Album Artist reads Sporty Thievz, Year reads 1998, Genre reads Hip-Hop, and the AI Fill button now reads Done" width="340"> |
 | Album artist blank, year **Not set**, genre blank — the grey text is placeholder, not a value | Album artist **Sporty Thievz**, year **1998**, genre **Hip-Hop** — then Save All writes it to every track |
 
+### [⬇ Download the latest APK](https://github.com/Dathaze20/Music-Player-Tagger/releases/latest)
+
+Android 7.0 or newer. Install notes are [further down](#install); after the first install the app updates itself.
+
 
 ---
 
