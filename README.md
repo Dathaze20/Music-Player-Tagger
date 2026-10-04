@@ -14,15 +14,20 @@ Tested against a real 15,000-song library on a physical device.
 
 ## Screenshots
 
-*No screenshots are committed yet.* The three that would show the most, in order:
+| | |
+|:---:|:---:|
+| <img src="screenshots/01-artists-library.jpg" alt="Artists tab showing 2,417 artists and 15,231 songs, each artist row carrying a four-cover mosaic" width="340"> | <img src="screenshots/02-now-playing.jpg" alt="Now Playing: Seduction by Eminem, synced lyrics scrolling over the album art, Repeat and Shuffle shown as labelled capsules" width="340"> |
+| **A real library** — 2,417 artists, 15,231 songs, 3,475 albums, scrolling smoothly | **Now Playing** — synced lyrics over the cover, labelled transport controls |
 
-| Slot | Screen | Why it earns the space |
-|---|---|---|
-| 1 | **Artists tab** with the library loaded | Shows the scale it handles and the album-art mosaic — the strongest evidence this is a real player |
-| 2 | **Now Playing**, full screen, mid-track | Ambient colour sampled from the cover, synced lyrics, transport controls |
-| 3 | **Tag editor** with AI fill applied | The feature the project is named for, and the least obvious from a feature list |
+### AI-assisted metadata repair — before and after
 
-Drop the files in a `screenshots/` folder and link them here.
+A single-track rip of *Street Cinema* with no album artist, no year and no genre. One tap of **AI Fill** resolves all three from MusicBrainz, and the button turns to Done.
+
+| Before | After |
+|:---:|:---:|
+| <img src="screenshots/03-ai-fill-before.jpg" alt="Edit Album dialog before AI Fill: Album Artist, Year and Genre fields are all empty, showing only their grey placeholder text" width="340"> | <img src="screenshots/04-ai-fill-after.jpg" alt="The same dialog after AI Fill: Album Artist reads Sporty Thievz, Year reads 1998, Genre reads Hip-Hop, and the AI Fill button now reads Done" width="340"> |
+| Album artist blank, year **Not set**, genre blank — the grey text is placeholder, not a value | Album artist **Sporty Thievz**, year **1998**, genre **Hip-Hop** — then Save All writes it to every track |
+
 
 ---
 
