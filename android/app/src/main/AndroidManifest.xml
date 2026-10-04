@@ -17,7 +17,7 @@
 
         <!-- Media playback foreground service — owns the MediaSession and notification -->
         <service
-            android:name=".MuzioPlaybackService"
+            android:name=".PlaybackService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false" />
 
