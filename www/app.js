@@ -8346,20 +8346,35 @@ document.getElementById('exportBackupBtn').onclick = function() {
     var favList = songs.filter(function(s) { return s.fav; }).map(function(s) {
       return { fn: s.fn, title: s.title, artist: s.artist || '' };
     });
+    // How often and how recently each song has been played. These live on the
+    // song records rather than in the edits store, so a backup without them
+    // restored every tag you had fixed and still came back with "Most played"
+    // empty. Keyed the same way edits are, so the same song is found again.
+    var stats = Object.create(null);
+    songs.forEach(function(s) {
+      if (!s.playCount && !s.lastPlayed) return;
+      var key = s.contentUri || s.fn;
+      if (!key) return;
+      stats[key] = { playCount: s.playCount || 0, lastPlayed: s.lastPlayed || 0 };
+    });
     var data = {
-      version: 1,
+      // 2 adds `stats`. Version 1 files still import — everything in them is
+      // read the same way, and the play history is simply absent.
+      version: 2,
       exported: new Date().toISOString(),
       profileName: _profileName,
       profilePhoto: _profilePhoto || '',
       playlists: loadPlaylists(),
       favorites: favList,
       edits: editsMap,
+      stats: stats,
     };
     var fileName = 'my-music-backup-' + new Date().toISOString().slice(0, 10) + '.json';
     saveTextFile(fileName, JSON.stringify(data), 'application/json', function(ok, where) {
       if (ok) {
         showToast('Backup saved to ' + where + ' \u2014 '
-          + Object.keys(editsMap).length + ' edits, ' + favList.length + ' favorites', 4000);
+          + Object.keys(editsMap).length + ' edits, ' + favList.length + ' favorites, '
+          + Object.keys(stats).length + ' play counts', 4000);
       } else {
         showToast('Backup failed \u2014 ' + where, 4000);
       }
@@ -8389,7 +8404,7 @@ function _doImportBackup(file) {
   reader.onload = function(ev) {
     try {
       var data = JSON.parse(ev.target.result);
-      if (!data || typeof data !== 'object' || data.version !== 1) {
+      if (!data || typeof data !== 'object' || (data.version !== 1 && data.version !== 2)) {
         showToast('Invalid backup file', 2500); return;
       }
       if (data.profileName) {
@@ -8418,6 +8433,17 @@ function _doImportBackup(file) {
         });
         _countsCache = null;
       }
+      // Play history, where the backup is new enough to carry it.
+      var statsRestored = 0;
+      if (data.stats && typeof data.stats === 'object') {
+        songs.forEach(function(s) {
+          var st = data.stats[s.contentUri] || data.stats[s.fn];
+          if (!st) return;
+          if ((st.playCount || 0) > (s.playCount || 0)) s.playCount = st.playCount;
+          if ((st.lastPlayed || 0) > (s.lastPlayed || 0)) s.lastPlayed = st.lastPlayed;
+          statsRestored++;
+        });
+      }
       if (data.edits && typeof data.edits === 'object') {
         openLibDb().then(function(db) {
           var tx = db.transaction(EDITS_STORE, 'readwrite');
@@ -8429,7 +8455,8 @@ function _doImportBackup(file) {
             applyEditsToSongs();
             saveLibrary();
             render();
-            showToast('Restored \u2014 ' + keys.length + ' edits, ' + favRestoredCount + ' favorites', 3000);
+            showToast('Restored \u2014 ' + keys.length + ' edits, ' + favRestoredCount
+              + ' favorites' + (statsRestored ? ', ' + statsRestored + ' play counts' : ''), 3000);
           };
           // Without this a failed write looks identical to a successful one, and
           // the favourites recovered above would be lost on the next restart.

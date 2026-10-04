@@ -80,8 +80,8 @@ Drop the files in a `screenshots/` folder and link them here.
 - **WiFi sharing** — an on-device HTTP server plus a natively generated QR code, so any phone on the same network can download the actual audio files. Multiple songs are streamed as a ZIP
 
 ### Backup and Restore
-- **Export** writes a JSON backup to your Downloads folder containing every manual edit, your playlists, favorites, profile name, and profile photo
-- **Import** merges a backup back in — safe to run repeatedly, and it never wipes what's already there
+- **Export** writes a JSON backup to your Downloads folder containing every manual edit, your playlists, favorites, play counts and play history, profile name, and profile photo. Play history lives on the song records rather than in the edits store, so a backup without it restored every tag you had fixed and still came back with "Most played" empty
+- **Import** merges a backup back in — safe to run repeatedly, and it never wipes what's already there. Play counts merge upward, so importing an older backup never lowers a count. Backups written before play history was included still import
 - Designed so your tagging work survives reinstalling the app
 
 ### Staying Current
