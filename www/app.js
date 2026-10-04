@@ -974,6 +974,12 @@ function saveLibraryIDB() {
       albumArtUri: s.albumArtUri || '', albumArtist: s.albumArtist || '',
       // Kept so a broken download stays recognisable without replaying it.
       size: (typeof s.size === 'number') ? s.size : -1,
+      // IndexedDB is the real store — localStorage only ever holds the preview
+      // — so a field missing from here is a field the library does not keep.
+      // This one was: the date survived into localStorage and was dropped on
+      // the way in here, so every launch loaded songs with no date and had to
+      // rebuild it from MediaStore before "Date added" meant anything.
+      dateAdded: s.dateAdded || 0,
       aiAttempted: s.aiAttempted || 0, enrichAttempted: s.enrichAttempted || 0
     };
   });
