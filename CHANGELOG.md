@@ -7,6 +7,28 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.1
+
+- **The flicker on opening the app is gone.** Startup finishes in stages — the
+  quick preview of the library, your saved edits, the real library, the covers,
+  the scan — and each one asked for the screen to be redrawn when it landed. A
+  redraw tears the list down and builds it again, so three or four of them
+  arriving over a second or two is the flashing you see. Measured on a cold
+  open, every one of those redraws drew exactly the same thing. A stage that
+  genuinely changed something still redraws; the rest now do nothing
+- **Searching while the app is still loading works.** Those background redraws
+  closed the search bar and threw the results away, so typing into search in
+  the first second or two was undone two or three times over. A redraw nobody
+  asked for no longer disturbs a search in progress
+- **Back from a search result returns to the search.** Opening an artist or an
+  album from the results and then going back landed on whichever tab was
+  underneath, so editing a run of albums found by one search meant retyping it
+  every time. It goes back to the results, with the query and the filter you
+  had. Going back out of an album opened from an artist page still lands on the
+  artist page first
+- Dependencies brought up to date, which clears a high-severity advisory in a
+  build tool. Nothing that ships inside the app has a known vulnerability
+
 ## v1.9.0
 
 **This one installs as a separate app. Read this before you install it.**
