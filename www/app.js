@@ -104,12 +104,16 @@ function applyArt(el, dataUrls) {
   }
 }
 
+// Counted rather than measured with Object.keys, which is a walk of the whole
+// cache and would be paid on every view-signature check.
+var _artCacheCount = 0;
 function artCacheSet(uri, data) {
   if (!data) return;
   if (artCache[uri]) { delete artCache[uri]; artCache[uri] = data; return; } // promote to MRU
   var keys = Object.keys(artCache);
-  if (keys.length >= _ART_CACHE_MAX) delete artCache[keys[0]]; // evict LRU
+  if (keys.length >= _ART_CACHE_MAX) { delete artCache[keys[0]]; _artCacheCount--; } // evict LRU
   artCache[uri] = data;
+  _artCacheCount++;
 }
 
 var _ART_HD_CACHE_MAX = 80;
@@ -1705,12 +1709,94 @@ var _spCache = null;            // smart playlist lists (top, recent, lastAdded)
 // saveUIState debounce
 var _saveUITimer = null;
 function saveUIStateLater() { clearTimeout(_saveUITimer); _saveUITimer = setTimeout(saveUIState, 300); }
+/**
+ * Everything the current view is drawn from, as one short string.
+ *
+ * Startup finishes in stages — the preview library, the edits store, the real
+ * library, the art cache, the MediaStore scan — and each stage asked for a
+ * redraw when it landed. A redraw tears the whole list down and builds it
+ * again, so three or four of them arriving over a second or two is the flicker
+ * you see on a cold open. Measured on a cold start, every one of those redraws
+ * produced byte-identical HTML: the view had already settled and the later
+ * stages had nothing new to show.
+ *
+ * So a startup redraw now compares this first and does nothing when it matches.
+ * A stage that genuinely changed something — the library growing from the
+ * preview to the whole thing, covers arriving — moves the signature and still
+ * redraws exactly once.
+ */
+function _viewSignature() {
+  var c = getSongCounts();
+  return [
+    currentTab,
+    selectedArtist || '',
+    selectedAlbum ? selectedAlbum.name + '\u0002' + selectedAlbum.artist : '',
+    selectedGenre || '', currentPlaylistId || '', currentSmartPlaylist || '',
+    songs.length, c.artists, c.albums, c.genres, c.favs,
+    sortMode, artistSortMode, albumSortMode, albumFilter, albumGenreFilter,
+    albumArtistsOnly ? 1 : 0, artistViewMode,
+    _artCacheCount
+  ].join('\u0001');
+}
+
+/**
+ * The search to come back to, when a result was opened from one.
+ *
+ * Tapping an artist or an album in the results navigates to that page, and
+ * going back from there landed on whichever tab happened to be underneath —
+ * the search was gone and had to be typed again. Editing a run of albums found
+ * by one search meant retyping it for every single one.
+ *
+ * Held from the moment a result is opened until the search is genuinely left:
+ * a new search, a tab switch, or closing the bar.
+ */
+var _searchReturn = null;
+
+function _rememberSearch() {
+  if (!_searchQuery) return;
+  _searchReturn = { q: _searchQuery, filter: searchFilter };
+}
+
+// Reopen the remembered search. Returns false if there was none, so callers
+// can fall back to their usual navigation.
+function _restoreSearch() {
+  if (!_searchReturn) return false;
+  var bar = document.getElementById('searchBar');
+  var input = document.getElementById('searchInput');
+  if (!bar || !input) return false;
+  searchFilter = _searchReturn.filter || 'all';
+  var q = _searchReturn.q;
+  _searchReturn = null;
+  bar.classList.remove('hidden');
+  input.value = q;
+  // Rebound because the bar is only wired when opened from the search button.
+  input.oninput = function() { _searchReturn = null; doSearch(input.value); };
+  input.onkeydown = function(e) {
+    if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); input.blur(); }
+  };
+  doSearch(q);
+  return true;
+}
+
+// Is the search bar showing? Used to keep a background redraw from closing it.
+function _searchIsOpen() {
+  var bar = document.getElementById('searchBar');
+  return !!bar && !bar.classList.contains('hidden');
+}
+
 // Startup render dedup
 var _startupRenderPending = false;
+var _lastViewSignature = null;
 function scheduleStartupRender() {
   if (_startupRenderPending) return;
   _startupRenderPending = true;
-  requestAnimationFrame(function() { _startupRenderPending = false; render(); });
+  requestAnimationFrame(function() {
+    _startupRenderPending = false;
+    var sig = _viewSignature();
+    if (sig === _lastViewSignature) return;   // nothing a redraw would change
+    _lastViewSignature = sig;
+    render();
+  });
 }
 
 // IntersectionObserver singleton — disconnected before each new render
@@ -2303,6 +2389,14 @@ var _TI = {
 var _lastTabCounts = { artists: -1, songs: -1, albums: -1, genres: -1 };
 
 function render() {
+  // A redraw that something finishing in the background asked for must not
+  // throw away a search the user is in the middle of. Opening the app and
+  // typing straight into search used to lose the results two or three times
+  // over while the library finished loading behind it.
+  if (_searchIsOpen() && _searchQuery) { doSearch(_searchQuery); return; }
+  // Record what is about to be drawn, so a later startup stage can tell
+  // whether it would be drawing the same thing again.
+  _lastViewSignature = _viewSignature();
   _msExit();
   _msArtistMode = false; _msArtistNames = null; _msHideBar();
   cleanupVirtualScroll();
@@ -2356,14 +2450,22 @@ function render() {
     tabBar.classList.add('hidden');
     header.textContent = selectedAlbum.name;
     menuBtn.innerHTML = '&#8249;';
-    menuBtn.onclick = function() { selectedAlbum = null; if (_prevTab) { currentTab = _prevTab; _prevTab = null; } render(); };
+    menuBtn.onclick = function() {
+      selectedAlbum = null; if (_prevTab) { currentTab = _prevTab; _prevTab = null; }
+      if (!selectedArtist && _restoreSearch()) return;
+      render();
+    };
     renderAlbumDetail(main);
     main.scrollTop = 0;
   } else if (selectedArtist) {
     tabBar.classList.add('hidden');
     header.textContent = selectedArtist;
     menuBtn.innerHTML = '&#8249;';
-    menuBtn.onclick = function() { selectedArtist = null; render(); };
+    menuBtn.onclick = function() {
+      selectedArtist = null;
+      if (_restoreSearch()) return;
+      render();
+    };
     renderArtistDetail(main);
     main.scrollTop = 0;
   } else if (selectedGenre) {
@@ -7841,6 +7943,7 @@ function doSearch(q) {
       selectedAlbum = null;
       currentTab = 'artists';
       document.querySelectorAll('.tabs button').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === 'artists'); });
+      _rememberSearch();
       document.getElementById('searchBar').classList.add('hidden');
       render();
     };
@@ -7853,6 +7956,7 @@ function doSearch(q) {
       if (currentTab !== 'albums') { _prevTab = currentTab; }
       currentTab = 'albums';
       document.querySelectorAll('.tabs button').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === 'albums'); });
+      _rememberSearch();
       document.getElementById('searchBar').classList.add('hidden');
       render();
     };
@@ -7863,6 +7967,15 @@ function doSearch(q) {
 
 document.querySelectorAll('.tabs button').forEach(function(btn) {
   btn.onclick = function() {
+    // Picking a tab is leaving the search for good — close it before the
+    // redraw, or the guard in render() that protects a search from background
+    // redraws would keep it open and the tab would never appear.
+    _searchReturn = null;
+    _searchQuery = '';
+    var _sb = document.getElementById('searchBar');
+    if (_sb) _sb.classList.add('hidden');
+    var _si = document.getElementById('searchInput');
+    if (_si) _si.value = '';
     currentTab = btn.dataset.tab;
     selectedArtist = null;
     selectedAlbum = null;
@@ -7878,8 +7991,10 @@ document.getElementById('searchBtn').onclick = function() {
   var bar = document.getElementById('searchBar');
   bar.classList.toggle('hidden');
   var input = document.getElementById('searchInput');
+  _searchReturn = null;   // a fresh search, or closing one
   if (!bar.classList.contains('hidden')) {
     input.value = '';
+    _searchQuery = '';
     searchFilter = 'all';
     input.focus();
     input.oninput = function() { doSearch(input.value); };
@@ -7889,6 +8004,7 @@ document.getElementById('searchBtn').onclick = function() {
       if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); input.blur(); }
     };
   } else {
+    _searchQuery = '';
     render();
   }
 };
@@ -9112,13 +9228,27 @@ function handleHardwareBack() {
     searchBar.classList.add('hidden');
     var si = document.getElementById('searchInput');
     if (si) si.value = '';
+    _searchQuery = '';
+    _searchReturn = null;
     render();
     return;
   }
 
-  // 7. Go up one navigation level
-  if (selectedAlbum) { selectedAlbum = null; if (_prevTab) { currentTab = _prevTab; _prevTab = null; } render(); return; }
-  if (selectedArtist) { selectedArtist = null; render(); return; }
+  // 7. Go up one navigation level — back into the search that led here, if
+  //    that is where this page was opened from.
+  if (selectedAlbum) {
+    selectedAlbum = null; if (_prevTab) { currentTab = _prevTab; _prevTab = null; }
+    // An album opened from an artist page leaves that artist selected, so back
+    // belongs on the artist page — not jumping the whole way out to the search
+    // that led there. The search is still remembered for the next back.
+    if (!selectedArtist && _restoreSearch()) return;
+    render(); return;
+  }
+  if (selectedArtist) {
+    selectedArtist = null;
+    if (_restoreSearch()) return;
+    render(); return;
+  }
   if (selectedGenre) { selectedGenre = null; render(); return; }
 
   // 8. Nothing to dismiss — exit app
