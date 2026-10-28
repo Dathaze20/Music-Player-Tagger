@@ -1275,8 +1275,19 @@ function flushPendingTagWrites() {
 // Permanently delete a list of songs from the device filesystem (native) or just
 // remove them from the library (web). Shows a system confirm dialog on Android 10+.
 function deleteSongsFromDevice(songsToDelete) {
-  var ids = new Set(songsToDelete.map(function(s) { return s.id; }));
-  function removeFromMemory() {
+  /**
+   * Forget the songs whose files are confirmed gone.
+   *
+   * This used to forget the whole selection no matter what the delete actually
+   * managed. Android can refuse some files and remove others in the same batch,
+   * and the native side reported only a count — so a partial delete dropped
+   * every selected song from the library and erased its saved edits, including
+   * the ones still sitting on disk. Those files came back on the next scan
+   * stripped of every tag the user had fixed.
+   */
+  function removeFromMemory(confirmed) {
+    var gone = confirmed || songsToDelete;
+    var ids = new Set(gone.map(function(s) { return s.id; }));
     // Deleting the song that is playing should move on to the next one, so work
     // out its successor while the queue still holds the original order.
     var wasPlaying = currentSong && ids.has(currentSong.id);
@@ -1294,7 +1305,7 @@ function deleteSongsFromDevice(songsToDelete) {
       }
     }
 
-    songsToDelete.forEach(function(s) { if (s.url && s.url.startsWith('blob:')) URL.revokeObjectURL(s.url); });
+    gone.forEach(function(s) { if (s.url && s.url.startsWith('blob:')) URL.revokeObjectURL(s.url); });
     songs = songs.filter(function(s) { return !ids.has(s.id); });
     queue = queue.filter(function(s) { return !ids.has(s.id); });
     songMap = Object.create(null); songs.forEach(function(s) { songMap[s.id] = s; });
@@ -1304,10 +1315,10 @@ function deleteSongsFromDevice(songsToDelete) {
     // would be swapped in by the gapless handoff.
     _playHistory = _playHistory.filter(function(id) { return !ids.has(id); });
     if (preloadedSong && ids.has(preloadedSong.id)) { preloadedSong = null; preloadedUrl = ''; }
-    songsToDelete.forEach(function(s) { delete _audioRetried[s.id]; });
+    gone.forEach(function(s) { delete _audioRetried[s.id]; });
     // Drop the saved manual edits too. Left behind they keep growing, and a file
     // later re-downloaded under the same name would silently inherit them.
-    deleteEditsFor(songsToDelete);
+    deleteEditsFor(gone);
 
     if (wasPlaying) {
       currentSong = null;
@@ -1342,8 +1353,27 @@ function deleteSongsFromDevice(songsToDelete) {
     var uris = songsToDelete.map(function(s) { return s.contentUri; }).filter(Boolean);
     if (!uris.length) { removeFromMemory(); showToast('Removed from library'); return; }
     NativeBridge.deleteFiles(uris).then(function(r) {
-      var n = (r && typeof r.deleted === 'number') ? r.deleted : songsToDelete.length;
-      removeFromMemory();
+      var list = r && Array.isArray(r.deletedUris) ? r.deletedUris : null;
+      var confirmed;
+      if (list) {
+        var goneUris = new Set(list);
+        confirmed = songsToDelete.filter(function(s) {
+          // Songs with no content URI were never sent to Android — there is no
+          // file of theirs to delete, so removing them from the library is the
+          // whole of the operation and it has succeeded.
+          return !s.contentUri || goneUris.has(s.contentUri);
+        });
+      } else if (r && r.deleted === songsToDelete.length) {
+        confirmed = songsToDelete;           // everything went
+      } else {
+        // A count with no list, and it does not cover the whole selection: there
+        // is no way to tell which files survived. Keeping them all is a stale
+        // row or two until the next scan; guessing would destroy the edits on
+        // whichever ones are still there.
+        confirmed = [];
+      }
+      var n = confirmed.length;
+      if (n) removeFromMemory(confirmed);
       showToast(n < songsToDelete.length
         ? 'Deleted ' + n + ' of ' + songsToDelete.length + ' \u2014 the rest could not be removed'
         : 'Deleted ' + n + ' song' + (n !== 1 ? 's' : ''));
@@ -3701,7 +3731,16 @@ function renderPlaylists(el) {
   if (!_spCache) {
     _spCache = {
       top:     songs.slice().sort(function(a, b) { return (b.playCount || 0) - (a.playCount || 0); }).slice(0, 100),
-      last:    songs.slice().reverse().slice(0, 100),
+      // Newest first, by the date Android recorded for the file. This used to
+      // be songs.reverse(), and MediaStore hands songs over sorted by title —
+      // so "Last Added" was reverse alphabetical and a mixtape downloaded an
+      // hour ago sat wherever its name fell. Songs with no date yet sort last
+      // rather than being hidden, so the list is never empty on a first run.
+      last:    songs.slice().sort(function(a, b) {
+                 var da = a.dateAdded || 0, db = b.dateAdded || 0;
+                 if (da !== db) return db - da;
+                 return String(a.title || '').localeCompare(String(b.title || ''));
+               }).slice(0, 100),
       recent:  songs.filter(function(s) { return s.lastPlayed > 0; })
                     .sort(function(a, b) { return b.lastPlayed - a.lastPlayed; }).slice(0, 100),
       favs:    getFavorites()

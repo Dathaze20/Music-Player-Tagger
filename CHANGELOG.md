@@ -7,6 +7,23 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.3
+
+Two fixes from the bug sweep, both chosen for being contained.
+
+- **A part-finished delete no longer throws away the songs it did not delete.**
+  Android can refuse some files and remove others in the same batch — a file
+  another app owns, or one on a card that is being awkward. The app was told
+  only how many went, not which, so it forgot the whole selection and wiped
+  their saved tag edits with it. The files still on your phone then came back
+  on the next scan stripped of every correction you had made. Android now
+  reports which files it actually removed, and only those are forgotten
+- **"Last Added" shows what you actually added last.** It was reverse
+  alphabetical. Android hands the library over sorted by title and the playlist
+  simply flipped that round, so a mixtape downloaded an hour ago sat wherever
+  its name happened to fall. It sorts by the date the file arrived now, the
+  same date the Songs tab uses
+
 ## v1.9.2
 
 Security fix. Worth installing even though nothing was going wrong for you.
