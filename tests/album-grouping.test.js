@@ -41,7 +41,6 @@ const NAMES = [
 function loadLibrary(library) {
   const sep = SRC.match(/var _CREDIT_SEP = .*;/)[0];
   const vague = SRC.match(/var _VAGUE_ALBUM = .*;/)[0];
-  // eslint-disable-next-line no-new-func
   return new Function(`
     ${sep}
     ${vague}

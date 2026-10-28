@@ -7,6 +7,34 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.7
+
+New downloads turn up on their own, and a clear-out of code that did nothing.
+
+- **A mixtape you just downloaded is there when you open the app.** The launch
+  check only rebuilt the library when your phone had *materially* more songs
+  than the app did — more than five per cent plus ten. A handful of new tracks
+  never came close, so they stayed invisible until you went and ran a rescan by
+  hand. Anything on the phone the library has not seen is now added on the spot,
+  with its tags and artwork, and it sorts to the top of "Last Added" where you
+  can get at it
+
+  Adding only, never the reverse. A memory card that has not mounted yet, or a
+  scan that comes back short, would otherwise read as thousands of deletions,
+  and a song wrongly dropped takes your tag edits with it. Songs that have
+  genuinely gone are still cleared by the dead-file sweep
+
+- **Dead code removed.** About 140 lines that nothing could reach: a lyrics
+  panel with "Search Lyrics" and "Add Manually" buttons that no screen ever
+  showed, leftover state from a crossfade feature that is no longer there, and
+  several variables written but never read, plus the styling that went with
+  them. Nothing visible changes — automatic lyrics still work the way they do
+  now, from the Now Playing screen
+
+Startup speed was measured again and left alone: at fifteen thousand songs the
+launch is more than half spent waiting on storage, not running code, so there
+was no honest gain to be had without changing how the library is stored.
+
 ## v1.9.6
 
 Opening is instant again.
