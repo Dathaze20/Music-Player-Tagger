@@ -7,6 +7,28 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.5
+
+The app no longer opens on the wrong library and then corrects itself.
+
+- **It opens on your whole library, once.** Only part of a large library fits
+  in the quick store, so the app put that part on screen immediately and
+  replaced it a second later with the real thing out of the main store. You saw
+  the wrong song count, the wrong album count and tags without your latest
+  edits, and then watched them change. That is the "restoring" everyone kept
+  seeing. The short version is no longer painted at all: the screen below the
+  tabs stays empty for the moment it takes to load the real library, and what
+  you see first is correct
+
+v1.9.4 aimed at this and missed. Its quarter-second wait was measured against a
+four-thousand-song library on a fast machine, where storage always won the race.
+On a phone with fifteen thousand songs storage takes about a second, so the wait
+expired every time and the swap was still there. It is measured against a
+full-size library on phone-speed storage now, and the swap does not happen in
+either case.
+
+Searching while the app is still opening works throughout, as before.
+
 ## v1.9.4
 
 Opening the app stops looking like it is putting itself back together.
