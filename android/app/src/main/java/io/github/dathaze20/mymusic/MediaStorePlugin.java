@@ -117,6 +117,9 @@ public class MediaStorePlugin extends Plugin {
     private PluginCall savedWriteAccessCall;
     private PluginCall savedDeleteCall;
     private List<Uri>  pendingDeleteUris;
+    // Deleted before the consent dialog appeared, on Android 10. Carried across
+    // it so the retry does not mistake an already-deleted file for a failure.
+    private List<String> pendingDeletedUris;
     // Android 10 only: the consent dialog grants permission but does not delete,
     // so the delete has to be retried once the user has approved it.
     private boolean    pendingDeleteNeedsRetry = false;
@@ -996,11 +999,11 @@ public class MediaStorePlugin extends Plugin {
         }
 
         // Android 9 and below: WRITE_EXTERNAL_STORAGE covers it
-        int deleted = 0;
+        List<String> done = new ArrayList<>();
         for (Uri uri : uris) {
-            try { deleted += cr.delete(uri, null, null); } catch (Exception ignored) {}
+            try { if (cr.delete(uri, null, null) > 0) done.add(uri.toString()); } catch (Exception ignored) {}
         }
-        finishDelete(call, deleted);
+        finishDelete(call, done);
     }
 
     /**
@@ -1013,16 +1016,20 @@ public class MediaStorePlugin extends Plugin {
      */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
     private void deleteWithConsentQ(PluginCall call, ContentResolver cr, List<Uri> uris) {
-        int deleted = 0;
+        List<String> done = new ArrayList<>();
         android.app.RecoverableSecurityException needsConsent = null;
         for (Uri uri : uris) {
             try {
-                deleted += cr.delete(uri, null, null);
+                if (cr.delete(uri, null, null) > 0) done.add(uri.toString());
             } catch (android.app.RecoverableSecurityException rse) {
                 if (needsConsent == null) needsConsent = rse;
             } catch (Exception ignored) {}
         }
-        if (needsConsent == null) { finishDelete(call, deleted); return; }
+        if (needsConsent == null) { finishDelete(call, done); return; }
+        // Carried across the consent dialog: these are already gone, and the
+        // retry below cannot tell a file it deleted a moment ago from one that
+        // was never there.
+        pendingDeletedUris = done;
         try {
             if (savedDeleteCall != null) {
                 savedDeleteCall.setKeepAlive(false);
@@ -1045,11 +1052,39 @@ public class MediaStorePlugin extends Plugin {
      * on disk while the library forgot about it, and the next scan would bring it
      * straight back as a ghost entry.
      */
-    private void finishDelete(PluginCall call, int deleted) {
-        if (deleted == 0) { call.reject("Could not delete the file"); return; }
+    private void finishDelete(PluginCall call, List<String> deletedUris) {
+        if (deletedUris == null || deletedUris.isEmpty()) {
+            call.reject("Could not delete the file");
+            return;
+        }
         JSObject r = new JSObject();
-        r.put("deleted", deleted);
+        r.put("deleted", deletedUris.size());
+        // Which ones, not just how many. A batch where some deletes fail used
+        // to come back as a bare count, and the library had no way to tell
+        // which songs were actually gone — so it dropped all of them, taking
+        // the manual edits of the files still sitting on disk with it.
+        JSArray list = new JSArray();
+        for (String u : deletedUris) list.put(u);
+        r.put("deletedUris", list);
         call.resolve(r);
+    }
+
+    /**
+     * Whether a MediaStore row is no longer there.
+     *
+     * Android 11+ hands the whole batch to the system, which reports only that
+     * the user confirmed — not which rows it managed to remove. Asking for each
+     * one is the only way to be sure. An error answering is treated as "still
+     * there": leaving a song in the library costs a stale row until the next
+     * scan, while wrongly dropping one destroys the tags the user set on it.
+     */
+    private boolean mediaRowGone(ContentResolver cr, Uri uri) {
+        try (android.database.Cursor c = cr.query(
+                uri, new String[]{ MediaStore.Audio.Media._ID }, null, null, null)) {
+            return c == null || !c.moveToFirst();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Override
@@ -1068,34 +1103,43 @@ public class MediaStorePlugin extends Plugin {
         }
 
         if (requestCode == DELETE_REQUEST_CODE) {
-            PluginCall call  = savedDeleteCall;
-            List<Uri> uris   = pendingDeleteUris;
-            boolean   retry  = pendingDeleteNeedsRetry;
+            PluginCall   call    = savedDeleteCall;
+            List<Uri>    uris    = pendingDeleteUris;
+            boolean      retry   = pendingDeleteNeedsRetry;
+            List<String> carried = pendingDeletedUris;
             savedDeleteCall = null;
             pendingDeleteUris = null;
             pendingDeleteNeedsRetry = false;
+            pendingDeletedUris = null;
             if (call == null) return;
             call.setKeepAlive(false);
             if (resultCode != Activity.RESULT_OK) { call.reject("Delete cancelled"); return; }
 
-            int deleted;
+            ContentResolver cr2 = getContext().getContentResolver();
+            List<String> done = new ArrayList<>();
             if (retry) {
-                // Android 10: consent granted, now actually delete
-                deleted = 0;
-                ContentResolver cr2 = getContext().getContentResolver();
+                // Android 10: consent granted, now actually delete. Anything the
+                // first pass managed before it hit the dialog is already gone and
+                // would look like a failure here, so it is carried in.
+                if (carried != null) done.addAll(carried);
                 if (uris != null) {
                     for (Uri uri : uris) {
-                        try { deleted += cr2.delete(uri, null, null); } catch (Exception ignored) {}
+                        if (done.contains(uri.toString())) continue;
+                        try { if (cr2.delete(uri, null, null) > 0) done.add(uri.toString()); }
+                        catch (Exception ignored) {}
                     }
                 }
-                if (deleted == 0) { call.reject("Could not delete the file"); return; }
             } else {
-                // Android 11+: the system already removed them
-                deleted = uris != null ? uris.size() : 0;
+                // Android 11+: the system did the deleting and tells us only that
+                // the user agreed. Ask which rows are actually gone rather than
+                // assuming the whole batch went.
+                if (uris != null) {
+                    for (Uri uri : uris) {
+                        if (mediaRowGone(cr2, uri)) done.add(uri.toString());
+                    }
+                }
             }
-            JSObject r = new JSObject();
-            r.put("deleted", deleted);
-            call.resolve(r);
+            finishDelete(call, done);
             return;
         }
 
