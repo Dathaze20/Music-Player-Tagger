@@ -700,63 +700,6 @@ function bindSyncedLyricsClicks(container) {
   });
 }
 
-function noLyricsPanelHTML() {
-  return '<div class="lyrics-empty-np">'
-    + '<div class="lyrics-empty-icon">&#9835;</div>'
-    + '<p>No lyrics found</p>'
-    + '<button class="add-lyrics-btn" id="fetchAiLyricsBtn" style="margin-bottom:6px;">&#128269; Search Lyrics</button>'
-    + '<button class="add-lyrics-btn" id="addLyricsBtn" style="background:rgba(255,255,255,0.06);">&#9998; Add Manually</button>'
-    + '</div>';
-}
-
-function bindAddLyricsBtn(panel, song) {
-  // Retry LRCLIB (real synced timestamps) — Gemini no longer returns lyrics
-  var aiBtn = panel.querySelector('#fetchAiLyricsBtn');
-  if (aiBtn) aiBtn.onclick = function() {
-    panel.innerHTML = '<div class="lyrics-empty-np"><div class="lyrics-empty-icon" style="animation:spin 1.5s linear infinite;display:inline-block;">&#9835;</div><p>Searching lyrics...</p></div>';
-    fetchLRCLibLyrics(song).then(function(result) {
-      if (result) {
-        if (result.syncedLyrics)     { song.syncedLyrics = result.syncedLyrics; song.lyrics = ''; }
-        else if (result.plainLyrics) { song.lyrics = result.plainLyrics; song.syncedLyrics = ''; }
-        saveLibraryLater();
-        saveEdit(song);
-      }
-      applyLyricsToNPPanel(song);
-    }).catch(function() { applyLyricsToNPPanel(song); });
-  };
-
-  var btn = panel.querySelector('#addLyricsBtn');
-  if (!btn) return;
-  btn.onclick = function() {
-    panel.innerHTML = '<div class="lyrics-editor-wrap">'
-      + '<p class="lyrics-editor-hint">Paste plain lyrics or LRC timed format (e.g. [00:12.50]First line)</p>'
-      + '<textarea id="lyricsEditorTA" class="lyrics-editor-ta" placeholder="[00:10.00]First line&#10;[00:14.50]Second line&#10;&#10;Or just plain lyrics without timestamps..."></textarea>'
-      + '<div class="lyrics-editor-actions">'
-      + '<button id="lyricsEditorCancel">Cancel</button>'
-      + '<button id="lyricsEditorSave" class="save-btn">&#10003; Save</button>'
-      + '</div>'
-      + '</div>';
-    document.getElementById('lyricsEditorCancel').onclick = function() {
-      panel.innerHTML = noLyricsPanelHTML();
-      bindAddLyricsBtn(panel, song);
-    };
-    document.getElementById('lyricsEditorSave').onclick = function() {
-      var text = document.getElementById('lyricsEditorTA').value.trim();
-      if (!text) return;
-      if (parseLRC(text).length > 0) {
-        song.syncedLyrics = text;
-        song.lyrics = '';
-      } else {
-        song.lyrics = text;
-        song.syncedLyrics = '';
-      }
-      saveLibraryLater();
-      applyLyricsToNPPanel(song);
-    };
-    setTimeout(function() { var ta = document.getElementById('lyricsEditorTA'); if (ta) ta.focus(); }, 100);
-  };
-}
-
 function applyLyricsToNPPanel(song) {
   if (!showNowPlaying || !currentSong || currentSong.id !== song.id) return;
   var overlay = document.getElementById('npArtLyrics');
@@ -1533,7 +1476,6 @@ function loadPersistedArt() {
 
 // ─── Persistent Folder Access (IndexedDB + File System Access API) ───
 
-var savedDirHandle = null;
 var DB_NAME = 'muzio_db';
 var STORE_NAME = 'handles';
 
@@ -1547,7 +1489,6 @@ function openDB() {
 }
 
 function saveDirHandle(handle) {
-  savedDirHandle = handle;
   return openDB().then(function(db) {
     return new Promise(function(resolve) {
       var tx = db.transaction(STORE_NAME, 'readwrite');
@@ -1570,7 +1511,6 @@ function loadDirHandle() {
 }
 
 function clearDirHandle() {
-  savedDirHandle = null;
   return openDB().then(function(db) {
     return new Promise(function(resolve) {
       var tx = db.transaction(STORE_NAME, 'readwrite');
@@ -1615,8 +1555,7 @@ function scanDirectoryHandle(dirHandle) {
 function autoScanFromHandle() {
   return loadDirHandle().then(function(handle) {
     if (!handle) return false;
-    savedDirHandle = handle;
-    return handle.requestPermission({ mode: 'read' }).then(function(perm) {
+      return handle.requestPermission({ mode: 'read' }).then(function(perm) {
       if (perm !== 'granted') return false;
       showToast('Scanning music folder...', 3000);
       return scanDirectoryHandle(handle).then(function(files) {
@@ -1878,7 +1817,7 @@ function scheduleStartupRender() {
 // _lazyArtObs removed — initLazyArt now uses per-container observers
 
 // Now Playing DOM element refs — cached after renderNowPlaying, cleared on close
-var _npSeekEl = null, _npFillEl = null, _npTime0El = null, _npTime1El = null, _npSeeking = false;
+var _npSeekEl = null, _npFillEl = null, _npTime0El = null, _npSeeking = false;
 
 // Mini player DOM cache — populated on first updateMiniPlayer() call
 var _miniLastSongId = '';
@@ -1911,7 +1850,6 @@ var albumGenreFilter = 'all';
 var _pendingArtBase64 = ''; // album art picked in edit modal, cleared on close
 var queue = [];
 var apiKey = localStorage.getItem('gemini_api_key') || '';
-var GENERIC_GENRE = /^(hip.hop|rap|r&b|music|unknown|other|pop)$/i;
 var _GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 var _GEMINI_LIST = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Google's newer endpoint. Models issued alongside the AQ. auth keys refuse
@@ -4857,7 +4795,6 @@ function renderNowPlaying() {
   _npSeekEl  = document.getElementById('npSeek');
   _npFillEl  = document.getElementById('npSeekFill');
   _npTime0El = np.querySelector('.np-times span');
-  _npTime1El = np.querySelector('.np-times span:last-child');
 
   // Enable marquee scrolling only if title actually overflows its container.
   // Use rAF so the browser has laid out before we measure.
@@ -4884,7 +4821,7 @@ function renderNowPlaying() {
 
   document.getElementById('npClose').onclick = function() {
     showNowPlaying = false; np.classList.add('hidden');
-    _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
+    _npSeekEl = null; _npFillEl = null; _npTime0El = null;
     updateMiniPlayer();
   };
   var npArtEl = document.getElementById('npArtImg');
@@ -4964,7 +4901,7 @@ function renderNowPlaying() {
         showNowPlaying = false;
         var npEl = document.getElementById('nowPlaying');
         if (npEl) npEl.classList.add('hidden');
-        _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
+        _npSeekEl = null; _npFillEl = null; _npTime0El = null;
         var _tapArtist = getBestAlbumArtistKey(_tapAlbum, currentSong);
         selectedAlbum  = { name: _tapAlbum, artist: _tapArtist };
         selectedArtist = null;
@@ -4984,7 +4921,7 @@ function renderNowPlaying() {
       showNowPlaying = false;
       var npEl = document.getElementById('nowPlaying');
       if (npEl) npEl.classList.add('hidden');
-      _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
+      _npSeekEl = null; _npFillEl = null; _npTime0El = null;
       selectedArtist = _tapArtistName;
       selectedAlbum  = null;
       currentTab = 'artists';
@@ -5035,7 +4972,7 @@ function renderNowPlaying() {
     var dx = e.changedTouches[0].clientX - _swipeX;
     var dy = e.changedTouches[0].clientY - _swipeY;
     if (Math.abs(dy) > Math.abs(dx)) {
-      if (dy > 80) { showNowPlaying = false; np.classList.add('hidden'); _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null; updateMiniPlayer(); }
+      if (dy > 80) { showNowPlaying = false; np.classList.add('hidden'); _npSeekEl = null; _npFillEl = null; _npTime0El = null; updateMiniPlayer(); }
     } else {
       if (dx < -60) handleNext();
       else if (dx > 60) handlePrev();
@@ -7711,14 +7648,13 @@ function openQueuePanel() {
   };
 
   // Touch drag-to-reorder
-  var _dragIdx = -1, _dragStartY = 0, _dragEl = null, _lastOverIdx = -1;
+  var _dragIdx = -1, _dragEl = null, _lastOverIdx = -1;
   listEl.addEventListener('touchstart', function(e) {
     var handle = e.target.closest('[data-drag-handle]');
     if (!handle) return;
     var row = handle.closest('[data-queue-idx]');
     if (!row) return;
     _dragIdx = parseInt(row.dataset.queueIdx);
-    _dragStartY = e.touches[0].clientY;
     _dragEl = row;
     row.classList.add('dragging');
   }, { passive: true });
@@ -8964,10 +8900,6 @@ document.addEventListener('visibilitychange', function() {
 window.addEventListener('beforeunload', saveUIState);
 window.addEventListener('pagehide', saveUIState);
 
-// ─── CF state (must be before first render() call) ───
-var _cfLastTap = { time: 0, idx: -1, timer: 0 };
-var _cfInfoTimer = 0;
-
 // ─── Init ───
 
 restoreUIState();
@@ -9159,9 +9091,21 @@ function nativeAutoScan() {
       // not on screen — it only changes where a song sorts — so backfilling it
       // is worth saving but not worth a repaint the user would see as a blink.
       var shown = 0, stored = 0;
+      // Files on the phone that the library has never seen: a mixtape or an
+      // album downloaded since last launch. A handful of new songs never comes
+      // near the "materially bigger" threshold above, so until now the only way
+      // to see them was to go and run a rescan by hand.
+      var fresh = [];
       files.forEach(function(f) {
         var s = byUri[f.contentUri] || byFn[f.name];
-        if (!s) return;
+        if (!s) {
+          // Add only. Never the reverse: a card that has not mounted yet, or a
+          // scan that came back short, would read as thousands of deletions,
+          // and a song wrongly dropped takes its tags with it. A song that has
+          // genuinely gone is cleared by the dead-file sweep instead.
+          fresh.push(NativeBridge.toSong(f));
+          return;
+        }
         if (f.art && !s.art) { s.art = f.art; shown++; }
         if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
         if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
@@ -9172,8 +9116,21 @@ function nativeAutoScan() {
         if (f.dateAdded && !s.dateAdded) { s.dateAdded = f.dateAdded; stored++; }
       });
       _libraryPreview = false;   // checked against MediaStore and the size is right
-      if (shown > 0 || stored > 0) saveLibrary();
-      if (shown > 0) render();
+      if (fresh.length) {
+        fresh.forEach(function(ns) {
+          if (!ns.id) ns.id = genId();
+          songs.push(ns);
+          songMap[ns.id] = ns;
+        });
+        _countsCache = null; _artistsCache = null; _albumsCache = null;
+        _artistSongsCache = null; _albumSongsCache = null; _spCache = null; _albumCreditMap = null;
+        applyEditsToSongs();   // a re-download gets its old corrections back
+      }
+      if (shown > 0 || stored > 0 || fresh.length) saveLibrary();
+      if (shown > 0 || fresh.length) render();
+      if (fresh.length) {
+        showToast('Added ' + fresh.length + ' new song' + (fresh.length !== 1 ? 's' : ''), 2500);
+      }
     }).catch(function() {});
     return;
   }
@@ -9338,7 +9295,7 @@ function handleHardwareBack() {
   if (showNowPlaying) {
     showNowPlaying = false;
     document.getElementById('nowPlaying').classList.add('hidden');
-    _npSeekEl = null; _npFillEl = null; _npTime0El = null; _npTime1El = null;
+    _npSeekEl = null; _npFillEl = null; _npTime0El = null;
     updateMiniPlayer();
     return;
   }
