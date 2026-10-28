@@ -7,6 +7,26 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.2
+
+Security fix. Worth installing even though nothing was going wrong for you.
+
+- **A song's own tags could run code inside the app.** When a cover failed to
+  load, the app fell back to a coloured placeholder, and it did that by pasting
+  the song's title into a small piece of JavaScript written directly into the
+  page. Apostrophes in the title were handled; backslashes were not — so a
+  title containing the right pair of characters stopped being text and started
+  being instructions. Anything a file was tagged with could then run with the
+  app's own access, including the saved API key. Files downloaded from random
+  sites can be tagged with anything at all
+- **The same was true of album art carried in a backup file.** Anything
+  beginning "data:" was accepted whole, and could close the attribute it sat in
+  and open one of its own
+- There is no JavaScript written into that markup any more, so the whole class
+  of problem is gone rather than patched. Covers that fail to load still fall
+  back to the placeholder exactly as before
+- Six tests now cover this. Putting the old version back fails four of them
+
 ## v1.9.1
 
 - **The flicker on opening the app is gone.** Startup finishes in stages — the
