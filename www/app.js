@@ -8975,14 +8975,26 @@ var _cfInfoTimer = 0;
 restoreUIState();
 
 // ─── First paint ───
-// What is in memory right now may be only the localStorage preview — the first
-// two thousand songs — with the real library a moment away in IndexedDB.
-// Painting it straight away means painting again the instant that lands, and
-// that second pass, with a different song count under it, is exactly what reads
-// as "you can tell it's restoring". So when a preview is all there is, hold the
-// paint for a beat and let IndexedDB win the race. It usually does. If it
-// doesn't, the preview goes up on the deadline and nothing is worse than before.
-var _FIRST_PAINT_HOLD_MS = 250;
+// Only part of the library fits in localStorage, so that is all there is in
+// memory at this point — the rest is still coming out of IndexedDB. Painting
+// now means putting up a library with the wrong song count, the wrong album
+// count and the wrong tags, and correcting it a second later. That correction
+// is the thing that looks like the app restoring itself.
+//
+// So: when the stored count says what loaded is short, do not paint it at all.
+// Wait for the real library. The screen below the tabs stays empty for that
+// moment, which reads as the app opening; swapping one library for another
+// reads as the app repairing itself, and that is the one to avoid.
+//
+// The deadline is a backstop, not the plan. An earlier attempt at this used a
+// quarter of a second, which was tuned against a small library on a fast
+// machine and lost the race every time on a real phone: the preview went up on
+// the deadline and the swap was still there. Phone storage takes its time, so
+// give it time.
+var _storedLibraryCount = 0;
+try { _storedLibraryCount = parseInt(localStorage.getItem('muzio_library_count') || '0') || 0; } catch (e) {}
+var _previewIsShort = _libraryPreview && _storedLibraryCount > songs.length;
+var _FIRST_PAINT_HOLD_MS = 3500;   // under the IndexedDB watchdog below
 var _firstPaintTimer = 0;
 function firstPaint() {
   if (_firstPaintDone) return;
@@ -8991,7 +9003,7 @@ function firstPaint() {
   render();
 }
 
-if (_libraryPreview && songs.length > 0) {
+if (_previewIsShort && songs.length > 0) {
   _firstPaintTimer = setTimeout(firstPaint, _FIRST_PAINT_HOLD_MS);
 } else {
   firstPaint();
