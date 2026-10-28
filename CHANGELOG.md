@@ -7,6 +7,26 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.6
+
+Opening is instant again.
+
+- **The app shows your library the moment it opens.** v1.9.4 and v1.9.5 held
+  the first screen back so the song count would be right the first time, which
+  meant staring at an empty screen for about a second on a large library. That
+  is a worse trade than the thing it was fixing. The library goes up
+  immediately again, as it did before, and the count settles a moment later
+
+Everything else from those two releases stays, because none of it is about
+waiting — the launch no longer redraws the screen six times, the bridge check
+runs once instead of four times, and it no longer compares a part-loaded
+library against your phone and concludes songs went missing.
+
+Measured against the build from before any of this work, on a fifteen-thousand
+song library on a slow phone: the list is on screen at 207ms, against 217ms
+before; the full library is complete at 1.9 seconds, against 2.1 before.
+Nothing opens slower than it used to and the rest is a little faster.
+
 ## v1.9.5
 
 The app no longer opens on the wrong library and then corrects itself.

@@ -1862,9 +1862,7 @@ function _searchIsOpen() {
 // Startup render dedup
 var _startupRenderPending = false;
 var _lastViewSignature = null;
-var _firstPaintDone = false;   // set by firstPaint() in the init block below
 function scheduleStartupRender() {
-  if (!_firstPaintDone) return;   // first paint still held — it will cover this
   if (_startupRenderPending) return;
   _startupRenderPending = true;
   requestAnimationFrame(function() {
@@ -8975,39 +8973,15 @@ var _cfInfoTimer = 0;
 restoreUIState();
 
 // ─── First paint ───
-// Only part of the library fits in localStorage, so that is all there is in
-// memory at this point — the rest is still coming out of IndexedDB. Painting
-// now means putting up a library with the wrong song count, the wrong album
-// count and the wrong tags, and correcting it a second later. That correction
-// is the thing that looks like the app restoring itself.
+// Straight away, with whatever is in memory: the part of the library that fits
+// in localStorage goes up now, and IndexedDB corrects it a moment later.
 //
-// So: when the stored count says what loaded is short, do not paint it at all.
-// Wait for the real library. The screen below the tabs stays empty for that
-// moment, which reads as the app opening; swapping one library for another
-// reads as the app repairing itself, and that is the one to avoid.
-//
-// The deadline is a backstop, not the plan. An earlier attempt at this used a
-// quarter of a second, which was tuned against a small library on a fast
-// machine and lost the race every time on a real phone: the preview went up on
-// the deadline and the swap was still there. Phone storage takes its time, so
-// give it time.
-var _storedLibraryCount = 0;
-try { _storedLibraryCount = parseInt(localStorage.getItem('muzio_library_count') || '0') || 0; } catch (e) {}
-var _previewIsShort = _libraryPreview && _storedLibraryCount > songs.length;
-var _FIRST_PAINT_HOLD_MS = 3500;   // under the IndexedDB watchdog below
-var _firstPaintTimer = 0;
-function firstPaint() {
-  if (_firstPaintDone) return;
-  _firstPaintDone = true;
-  if (_firstPaintTimer) { clearTimeout(_firstPaintTimer); _firstPaintTimer = 0; }
-  render();
-}
-
-if (_previewIsShort && songs.length > 0) {
-  _firstPaintTimer = setTimeout(firstPaint, _FIRST_PAINT_HOLD_MS);
-} else {
-  firstPaint();
-}
+// Two releases tried holding this back until the full library had loaded so the
+// counts would be right the first time. It does work, but it pays for that with
+// about a second of empty screen on a large library, and an app that takes a
+// second to show anything is worse than one that shows the library immediately
+// and settles. Opening fast wins; the correction is allowed to show.
+render();
 
 // Load edits store first so they're ready to apply on top of any data source.
 // Then load the library from IDB (full metadata, no quota cap) and apply edits on top.
@@ -9049,24 +9023,21 @@ loadAllEdits().then(function(edits) {
   // library is here now.
   primeRestoredSong();
   repairGenres();   // once, silently, now the whole library is here
-  firstPaint();            // the library is whole — paint it, once
-  scheduleStartupRender(); // or redraw, if the first paint already happened
+  scheduleStartupRender(); // the library is whole — redraw, once
   nativeAutoScan();
 }).catch(function() {
   _idbLoading = false;
   applyEditsToSongs();
-  firstPaint();   // IndexedDB failed; the preview is what there is
-  nativeAutoScan();
+  nativeAutoScan();   // IndexedDB failed; the preview on screen is what there is
 });
 
-// Safety net. Everything above waits on IndexedDB, and IndexedDB can, rarely,
-// simply never answer — a blocked upgrade, a request the browser dropped. Left
-// to itself that would strand the launch with no paint and no scan, so after a
-// few seconds the launch carries on without it.
+// Safety net. The bridge check below waits on IndexedDB, and IndexedDB can,
+// rarely, simply never answer — a blocked upgrade, a request the browser
+// dropped. Left to itself that would strand the launch with no scan at all, so
+// after a few seconds the launch carries on without it.
 setTimeout(function() {
   if (!_idbLoading) return;
   _idbLoading = false;
-  firstPaint();
   nativeAutoScan();
 }, 4000);
 
@@ -9089,8 +9060,7 @@ if (songs.length > 0 && !songs[0].url) {
   if (window.showDirectoryPicker && !isMobile()) {
     autoScanFromHandle().then(function(ok) {
       if (ok) return;
-      firstPaint();            // held? then this is the first paint
-      scheduleStartupRender(); // already painted? only redraw if it would differ
+      scheduleStartupRender(); // only redraw if it would differ from what is up
     });
   }
 }
