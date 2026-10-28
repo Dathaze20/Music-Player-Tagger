@@ -7,6 +7,34 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.4
+
+Opening the app stops looking like it is putting itself back together.
+
+- **One paint on launch instead of six.** Every stage of startup redrew the
+  whole screen — the saved view, the library coming out of IndexedDB, the
+  stored artwork, and then the bridge check firing four separate times, each
+  one re-converting every playback address and re-asking Android for the song
+  list from scratch. Six teardowns and rebuilds of the list you were looking
+  at, which is the flicker. The bridge check now runs once per launch, the
+  redraws that would have drawn the identical screen are dropped, and a redraw
+  nobody can see — a playback address refreshed behind the scenes, a missing
+  date filled in — no longer repaints anything
+- **The library arrives whole.** The first screen used to be the two thousand
+  songs that fit in the small store, with the real library replacing them a
+  moment later; that swap, with the counts changing underneath, is what read as
+  "restoring". The first paint now waits a quarter-second for the full library,
+  which almost always beats it, so the first thing you see is everything. If it
+  is slow, the preview goes up as before and nothing is worse than it was
+- **Safer while it loads.** One of those early bridge checks ran before the
+  library had finished loading, compared the two thousand songs against your
+  phone, concluded the library had been truncated and rebuilt it from Android's
+  copy — with the metadata of thirteen thousand songs missing from the
+  comparison. It no longer runs until the real library is in
+
+Searching while the app is still opening still works, and still survives
+everything finishing behind it.
+
 ## v1.9.3
 
 Two fixes from the bug sweep, both chosen for being contained.

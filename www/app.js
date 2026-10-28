@@ -1804,7 +1804,13 @@ function _viewSignature() {
     songs.length, c.artists, c.albums, c.genres, c.favs,
     sortMode, artistSortMode, albumSortMode, albumFilter, albumGenreFilter,
     albumArtistsOnly ? 1 : 0, artistViewMode,
-    _artCacheCount
+    _artCacheCount,
+    // The player bar and the scanning screen are part of the picture too, so a
+    // redraw that only brings those must not be mistaken for a redraw that
+    // brings nothing.
+    currentSong ? (currentSong.fn || currentSong.id || '') : '',
+    isPlaying ? 1 : 0,
+    nativeScanning ? 1 : 0, nativeScanError || ''
   ].join('\u0001');
 }
 
@@ -1856,7 +1862,9 @@ function _searchIsOpen() {
 // Startup render dedup
 var _startupRenderPending = false;
 var _lastViewSignature = null;
+var _firstPaintDone = false;   // set by firstPaint() in the init block below
 function scheduleStartupRender() {
+  if (!_firstPaintDone) return;   // first paint still held — it will cover this
   if (_startupRenderPending) return;
   _startupRenderPending = true;
   requestAnimationFrame(function() {
@@ -1999,6 +2007,7 @@ var nativeScanCount = 0;
 var nativeScanError = '';
 var _forceRescan = false; // set when IDB/localStorage has fewer songs than the saved count
 var _idbLoading = true; // true until first IDB load completes; prevents premature auto-scan
+var _startupReconciled = false; // the once-per-launch URL refresh + MediaStore check has run
 
 var audio = document.getElementById('audioEl');
 
@@ -8932,7 +8941,9 @@ function restoreUIState() {
       if (tabBtn) tabBtn.classList.add('active');
     }
 
-    render();
+    // No render here. The caller renders once, immediately after this returns,
+    // and painting the restored state twice in a row is one of the blinks the
+    // user sees on a cold launch.
 
     if (state.nowPlaying && currentSong) {
       setTimeout(function() { renderNowPlaying(); }, 120);
@@ -8963,9 +8974,28 @@ var _cfInfoTimer = 0;
 
 restoreUIState();
 
-// Always render on startup — restoreUIState only calls render() when saved state exists,
-// so a cold first-launch (no saved state) would otherwise show a blank screen.
-render();
+// ─── First paint ───
+// What is in memory right now may be only the localStorage preview — the first
+// two thousand songs — with the real library a moment away in IndexedDB.
+// Painting it straight away means painting again the instant that lands, and
+// that second pass, with a different song count under it, is exactly what reads
+// as "you can tell it's restoring". So when a preview is all there is, hold the
+// paint for a beat and let IndexedDB win the race. It usually does. If it
+// doesn't, the preview goes up on the deadline and nothing is worse than before.
+var _FIRST_PAINT_HOLD_MS = 250;
+var _firstPaintTimer = 0;
+function firstPaint() {
+  if (_firstPaintDone) return;
+  _firstPaintDone = true;
+  if (_firstPaintTimer) { clearTimeout(_firstPaintTimer); _firstPaintTimer = 0; }
+  render();
+}
+
+if (_libraryPreview && songs.length > 0) {
+  _firstPaintTimer = setTimeout(firstPaint, _FIRST_PAINT_HOLD_MS);
+} else {
+  firstPaint();
+}
 
 // Load edits store first so they're ready to apply on top of any data source.
 // Then load the library from IDB (full metadata, no quota cap) and apply edits on top.
@@ -9007,13 +9037,26 @@ loadAllEdits().then(function(edits) {
   // library is here now.
   primeRestoredSong();
   repairGenres();   // once, silently, now the whole library is here
-  scheduleStartupRender();
+  firstPaint();            // the library is whole — paint it, once
+  scheduleStartupRender(); // or redraw, if the first paint already happened
   nativeAutoScan();
 }).catch(function() {
   _idbLoading = false;
   applyEditsToSongs();
+  firstPaint();   // IndexedDB failed; the preview is what there is
   nativeAutoScan();
 });
+
+// Safety net. Everything above waits on IndexedDB, and IndexedDB can, rarely,
+// simply never answer — a blocked upgrade, a request the browser dropped. Left
+// to itself that would strand the launch with no paint and no scan, so after a
+// few seconds the launch carries on without it.
+setTimeout(function() {
+  if (!_idbLoading) return;
+  _idbLoading = false;
+  firstPaint();
+  nativeAutoScan();
+}, 4000);
 
 // Load persisted art from IndexedDB — after the first session all thumbnails are
 // stored locally, so this fills artCache before the next render and art appears
@@ -9033,7 +9076,9 @@ loadPersistedArt().then(function(cached) {
 if (songs.length > 0 && !songs[0].url) {
   if (window.showDirectoryPicker && !isMobile()) {
     autoScanFromHandle().then(function(ok) {
-      if (!ok) render();
+      if (ok) return;
+      firstPaint();            // held? then this is the first paint
+      scheduleStartupRender(); // already painted? only redraw if it would differ
     });
   }
 }
@@ -9043,16 +9088,25 @@ if (songs.length > 0 && !songs[0].url) {
 function nativeAutoScan() {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
   if (nativeScanning) return;
-  // IDB hasn't finished loading yet — don't start a full rescan prematurely.
-  // The IDB completion handler calls nativeAutoScan() explicitly once it knows
-  // whether the library is truly empty or was just slow to load.
-  if (_idbLoading && songs.length === 0) return;
+  // IDB hasn't finished loading yet — nothing useful can be decided here.
+  // The handful of launch timers below would otherwise each run against the
+  // 2000-song localStorage preview: comparing that against MediaStore makes the
+  // library look truncated, and every pass repainted the screen. The IDB
+  // completion handler calls nativeAutoScan() explicitly once the real library
+  // is in, so no launch is left unscanned.
+  if (_idbLoading) return;
 
   // Already have songs — reconnect playback URLs, then silently query MediaStore
   // to detect a truncated library (muzio_library_count can't be trusted because
   // saveLibrary() may have been called while songs was still at 2000, resetting
   // the count). MediaStore is the only ground truth.
   if (songs.length > 0 && !_forceRescan) {
+    // Launch housekeeping, and it only needs doing once. It used to run again
+    // for every registration below — deviceready plus three timers — each pass
+    // re-converting 15,000 URLs, re-querying MediaStore and repainting.
+    if (_startupReconciled) return;
+    _startupReconciled = true;
+
     // Refresh playback URL for every song that has a native source.
     // This fixes stale blob: URLs from a previous file-picker session and ensures
     // content:// URIs are always freshly converted via the Capacitor HTTP bridge.
@@ -9066,7 +9120,10 @@ function nativeAutoScan() {
       } catch(e) {}
     });
     primeRestoredSong();  // addresses are back, so the restored song can play
-    render();
+    // Through the guard: a URL is not something the screen shows, so unless the
+    // restored song or the library itself changed with it, there is nothing here
+    // worth repainting over.
+    scheduleStartupRender();
     backgroundLoadAllArt();
 
     // Always query MediaStore on cold start — it's a fast DB call, not a
@@ -9116,21 +9173,25 @@ function nativeAutoScan() {
         if (s.contentUri) byUri[s.contentUri] = s;
         byFn[s.fn] = s;
       });
-      var updated = 0;
+      // Art is on screen, so filling it in has to be redrawn. A missing date is
+      // not on screen — it only changes where a song sorts — so backfilling it
+      // is worth saving but not worth a repaint the user would see as a blink.
+      var shown = 0, stored = 0;
       files.forEach(function(f) {
         var s = byUri[f.contentUri] || byFn[f.name];
         if (!s) return;
-        if (f.art && !s.art) { s.art = f.art; updated++; }
+        if (f.art && !s.art) { s.art = f.art; shown++; }
         if (f.albumArtUri && !s.albumArtUri) s.albumArtUri = f.albumArtUri;
         if (f.albumArtist && !s.albumArtist) s.albumArtist = f.albumArtist;
         if (f.genre && !s.genre) s.genre = canonicalGenre(f.genre);
         // Backfill: everything already in the library was stored with no date,
         // so without this only newly scanned files would ever have one and
         // "Date added" would stay useless for the whole existing library.
-        if (f.dateAdded && !s.dateAdded) { s.dateAdded = f.dateAdded; updated++; }
+        if (f.dateAdded && !s.dateAdded) { s.dateAdded = f.dateAdded; stored++; }
       });
       _libraryPreview = false;   // checked against MediaStore and the size is right
-      if (updated > 0) { saveLibrary(); render(); }
+      if (shown > 0 || stored > 0) saveLibrary();
+      if (shown > 0) render();
     }).catch(function() {});
     return;
   }
