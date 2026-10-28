@@ -47,8 +47,9 @@ function getGrad(str) {
 }
 
 function artHTML(text, size, round, cls) {
+  text = String(text == null ? '' : text);
   var g = getGrad(text);
-  var init = text.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase();
+  var init = escHtml(text.split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase());
   var r = round ? 'border-radius:50%;' : 'border-radius:8px;';
   var extra = cls ? ' ' + cls : '';
   return '<div class="art-placeholder' + (round ? ' round' : '') + extra + '" style="width:' + size + 'px;height:' + size + 'px;background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ');font-size:' + Math.floor(size * 0.35) + 'px;' + r + '">' + init + '</div>';
@@ -856,14 +857,52 @@ function initMediaSession() {
   navigator.mediaSession.setActionHandler('seekbackward',  function(d) { seekTo(Math.max(0, currentTime - (d.seekOffset || 10))); });
 }
 
+/**
+ * Artwork, falling back to a gradient placeholder when it will not load.
+ *
+ * The fallback used to be an inline onerror handler with the song's own title
+ * pasted into it as a JavaScript string literal. Apostrophes were escaped;
+ * backslashes were not. A title containing a backslash followed by an
+ * apostrophe therefore closed the string, and everything after it ran as code
+ * — inside a WebView that holds the API key and can reach the native bridge.
+ * A tag in a downloaded file was enough to do it.
+ *
+ * There is no JavaScript in this markup now. The fallback text travels in a
+ * data attribute and is read back with getAttribute(), which returns the text
+ * itself and never parses it. The delegated listener below does the swap.
+ *
+ * The src is escaped for the same reason. customArtOnly() admits any string
+ * beginning "data:", so an imported backup could carry one containing a quote,
+ * close the attribute and open an event handler of its own.
+ */
 function imgOrArt(url, text, size, round, cls) {
   var safeUrl = safeArtUrl(url);
   if (safeUrl) {
     var r = round ? 'border-radius:50%;' : 'border-radius:8px;';
-    return '<img src="' + safeUrl + '" class="song-art' + (cls ? ' ' + cls : '') + '" style="width:' + size + 'px;height:' + size + 'px;' + r + 'object-fit:cover;" onerror="this.outerHTML=artHTML(\'' + escHtml(text).replace(/'/g,"\\'") + '\',' + size + ',' + round + ')">';
+    return '<img src="' + escHtml(safeUrl) + '" class="song-art' + (cls ? ' ' + cls : '')
+      + '" style="width:' + size + 'px;height:' + size + 'px;' + r + 'object-fit:cover;"'
+      + ' data-art-fallback="' + escHtml(text) + '"'
+      + ' data-art-size="' + (parseInt(size) || 48) + '"'
+      + ' data-art-round="' + (round ? 1 : 0) + '"'
+      + (cls ? ' data-art-cls="' + escHtml(cls) + '"' : '')
+      + '>';
   }
   return artHTML(text, size, round, cls);
 }
+
+// An error event does not bubble, so this listens in the capture phase. One
+// listener covers every cover the app will ever draw, including those added
+// long after this runs, which is why nothing had to change at the call sites.
+document.addEventListener('error', function(e) {
+  var el = e.target;
+  if (!el || el.tagName !== 'IMG' || !el.hasAttribute('data-art-fallback')) return;
+  el.outerHTML = artHTML(
+    el.getAttribute('data-art-fallback') || '',
+    parseInt(el.getAttribute('data-art-size')) || 48,
+    el.getAttribute('data-art-round') === '1',
+    el.getAttribute('data-art-cls') || ''
+  );
+}, true);
 
 function showToast(msg, duration) {
   var old = document.querySelector('.toast-msg');
