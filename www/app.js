@@ -7070,7 +7070,10 @@ function openSongEditModal(songId) {
   +         '<div class="te-ai-hint" id="teFeatHint"></div></div>'
   +     '</div>'
   +     '<div class="te-field"><div class="te-label">Release Type</div>'
-  +       '<div class="te-type-row">' + typeChipsHtml + '</div>'
+  +       '<div class="te-type-row">' + typeChipsHtml
+  +         '<button class="te-resync" id="teResyncBtn" title="Fetch timed lyrics so they follow the song">'
+  +         '&#8635; Resynchronize</button>'
+  +       '</div>'
   +     '</div>'
   +     '<div class="te-field"><div class="te-label">Lyrics</div>'
   +       '<textarea class="te-lyrics" id="teLyrics" placeholder="Paste lyrics here (supports [mm:ss.xx] LRC format)…" rows="5">'
@@ -7097,6 +7100,57 @@ function openSongEditModal(songId) {
       activeChip = btn;
     };
   });
+
+  // Resynchronize — fetch lyrics that carry timestamps.
+  //
+  // Lyrics only follow the song when they are stored in LRC form, with a
+  // [mm:ss.xx] stamp on each line. Lyrics that came off the file's own tags, or
+  // that LRCLIB only had a plain version of, have no stamps and simply sit
+  // there while the song plays. Worse, the automatic fetch in Now Playing gives
+  // up on a song the moment it has any lyrics at all, so one plain copy meant
+  // that song would never be offered a timed one again. This is the way out of
+  // that: ask again, on purpose, for this song.
+  var resyncBtn = document.getElementById('teResyncBtn');
+  if (resyncBtn) resyncBtn.onclick = function() {
+    var ta = document.getElementById('teLyrics');
+    // Read the names off the form, not off the song: a title the user has just
+    // corrected is the one worth searching with.
+    var probe = {
+      title:       (document.getElementById('teTitle').value || '').trim(),
+      artist:      (document.getElementById('teArtist').value || '').trim(),
+      albumArtist: (document.getElementById('teAlbumArtist').value || '').trim()
+    };
+    if (!probe.title || !(probe.artist || probe.albumArtist)) {
+      showToast('Needs a title and an artist to search with');
+      return;
+    }
+    var label = resyncBtn.innerHTML;
+    resyncBtn.disabled = true;
+    resyncBtn.innerHTML = '&#8635; Searching…';
+    var done = function(msg) {
+      resyncBtn.disabled = false;
+      resyncBtn.innerHTML = label;
+      if (msg) showToast(msg, 3000);
+    };
+    fetchLRCLibLyrics(probe).then(function(result) {
+      if (result && result.syncedLyrics) {
+        if (ta) ta.value = result.syncedLyrics;
+        done('Timed lyrics found — press Save');
+      } else if (result && result.plainLyrics) {
+        // Deliberately leaves the box alone. There is no timed version to be
+        // had, and overwriting what is there with another untimed copy would
+        // lose any wording the user had corrected for nothing.
+        done('Only an untimed version exists for this one');
+      } else {
+        // A failed lookup and a failed connection come back the same way here,
+        // and "check the title and artist" would send someone editing tags that
+        // were never the problem.
+        done(navigator.onLine === false
+          ? 'No connection — looking up lyrics needs the internet'
+          : 'No lyrics found — check the title and artist');
+      }
+    }).catch(function() { done('Could not reach the lyrics service'); });
+  };
 
   // Art file picker
   document.getElementById('teArtFile').onchange = function(e) {

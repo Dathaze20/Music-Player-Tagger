@@ -2049,6 +2049,26 @@ body.np-open .alpha-strip { display: none !important; }
   border-color: var(--primary);
   color: #fff;
 }
+/* Sits on the release-type line, in the space beside the last chip, so it adds
+   no height and never pushes the lyrics box around. Amber because it is an
+   action, not one more thing to choose: nothing else on this screen is amber,
+   so it cannot be read as a fifth release type. */
+.te-resync {
+  margin-left: auto;
+  background: rgba(232,145,58,0.16);
+  border: 1px solid rgba(232,145,58,0.55);
+  border-radius: 20px;
+  color: #f0a65a;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, opacity 0.15s;
+}
+.te-resync:active { background: rgba(232,145,58,0.3); }
+.te-resync[disabled] { opacity: 0.55; cursor: default; }
 .te-footer {
   display: flex;
   gap: 10px;
