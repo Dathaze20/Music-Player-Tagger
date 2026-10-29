@@ -92,7 +92,7 @@ Android 7.0 or newer. Install notes are [further down](#install); after the firs
 
 ### Backup and Restore
 - **Export** writes a JSON backup to your Downloads folder containing every manual edit, your playlists, favorites, play counts and play history, profile name, and profile photo. Play history lives on the song records rather than in the edits store, so a backup without it restored every tag you had fixed and still came back with "Most played" empty
-- **Import** merges a backup back in — safe to run repeatedly, and it never wipes what's already there. Play counts merge upward, so importing an older backup never lowers a count. Backups written before play history was included still import
+- **Import** merges a backup back in — safe to run repeatedly, and it never wipes what's already there. Play counts merge upward, so importing an older backup never lowers a count. Playlists merge by identity and then by name: one the backup does not know about is left alone, one you both have gains any songs it is missing, and one you have since deleted comes back. Nothing is ever removed from a playlist, since a song taken out on purpose should stay out. Backups written before play history was included still import
 - Designed so your tagging work survives reinstalling the app
 
 ### Staying Current

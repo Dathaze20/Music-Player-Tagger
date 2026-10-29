@@ -21,6 +21,14 @@ Updating takes you to the newest version in one go.
   ever be out of date
 - **If the newest release has no APK yet**, it offers the newest one that does,
   instead of telling you there is nothing to install
+- **Importing a backup no longer deletes playlists you made since.** Every
+  other part of an import already merged — your tag edits, favourites and play
+  counts are added to what is there — but the playlists were assigned straight
+  over the top, so a playlist created after the backup was taken was gone the
+  moment you restored. They merge now: a playlist the backup does not know
+  about is left alone, one it shares with you gains any songs it is missing,
+  and a playlist you have since deleted comes back. Nothing is ever removed
+  from a playlist, because a song you took out on purpose should stay out
 - **Resynchronize also fills in lyrics that were never there.** It would find
   an untimed version, decline to use it and say so — right for a song whose
   lyrics you have already corrected, wrong for a song with no lyrics at all,

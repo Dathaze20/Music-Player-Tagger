@@ -8614,7 +8614,57 @@ function _doImportBackup(file) {
         try { localStorage.setItem('muzio_profile_photo', _profilePhoto); } catch(er) {}
       }
       _renderProfile();
-      if (Array.isArray(data.playlists)) { playlists = data.playlists; savePlaylists(); }
+      // Playlists merge in; they are not assigned over the top. A backup is
+      // restored after the fact, so any playlist made since it was taken is
+      // not in it — and replacing the array deleted every one of those. It was
+      // the one part of an import that could destroy work, while the edits,
+      // favourites and play counts below have always merged.
+      var plAdded = 0, plGrown = 0, plSongsAdded = 0;
+      if (Array.isArray(data.playlists)) {
+        var plById = Object.create(null), plByName = Object.create(null);
+        var nameKey = function(n) { return String(n || '').trim().toLowerCase(); };
+        playlists.forEach(function(pl) {
+          if (!pl) return;
+          if (pl.id) plById[pl.id] = pl;
+          var n = nameKey(pl.name);
+          if (n && !plByName[n]) plByName[n] = pl;
+        });
+        data.playlists.forEach(function(inc) {
+          if (!inc || !Array.isArray(inc.songIds)) return;
+          // The same playlist by id, or one the user has since recreated under
+          // the same name — matching on the name as well is what stops an
+          // import leaving two playlists called "Gym" side by side.
+          var mine = (inc.id && plById[inc.id]) || plByName[nameKey(inc.name)];
+          if (!mine) {
+            var copy = {
+              id: inc.id || ('pl_' + Date.now() + '_' + plAdded),
+              name: String(inc.name || 'Playlist'),
+              songIds: inc.songIds.filter(function(k) { return typeof k === 'string' && k; })
+            };
+            playlists.push(copy);
+            plById[copy.id] = copy;
+            var cn = nameKey(copy.name);
+            if (cn && !plByName[cn]) plByName[cn] = copy;
+            plAdded++;
+            return;
+          }
+          // Union: keep what is there, in its order, and append only what the
+          // backup has that it does not. Removing is never right here — a song
+          // taken out of a playlist on purpose must not come back.
+          if (!Array.isArray(mine.songIds)) mine.songIds = [];
+          var have = Object.create(null);
+          mine.songIds.forEach(function(k) { have[k] = true; });
+          var grew = 0;
+          inc.songIds.forEach(function(k) {
+            if (typeof k !== 'string' || !k || have[k]) return;
+            have[k] = true;
+            mine.songIds.push(k);
+            grew++;
+          });
+          if (grew) { plGrown++; plSongsAdded += grew; }
+        });
+        if (plAdded || plGrown) savePlaylists();
+      }
       // Restore favorites by matching fn (unique file path) or title+artist
       var favRestoredCount = 0;
       if (Array.isArray(data.favorites) && data.favorites.length) {
@@ -8642,6 +8692,11 @@ function _doImportBackup(file) {
           statsRestored++;
         });
       }
+      var plNote = '';
+      if (plAdded)  plNote += ', ' + plAdded + ' playlist' + (plAdded !== 1 ? 's' : '') + ' added';
+      if (plGrown)  plNote += ', ' + plSongsAdded + ' song' + (plSongsAdded !== 1 ? 's' : '')
+                            + ' into ' + plGrown + ' playlist' + (plGrown !== 1 ? 's' : '');
+
       if (data.edits && typeof data.edits === 'object') {
         openLibDb().then(function(db) {
           var tx = db.transaction(EDITS_STORE, 'readwrite');
@@ -8654,7 +8709,8 @@ function _doImportBackup(file) {
             saveLibrary();
             render();
             showToast('Restored \u2014 ' + keys.length + ' edits, ' + favRestoredCount
-              + ' favorites' + (statsRestored ? ', ' + statsRestored + ' play counts' : ''), 3000);
+              + ' favorites' + (statsRestored ? ', ' + statsRestored + ' play counts' : '')
+              + plNote, 3500);
           };
           // Without this a failed write looks identical to a successful one, and
           // the favourites recovered above would be lost on the next restart.
@@ -8671,7 +8727,7 @@ function _doImportBackup(file) {
       } else {
         if (favRestoredCount) saveLibrary();
         render();
-        showToast('Backup restored — ' + favRestoredCount + ' favorites', 2500);
+        showToast('Backup restored \u2014 ' + favRestoredCount + ' favorites' + plNote, 3000);
       }
     } catch(e) { showToast('Could not read backup file', 2500); }
   };
