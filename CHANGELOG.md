@@ -7,6 +7,29 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.8
+
+A Resynchronize button in the tag editor, for lyrics that sit still.
+
+- **Lyrics that do not follow the song can be fixed from the tag editor.**
+  Words only move with the music when they are stored with a timestamp on each
+  line. Lyrics that came off the file's own tags, or that the lyrics service
+  only had a plain copy of, have no timestamps and just sit there. There was no
+  way to ask again either: the automatic lookup gives up on a song the moment it
+  has any lyrics at all, so one untimed copy meant that song would never be
+  offered a timed one again
+
+  **Resynchronize** sits on the Release Type line, in the space beside the last
+  chip, in amber so it cannot be mistaken for a fifth release type. It looks the
+  song up again on purpose and drops the timed version into the lyrics box ready
+  to save. It searches with the title and artist as they are in the form, so
+  correcting a misspelled title and then pressing it finds the right song
+
+  When there is only an untimed version it says so and leaves your lyrics alone,
+  rather than replacing what you have with another copy that will not move
+  either. With no connection it says that, instead of sending you off to check
+  tags that were never the problem
+
 ## v1.9.7
 
 New downloads turn up on their own, and a clear-out of code that did nothing.
