@@ -7,6 +7,37 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.9
+
+Updating takes you to the newest version in one go.
+
+- **Check for Updates goes straight to the latest release.** It asked GitHub
+  for its "latest" pointer, which means most recently *created* — not the
+  highest version number, and it reorders if a release is edited or
+  re-published. It now reads the release list and picks the highest version
+  that actually has an APK attached, so however many versions have come out
+  since yours, one update gets you all the way there. If you are several
+  behind it says so. It also refuses to use a cached answer, which could only
+  ever be out of date
+- **If the newest release has no APK yet**, it offers the newest one that does,
+  instead of telling you there is nothing to install
+- **Importing a backup no longer deletes playlists you made since.** Every
+  other part of an import already merged — your tag edits, favourites and play
+  counts are added to what is there — but the playlists were assigned straight
+  over the top, so a playlist created after the backup was taken was gone the
+  moment you restored. They merge now: a playlist the backup does not know
+  about is left alone, one it shares with you gains any songs it is missing,
+  and a playlist you have since deleted comes back. Nothing is ever removed
+  from a playlist, because a song you took out on purpose should stay out
+- **Resynchronize also fills in lyrics that were never there.** It would find
+  an untimed version, decline to use it and say so — right for a song whose
+  lyrics you have already corrected, wrong for a song with no lyrics at all,
+  where having the words beats having none. An empty lyrics box now gets
+  filled; one that already has something is still left alone
+
+The README now covers everything added recently, and leads with what the app
+actually is: a music player that keeps your library tidy while you listen.
+
 ## v1.9.8
 
 A Resynchronize button in the tag editor, for lyrics that sit still.

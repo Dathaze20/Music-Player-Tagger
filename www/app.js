@@ -7137,10 +7137,17 @@ function openSongEditModal(songId) {
         if (ta) ta.value = result.syncedLyrics;
         done('Timed lyrics found — press Save');
       } else if (result && result.plainLyrics) {
-        // Deliberately leaves the box alone. There is no timed version to be
-        // had, and overwriting what is there with another untimed copy would
-        // lose any wording the user had corrected for nothing.
-        done('Only an untimed version exists for this one');
+        // No timed version exists. If the box already holds lyrics, leave them:
+        // swapping them for another copy that also will not move loses any
+        // wording the user corrected and gains nothing. If the box is empty
+        // there is nothing to lose and having the words beats having none, so
+        // the same button doubles as a plain fetch.
+        if (ta && !ta.value.trim()) {
+          ta.value = result.plainLyrics;
+          done('Found lyrics, but no timed version — press Save');
+        } else {
+          done('Only an untimed version exists for this one');
+        }
       } else {
         // A failed lookup and a failed connection come back the same way here,
         // and "check the title and artist" would send someone editing tags that
@@ -8607,7 +8614,57 @@ function _doImportBackup(file) {
         try { localStorage.setItem('muzio_profile_photo', _profilePhoto); } catch(er) {}
       }
       _renderProfile();
-      if (Array.isArray(data.playlists)) { playlists = data.playlists; savePlaylists(); }
+      // Playlists merge in; they are not assigned over the top. A backup is
+      // restored after the fact, so any playlist made since it was taken is
+      // not in it — and replacing the array deleted every one of those. It was
+      // the one part of an import that could destroy work, while the edits,
+      // favourites and play counts below have always merged.
+      var plAdded = 0, plGrown = 0, plSongsAdded = 0;
+      if (Array.isArray(data.playlists)) {
+        var plById = Object.create(null), plByName = Object.create(null);
+        var nameKey = function(n) { return String(n || '').trim().toLowerCase(); };
+        playlists.forEach(function(pl) {
+          if (!pl) return;
+          if (pl.id) plById[pl.id] = pl;
+          var n = nameKey(pl.name);
+          if (n && !plByName[n]) plByName[n] = pl;
+        });
+        data.playlists.forEach(function(inc) {
+          if (!inc || !Array.isArray(inc.songIds)) return;
+          // The same playlist by id, or one the user has since recreated under
+          // the same name — matching on the name as well is what stops an
+          // import leaving two playlists called "Gym" side by side.
+          var mine = (inc.id && plById[inc.id]) || plByName[nameKey(inc.name)];
+          if (!mine) {
+            var copy = {
+              id: inc.id || ('pl_' + Date.now() + '_' + plAdded),
+              name: String(inc.name || 'Playlist'),
+              songIds: inc.songIds.filter(function(k) { return typeof k === 'string' && k; })
+            };
+            playlists.push(copy);
+            plById[copy.id] = copy;
+            var cn = nameKey(copy.name);
+            if (cn && !plByName[cn]) plByName[cn] = copy;
+            plAdded++;
+            return;
+          }
+          // Union: keep what is there, in its order, and append only what the
+          // backup has that it does not. Removing is never right here — a song
+          // taken out of a playlist on purpose must not come back.
+          if (!Array.isArray(mine.songIds)) mine.songIds = [];
+          var have = Object.create(null);
+          mine.songIds.forEach(function(k) { have[k] = true; });
+          var grew = 0;
+          inc.songIds.forEach(function(k) {
+            if (typeof k !== 'string' || !k || have[k]) return;
+            have[k] = true;
+            mine.songIds.push(k);
+            grew++;
+          });
+          if (grew) { plGrown++; plSongsAdded += grew; }
+        });
+        if (plAdded || plGrown) savePlaylists();
+      }
       // Restore favorites by matching fn (unique file path) or title+artist
       var favRestoredCount = 0;
       if (Array.isArray(data.favorites) && data.favorites.length) {
@@ -8635,6 +8692,11 @@ function _doImportBackup(file) {
           statsRestored++;
         });
       }
+      var plNote = '';
+      if (plAdded)  plNote += ', ' + plAdded + ' playlist' + (plAdded !== 1 ? 's' : '') + ' added';
+      if (plGrown)  plNote += ', ' + plSongsAdded + ' song' + (plSongsAdded !== 1 ? 's' : '')
+                            + ' into ' + plGrown + ' playlist' + (plGrown !== 1 ? 's' : '');
+
       if (data.edits && typeof data.edits === 'object') {
         openLibDb().then(function(db) {
           var tx = db.transaction(EDITS_STORE, 'readwrite');
@@ -8647,7 +8709,8 @@ function _doImportBackup(file) {
             saveLibrary();
             render();
             showToast('Restored \u2014 ' + keys.length + ' edits, ' + favRestoredCount
-              + ' favorites' + (statsRestored ? ', ' + statsRestored + ' play counts' : ''), 3000);
+              + ' favorites' + (statsRestored ? ', ' + statsRestored + ' play counts' : '')
+              + plNote, 3500);
           };
           // Without this a failed write looks identical to a successful one, and
           // the favourites recovered above would be lost on the next restart.
@@ -8664,7 +8727,7 @@ function _doImportBackup(file) {
       } else {
         if (favRestoredCount) saveLibrary();
         render();
-        showToast('Backup restored — ' + favRestoredCount + ' favorites', 2500);
+        showToast('Backup restored \u2014 ' + favRestoredCount + ' favorites' + plNote, 3000);
       }
     } catch(e) { showToast('Could not read backup file', 2500); }
   };
@@ -8706,43 +8769,65 @@ function checkForUpdates() {
   if (btn) btn.disabled = true;
   label.textContent = 'Checking…';
 
-  fetch('https://api.github.com/repos/' + GITHUB_REPO + '/releases/latest', {
-    headers: { 'Accept': 'application/vnd.github+json' }
+  // The whole list, not GitHub's "latest" pointer. "Latest" there means most
+  // recently created, which is not the same thing as the highest version — an
+  // edited or re-published release reorders it — and it says nothing about
+  // whether that release has an APK attached at all. Working out the highest
+  // version number that actually has a file on it is what "give me the newest"
+  // means, and it lands on the newest in one step however many came out since.
+  fetch('https://api.github.com/repos/' + GITHUB_REPO + '/releases?per_page=30', {
+    headers: { 'Accept': 'application/vnd.github+json' },
+    cache: 'no-store'   // a cached answer must never decide what the newest is
   }).then(function(res) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
-  }).then(function(rel) {
-    var latestCode = _versionCodeFromTag(rel.tag_name);
-    var mineCode   = _appVersion ? _appVersion.versionCode : null;
-    var apk = (rel.assets || []).filter(function(a) {
-      return /\.apk$/i.test(a.name || '');
-    })[0];
+  }).then(function(list) {
+    if (!Array.isArray(list) || !list.length) throw new Error('no releases');
+    var mineCode = _appVersion ? _appVersion.versionCode : null;
+    var best = null;      // highest version that has an APK
+    var newest = null;    // highest version at all, APK or not
+    var ahead = 0;        // how many releases are newer than the installed one
+    list.forEach(function(rel) {
+      if (!rel || rel.draft || rel.prerelease) return;
+      var code = _versionCodeFromTag(rel.tag_name);
+      if (code === null) return;
+      if (mineCode !== null && code > mineCode) ahead++;
+      if (!newest || code > newest.code) newest = { code: code, rel: rel };
+      var apk = (rel.assets || []).filter(function(a) {
+        return /\.apk$/i.test(a.name || '');
+      })[0];
+      if (!apk) return;
+      if (!best || code > best.code) best = { code: code, rel: rel, apk: apk };
+    });
 
-    if (latestCode === null || mineCode === null) {
+    if (!newest || mineCode === null) {
       reset();
       showToast('Could not compare versions — open the release page to check', 4000);
       return;
     }
-    if (latestCode <= mineCode) {
+    if (newest.code <= mineCode) {
       reset();
       showToast('You are on the latest version (v' + _appVersion.versionName + ')', 3000);
       return;
     }
-    if (!apk) {
+    if (!best || best.code <= mineCode) {
       reset();
-      showToast(rel.tag_name + ' is out, but it has no APK attached yet', 4000);
+      showToast(newest.rel.tag_name + ' is out, but it has no APK attached yet', 4000);
       return;
     }
-    reset('Update to ' + rel.tag_name);
-    _promptUpdate(rel, apk);
+    reset('Update to ' + best.rel.tag_name);
+    _promptUpdate(best.rel, best.apk, ahead);
   }).catch(function() {
     reset();
     showToast('Could not reach GitHub — check your connection', 3500);
   });
 }
 
-function _promptUpdate(rel, apk) {
+function _promptUpdate(rel, apk, ahead) {
   var mb = apk.size ? (apk.size / 1048576).toFixed(1) + ' MB' : '';
+  // Being several behind is worth saying out loud, so it is clear this one
+  // jump covers all of them rather than moving you along by one.
+  var behind = (ahead > 1) ? ' • ' + ahead + ' releases newer than yours' : '';
   var body = (rel.body || '').split('## In this version')[1] || '';
   body = body.split('##')[0].trim().slice(0, 400);
 
@@ -8757,7 +8842,7 @@ function _promptUpdate(rel, apk) {
       '<div style="font-size:17px;font-weight:700;margin-bottom:4px;">Update available</div>'
     + '<div style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">'
     + escHtml(rel.tag_name) + (mb ? ' &bull; ' + mb : '')
-    + ' &bull; you have v' + escHtml(_appVersion.versionName) + '</div>'
+    + ' &bull; you have v' + escHtml(_appVersion.versionName) + escHtml(behind) + '</div>'
     + (body ? '<div style="font-size:13px;color:var(--text-dim);white-space:pre-wrap;'
               + 'line-height:1.5;margin-bottom:16px;">' + escHtml(body) + '</div>' : '')
     + '<div style="font-size:12px;color:var(--text-faint);line-height:1.5;margin-bottom:16px;" id="updHint">'
