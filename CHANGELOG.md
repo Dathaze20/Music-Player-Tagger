@@ -7,6 +7,25 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.10
+
+The old copy of the app, and clearer wording on the lyrics button.
+
+- **The app now spots the old copy of itself and offers to remove it.** When
+  the app's identity had to change in 1.9.0, Android started treating the old
+  install as a separate app. It carries the same name and the same icon, no
+  update released since can reach it, and it sits at v1.8.4 forever. Open it by
+  mistake and you get an old version with an update prompt that never goes
+  away: you update, that updates *this* app, and the old icon is unchanged next
+  time. There is a banner now that says so and removes it in one tap. If you
+  cancel Android's confirmation it comes back next launch, and it stops for good
+  once the old copy is gone — or if you dismiss it
+- **The lyrics button says which job it is about to do.** It was always called
+  Resynchronize, which means nothing to someone whose song has no lyrics at all
+  — and it fetches those too. It reads **Get lyrics** when the lyrics box is
+  empty and **Resynchronize** when there is something in it, and it changes as
+  you type. One button, as before; it just stops hiding half of what it does
+
 ## v1.9.9
 
 Updating takes you to the newest version in one go.

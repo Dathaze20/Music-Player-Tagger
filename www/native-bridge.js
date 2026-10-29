@@ -293,6 +293,22 @@ var NativeBridge = (function() {
   }
 
   // Returns { exempt: boolean } — whether the app is already whitelisted from battery optimization.
+  // The pre-1.9.0 copy of this app, which no update of this one can reach.
+  // An older build of the plugin has no such method, so "not installed" is the
+  // answer there — it simply means no banner on a build that predates this.
+  function isLegacyAppInstalled(packageId) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.isLegacyAppInstalled) return Promise.resolve({ installed: false });
+    return plugin.isLegacyAppInstalled({ packageId: packageId })
+      .catch(function() { return { installed: false }; });
+  }
+
+  function uninstallPackage(packageId) {
+    var plugin = getPlugin('MediaStore');
+    if (!plugin || !plugin.uninstallPackage) return Promise.reject(new Error('not available'));
+    return plugin.uninstallPackage({ packageId: packageId });
+  }
+
   function isBatteryOptimizationExempt() {
     var plugin = getPlugin('MediaStore');
     if (!plugin || !plugin.isBatteryOptimizationExempt) return Promise.resolve({ exempt: true });
@@ -430,6 +446,7 @@ var NativeBridge = (function() {
            updateMediaNotification: updateMediaNotification,
            hideMediaNotification: hideMediaNotification,
            requestNotificationPermission: requestNotificationPermission,
+           isLegacyAppInstalled: isLegacyAppInstalled, uninstallPackage: uninstallPackage,
            isBatteryOptimizationExempt: isBatteryOptimizationExempt,
            requestBatteryOptimizationExemption: requestBatteryOptimizationExemption,
            deleteFiles: deleteFiles,

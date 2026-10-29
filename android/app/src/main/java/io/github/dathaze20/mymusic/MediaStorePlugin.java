@@ -1886,6 +1886,51 @@ public class MediaStorePlugin extends Plugin {
         call.resolve();
     }
 
+    /** Reports whether the pre-1.9.0 copy of this app is still installed. */
+    @PluginMethod
+    public void isLegacyAppInstalled(PluginCall call) {
+        // The app's identity changed in 1.9.0, from com.muzioai.app to this one,
+        // because the old name leaned on an unrelated player with a hundred
+        // million installs and Play will not take that. Android treats a
+        // different applicationId as a different app, so the old copy is still
+        // sitting there, cannot be updated by anything this one installs, and
+        // carries the same name and icon — which is how someone ends up opening
+        // it, finding an old version, updating, and finding the old version
+        // again next time.
+        JSObject ret = new JSObject();
+        String legacy = call.getString("packageId", "");
+        boolean present = false;
+        if (legacy != null && !legacy.isEmpty()) {
+            try {
+                getContext().getPackageManager().getPackageInfo(legacy, 0);
+                present = true;
+            } catch (Exception e) {
+                present = false;   // not installed, or not visible to us
+            }
+        }
+        ret.put("installed", present);
+        call.resolve(ret);
+    }
+
+    /** Opens Android's own uninstall dialog for a package. The user confirms it. */
+    @PluginMethod
+    public void uninstallPackage(PluginCall call) {
+        String pkg = call.getString("packageId", "");
+        if (pkg == null || pkg.isEmpty()) { call.reject("No package given"); return; }
+        if (pkg.equals(getContext().getPackageName())) {
+            call.reject("Refusing to uninstall the running app");
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_DELETE);
+            intent.setData(Uri.parse("package:" + pkg));
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not open the uninstall screen: " + e.getMessage());
+        }
+    }
+
     /** Returns whether the app is already exempt from battery optimizations. */
     @PluginMethod
     public void isBatteryOptimizationExempt(PluginCall call) {
