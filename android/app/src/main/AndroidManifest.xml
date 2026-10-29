@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      Android 11+ hides other installed apps unless they are named here. This one
+      package only: the copy of this app from before 1.9.0, when the identity
+      changed. That old copy cannot be updated by anything this app installs and
+      carries the same name and icon, so the app needs to be able to see whether
+      it is still there and offer to remove it. Nothing else is queried.
+    -->
+    <queries>
+        <package android:name="com.muzioai.app" />
+    </queries>
+
     <!-- Foreground service (required on all API levels) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Foreground service type media_playback (required on API 34+) -->

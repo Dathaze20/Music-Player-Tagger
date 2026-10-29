@@ -890,6 +890,48 @@ function saveTextFile(fileName, text, mimeType, onDone) {
 
 // Show a one-time battery optimization banner for Samsung/Android users.
 // Once dismissed or acted on it never appears again (stored in localStorage).
+// The copy of this app from before 1.9.0, when the identity had to change off
+// com.muzioai.app. Android treats a different applicationId as a different app,
+// so that one is still installed, nothing released here can update it, and it
+// carries the same name and the same icon. Open it by mistake and you get an old
+// version with an update prompt that never goes away — you update, it updates
+// this app, and the old icon is unchanged next time. The only way out is to
+// remove it, so say so plainly and offer the button.
+var LEGACY_PACKAGE = 'com.muzioai.app';
+
+function maybeShowLegacyAppBanner() {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
+  if (!NativeBridge.isLegacyAppInstalled) return;
+  try { if (localStorage.getItem('muzio_legacy_banner_done')) return; } catch (e) {}
+  NativeBridge.isLegacyAppInstalled(LEGACY_PACKAGE).then(function(res) {
+    if (!res || !res.installed) return;
+    if (document.querySelector('.battery-banner')) return;   // one banner at a time
+    var b = document.createElement('div');
+    b.className = 'battery-banner';
+    b.innerHTML = '<div class="battery-banner-text">'
+      + '<div class="battery-banner-title">&#9888; An older My Music is still installed</div>'
+      + '<div class="battery-banner-sub">It cannot be updated and looks identical to this one. '
+      + 'Opening it by mistake shows an old version that keeps asking to update.</div>'
+      + '</div>'
+      + '<button class="battery-banner-fix">Remove</button>'
+      + '<button class="battery-banner-dismiss">&#10005;</button>';
+    document.body.appendChild(b);
+    b.querySelector('.battery-banner-fix').onclick = function() {
+      b.remove();
+      // Not marked done: Android's uninstall dialog can be cancelled, and the
+      // old copy is still there if it is. The banner comes back next launch,
+      // and stops coming back once the package is actually gone.
+      NativeBridge.uninstallPackage(LEGACY_PACKAGE).catch(function() {
+        showToast('Could not open the uninstall screen — remove "My Music" v1.8.4 from Settings › Apps', 5000);
+      });
+    };
+    b.querySelector('.battery-banner-dismiss').onclick = function() {
+      try { localStorage.setItem('muzio_legacy_banner_done', '1'); } catch (e) {}
+      b.remove();
+    };
+  }).catch(function() {});
+}
+
 function maybeShowBatteryBanner() {
   if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;
   if (localStorage.getItem('muzio_battery_banner_done')) return;
@@ -7071,8 +7113,8 @@ function openSongEditModal(songId) {
   +     '</div>'
   +     '<div class="te-field"><div class="te-label">Release Type</div>'
   +       '<div class="te-type-row">' + typeChipsHtml
-  +         '<button class="te-resync" id="teResyncBtn" title="Fetch timed lyrics so they follow the song">'
-  +         '&#8635; Resynchronize</button>'
+  +         '<button class="te-resync" id="teResyncBtn" title="Look this song up and fetch its lyrics, timed if a timed version exists">'
+  +         '</button>'
   +       '</div>'
   +     '</div>'
   +     '<div class="te-field"><div class="te-label">Lyrics</div>'
@@ -7111,6 +7153,23 @@ function openSongEditModal(songId) {
   // that song would never be offered a timed one again. This is the way out of
   // that: ask again, on purpose, for this song.
   var resyncBtn = document.getElementById('teResyncBtn');
+  // One button, two jobs, so it says which one it is about to do. With an empty
+  // box there is nothing to resynchronize and the word would mean nothing to
+  // somebody looking for a way to get lyrics at all; with lyrics already in it,
+  // "get lyrics" would read as though it were about to replace them.
+  function resyncLabel() {
+    var box = document.getElementById('teLyrics');
+    var has = box && box.value.trim();
+    return '\u21bb ' + (has ? 'Resynchronize' : 'Get lyrics');
+  }
+  if (resyncBtn) {
+    resyncBtn.innerHTML = resyncLabel();
+    var lyricsTa = document.getElementById('teLyrics');
+    // Typing or pasting changes which job it is, so the label follows along.
+    if (lyricsTa) lyricsTa.addEventListener('input', function() {
+      if (!resyncBtn.disabled) resyncBtn.innerHTML = resyncLabel();
+    });
+  }
   if (resyncBtn) resyncBtn.onclick = function() {
     var ta = document.getElementById('teLyrics');
     // Read the names off the form, not off the song: a title the user has just
@@ -7124,12 +7183,11 @@ function openSongEditModal(songId) {
       showToast('Needs a title and an artist to search with');
       return;
     }
-    var label = resyncBtn.innerHTML;
     resyncBtn.disabled = true;
-    resyncBtn.innerHTML = '&#8635; Searching…';
+    resyncBtn.innerHTML = '\u21bb Searching…';
     var done = function(msg) {
       resyncBtn.disabled = false;
-      resyncBtn.innerHTML = label;
+      resyncBtn.innerHTML = resyncLabel();   // the box may have just been filled
       if (msg) showToast(msg, 3000);
     };
     fetchLRCLibLyrics(probe).then(function(result) {
@@ -9341,6 +9399,11 @@ document.addEventListener('deviceready', nativeAutoScan, false);
 setTimeout(nativeAutoScan, 100);   // fast path: bridge usually ready within 100ms
 setTimeout(nativeAutoScan, 500);   // fallback for slower bridge init
 setTimeout(nativeAutoScan, 2000);  // last resort for slow devices
+
+// Checked on every launch, not just the first: the old copy is a thing someone
+// can still be opening weeks later, and the battery banner beside it only ever
+// runs after a first-ever scan.
+setTimeout(maybeShowLegacyAppBanner, 2500);
 
 // Lock screen / notification controls
 initMediaSession();
