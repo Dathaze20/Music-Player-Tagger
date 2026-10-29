@@ -7137,10 +7137,17 @@ function openSongEditModal(songId) {
         if (ta) ta.value = result.syncedLyrics;
         done('Timed lyrics found — press Save');
       } else if (result && result.plainLyrics) {
-        // Deliberately leaves the box alone. There is no timed version to be
-        // had, and overwriting what is there with another untimed copy would
-        // lose any wording the user had corrected for nothing.
-        done('Only an untimed version exists for this one');
+        // No timed version exists. If the box already holds lyrics, leave them:
+        // swapping them for another copy that also will not move loses any
+        // wording the user corrected and gains nothing. If the box is empty
+        // there is nothing to lose and having the words beats having none, so
+        // the same button doubles as a plain fetch.
+        if (ta && !ta.value.trim()) {
+          ta.value = result.plainLyrics;
+          done('Found lyrics, but no timed version — press Save');
+        } else {
+          done('Only an untimed version exists for this one');
+        }
       } else {
         // A failed lookup and a failed connection come back the same way here,
         // and "check the title and artist" would send someone editing tags that
@@ -8706,43 +8713,65 @@ function checkForUpdates() {
   if (btn) btn.disabled = true;
   label.textContent = 'Checking…';
 
-  fetch('https://api.github.com/repos/' + GITHUB_REPO + '/releases/latest', {
-    headers: { 'Accept': 'application/vnd.github+json' }
+  // The whole list, not GitHub's "latest" pointer. "Latest" there means most
+  // recently created, which is not the same thing as the highest version — an
+  // edited or re-published release reorders it — and it says nothing about
+  // whether that release has an APK attached at all. Working out the highest
+  // version number that actually has a file on it is what "give me the newest"
+  // means, and it lands on the newest in one step however many came out since.
+  fetch('https://api.github.com/repos/' + GITHUB_REPO + '/releases?per_page=30', {
+    headers: { 'Accept': 'application/vnd.github+json' },
+    cache: 'no-store'   // a cached answer must never decide what the newest is
   }).then(function(res) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
-  }).then(function(rel) {
-    var latestCode = _versionCodeFromTag(rel.tag_name);
-    var mineCode   = _appVersion ? _appVersion.versionCode : null;
-    var apk = (rel.assets || []).filter(function(a) {
-      return /\.apk$/i.test(a.name || '');
-    })[0];
+  }).then(function(list) {
+    if (!Array.isArray(list) || !list.length) throw new Error('no releases');
+    var mineCode = _appVersion ? _appVersion.versionCode : null;
+    var best = null;      // highest version that has an APK
+    var newest = null;    // highest version at all, APK or not
+    var ahead = 0;        // how many releases are newer than the installed one
+    list.forEach(function(rel) {
+      if (!rel || rel.draft || rel.prerelease) return;
+      var code = _versionCodeFromTag(rel.tag_name);
+      if (code === null) return;
+      if (mineCode !== null && code > mineCode) ahead++;
+      if (!newest || code > newest.code) newest = { code: code, rel: rel };
+      var apk = (rel.assets || []).filter(function(a) {
+        return /\.apk$/i.test(a.name || '');
+      })[0];
+      if (!apk) return;
+      if (!best || code > best.code) best = { code: code, rel: rel, apk: apk };
+    });
 
-    if (latestCode === null || mineCode === null) {
+    if (!newest || mineCode === null) {
       reset();
       showToast('Could not compare versions — open the release page to check', 4000);
       return;
     }
-    if (latestCode <= mineCode) {
+    if (newest.code <= mineCode) {
       reset();
       showToast('You are on the latest version (v' + _appVersion.versionName + ')', 3000);
       return;
     }
-    if (!apk) {
+    if (!best || best.code <= mineCode) {
       reset();
-      showToast(rel.tag_name + ' is out, but it has no APK attached yet', 4000);
+      showToast(newest.rel.tag_name + ' is out, but it has no APK attached yet', 4000);
       return;
     }
-    reset('Update to ' + rel.tag_name);
-    _promptUpdate(rel, apk);
+    reset('Update to ' + best.rel.tag_name);
+    _promptUpdate(best.rel, best.apk, ahead);
   }).catch(function() {
     reset();
     showToast('Could not reach GitHub — check your connection', 3500);
   });
 }
 
-function _promptUpdate(rel, apk) {
+function _promptUpdate(rel, apk, ahead) {
   var mb = apk.size ? (apk.size / 1048576).toFixed(1) + ' MB' : '';
+  // Being several behind is worth saying out loud, so it is clear this one
+  // jump covers all of them rather than moving you along by one.
+  var behind = (ahead > 1) ? ' • ' + ahead + ' releases newer than yours' : '';
   var body = (rel.body || '').split('## In this version')[1] || '';
   body = body.split('##')[0].trim().slice(0, 400);
 
@@ -8757,7 +8786,7 @@ function _promptUpdate(rel, apk) {
       '<div style="font-size:17px;font-weight:700;margin-bottom:4px;">Update available</div>'
     + '<div style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">'
     + escHtml(rel.tag_name) + (mb ? ' &bull; ' + mb : '')
-    + ' &bull; you have v' + escHtml(_appVersion.versionName) + '</div>'
+    + ' &bull; you have v' + escHtml(_appVersion.versionName) + escHtml(behind) + '</div>'
     + (body ? '<div style="font-size:13px;color:var(--text-dim);white-space:pre-wrap;'
               + 'line-height:1.5;margin-bottom:16px;">' + escHtml(body) + '</div>' : '')
     + '<div style="font-size:12px;color:var(--text-faint);line-height:1.5;margin-bottom:16px;" id="updHint">'

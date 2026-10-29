@@ -1,8 +1,8 @@
 # My Music — Smart Music Player
 
-A local-first music player for Android. It scans the audio already on your phone, plays it, and cleans up the metadata — filling in artist, album, year, genre, and release type (Album / Mixtape / EP / Single) from MusicBrainz (free, no key) and, optionally, Google Gemini.
+**A music player first.** It plays the audio already on your phone — browse by artist, album, genre or playlist, queue and shuffle, background playback with lock-screen controls, an equalizer, synced lyrics that follow the song, favorites, search, and artwork throughout. Nothing is uploaded and nothing needs an account.
 
-It is a full player, not a tag editor with a play button: browse by artist, album, genre or playlist, queue and shuffle, background playback with lock-screen controls, an equalizer, synced lyrics, favorites, search, and artwork throughout.
+The tagging is what it does *for* you while you listen. Rips from YouTube, Spotify and SoundCloud arrive with half their metadata missing or wrong, and a library of them is unbrowsable — so the app fills in artist, album, year, genre and release type (Album / Mixtape / EP / Single) from MusicBrainz (free, no key) and, optionally, Google Gemini. It is a player that keeps your library tidy, not a tag editor with a play button.
 
 Built as **pure HTML/CSS/JavaScript with zero build tools** for the web layer, wrapped with **Capacitor 8 and a hand-written native Java plugin** for Android.
 
@@ -53,6 +53,7 @@ Android 7.0 or newer. Install notes are [further down](#install); after the firs
 - **Albums** — 2-column virtual-scroll grid with filter chips (All / Albums / Mixtapes / EPs & Singles) and an A–Z strip. Sort A–Z, by year, or by song count
 - **Playlists** — manual playlists, plus four that build themselves: Top Tracks, Last Added (by the date Android recorded for the file, not the order the library happens to hold it in), Recently Played, Favorites
 - **Genres** — browse by genre with per-genre counts
+- **New downloads appear by themselves** — a mixtape saved since you last opened the app is picked up on launch, tagged and sorted to the top of Last Added, with no rescan to run. Adding only, never removing: a memory card that has not mounted yet, or a scan that comes back short, would otherwise read as thousands of deletions and take their tag edits with them
 - **Favorites** — heart any song; available as its own view
 - **Search** — across title, artist, album, album artist, genre, and featured artists. Artists first, then albums as cover cards, then songs, with All / Artists / Albums / Songs filters carrying their counts. Albums match on the artist as well as the title, so searching a name finds their records rather than only the one album whose title contains it, and on a guest credit or featured-artist field too, so a verse can be followed to the record it lives on. Album results run in three tiers — records filed under that exact name, then names that merely start the same way, then records they only guest on — and oldest first within each, the same order the artist's own page uses. A name has to match a whole word or the start of one, so searching "Nas" leads with *Illmatic* rather than *Aijuswanaseing*, while a half-typed "Illm" still finds it. Covers come ten to a view, five to a row, and the Albums tab spreads out to three across with the artist and song count under each. The mixed list shows a handful of each kind with a See all beneath, so an artist with 47 albums does not bury the songs. Enter dismisses the keyboard rather than leaving it over the results
 
@@ -75,6 +76,7 @@ Android 7.0 or newer. Install notes are [further down](#install); after the firs
 - **AI Fill says what it found**, and says "no year found" when it could not find one, so an empty field always means something definite
 - **Album batch editor** — retag every song in an album at once, including the one currently playing and any track carrying a guest credit. The album-artist field starts blank when songs are untagged, so saving never overwrites correct tags with "Unknown Artist", and a guest's name is never overwritten with the lead artist's
 - **Per-song editor** — full metadata, album art picker, AI fill, and a lyrics field (plain or LRC)
+- **Resynchronize** — lyrics only move with the music when each line carries a `[mm:ss.xx]` stamp. Lyrics taken from a file's own tags, or fetched when only a plain copy existed, sit still while the song plays, and the automatic lookup gives up on a song the moment it holds any lyrics at all — so one untimed copy used to be permanent. The button on the Release Type line asks again on purpose, using the title and artist as they stand in the form, so correcting a misspelled title and then pressing it finds the right song. It fills an empty lyrics box with whatever exists, but will not replace lyrics you already have with another untimed copy, and it says plainly when there is no connection rather than sending you off to check tags that were never the problem
 - **Filename parsing** for untagged files — strips track numbers, `(prod. by …)`, and `(Official Audio)`-style noise, splits `Artist_-_Title` into its parts, converts underscores back to spaces, and pulls featured artists out into their own field
 - **Album name cleaning** — strips an uploader's `Album -` or `Mixtape -` label and tags like `[320kbps]`, so `Album_-_The_Blixky_Tape` becomes `The Blixky Tape`. Real names such as `The Album`, `LP1` and `Aquemini (Deluxe Edition)` are left alone
 - **Look up every untagged album at once** — one pass over every album with no artist, paced to MusicBrainz's roughly one request a second, with a progress bar and a Stop that keeps whatever has been found so far. Each album is saved as it completes, and only empty fields are filled — including the artist, since an album can be filed under no album artist while its tracks are correctly credited, and an album is only counted as untagged when a song on it genuinely has no artist
@@ -94,7 +96,7 @@ Android 7.0 or newer. Install notes are [further down](#install); after the firs
 - Designed so your tagging work survives reinstalling the app
 
 ### Staying Current
-- **Check for Updates** in the side drawer compares the installed version code against the latest GitHub release, then **downloads and installs it in the app** — no browser, and no download left sitting at 100% waiting on a scan that never finishes
+- **Check for Updates** in the side drawer goes straight to the newest version, however many releases have come out since yours, then **downloads and installs it in the app** — no browser, and no download left sitting at 100% waiting on a scan that never finishes. It reads the whole release list and picks the highest version number that has an APK attached, rather than trusting GitHub's "latest" pointer, which means most recently *created* and reorders if a release is edited or re-published. If you are several behind it says so, so it is clear one jump covers all of them
 - The first update asks for Android's permission to install apps. That is a one-time switch; after that updating is two taps
 
 ---
@@ -108,7 +110,7 @@ Everything below is implemented in the hand-written plugin (`MediaStorePlugin.ja
 - **Hardware and Bluetooth buttons** routed through `MediaSession.Callback` into the web player
 - **Native artwork decoding** — `BitmapFactory` decodes and scales covers off the UI thread before handing JavaScript a base64 JPEG
 - **Tag writing** — metadata written directly into files with jaudiotagger (MP3, FLAC, M4A/AAC, OGG, OPUS, WAV, WMA), then pushed back into MediaStore so other apps stay in sync
-- **Permanent delete** — removes the file through MediaStore with Android's own confirmation dialog, frees the space, and clears every trace from the library
+- **Permanent delete** — removes the file through MediaStore with Android's own confirmation dialog, frees the space, and clears every trace from the library. Android can refuse some files and remove others in one batch, so the plugin reports *which* URIs went rather than just how many; only those are forgotten. A song still on the phone keeps its tag edits, and on Android 11+ each row is checked afterwards, with an error counted as still-present — a stale row costs one scan, a wrong removal costs the tags
 - **File save** — backups are written to Downloads through MediaStore, because a WebView has no download handler and `<a download>` silently does nothing
 - **QR generation** and a **local HTTP file server** for WiFi sharing
 - **Update download and install** — fetches the APK itself, following GitHub's redirect to its asset host by hand, checks the length, and hands it to Android's installer through a `FileProvider`
@@ -146,6 +148,14 @@ An album is keyed by its name plus its album artist, with a featured artist stri
 A joint credit is now folded into the lead name, but only where the same album already exists under that lead. That guard is what makes splitting on `/` safe: "Back in Black" by "AC/DC" would need an album of that name by "AC" to fold into, so real names containing a separator — AC/DC, "Earth, Wind & Fire", "Tyler, The Creator" — are never touched. The fold is computed once per library into a lookup table, and every album view reads its key from the same function, because two callers deriving it differently is exactly how an album splits in half.
 
 An artist's album card carries the album's own key rather than that artist's name, so a guest verse on somebody else's record opens that record. Handing back the wrong key was what produced a card reading "1 song" that opened onto "0 songs". The album view also re-resolves a key that finds nothing, so no route can reach an empty album page.
+
+**What happens when the app opens**
+
+Only part of a large library fits in `localStorage`, so that part goes on screen immediately and IndexedDB corrects it a moment later. Two releases tried holding the first paint back until the whole library had loaded, so the counts would be right first time; on fifteen thousand songs that is about a second of empty screen, which is a worse trade than the correction it avoids. Opening fast wins.
+
+What did need fixing was the redrawing. Every stage of startup — the restored view, the library arriving, the stored artwork, the native bridge check — asked for the whole list to be torn down and rebuilt, and the bridge check was registered on `deviceready` plus three timers and ran its full body every time, re-converting every playback address and re-querying MediaStore on each pass. Six visible rebuilds, measured with a `MutationObserver` on the list container against a 4,000-song library. The bridge check now runs once per launch, and a redraw that would draw the identical screen is dropped — compared by a signature of everything the view depends on, so a redraw that *would* change something still happens.
+
+That bridge check also used to run before the library had finished loading, which meant comparing the `localStorage` preview against the phone, concluding the library had been truncated, and rebuilding it from Android's copy with most songs' metadata missing from the comparison. It waits now.
 
 **Resuming after an interruption**
 
@@ -288,6 +298,8 @@ npm run lint # eslint over the shipped app in www/
 ```
 
 Both run in CI on every push.
+
+Six of the tests pin a security fix: a song's own tags could once run code inside the app. A failed cover fell back to a coloured placeholder built by writing the song's title into JavaScript inside the markup — apostrophes were escaped, backslashes were not, so the right pair of characters in a title stopped being text and started being instructions, with access to the app's data including the saved API key. Files downloaded from anywhere can be tagged with anything. There is no JavaScript in that markup any more, so the class of problem is gone rather than patched; restoring the old version fails four of the six tests.
 
 ---
 
