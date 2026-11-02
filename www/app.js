@@ -385,26 +385,19 @@ function renderVsWindow(start) {
   rows.innerHTML = parts.join('');
   rows.style.top = (start * VS_ROW_H) + 'px';
   initLazyArt(rows);
+  if (_msMode) _msRefreshUI();   // re-tick rows that have just been rebuilt
   // One IDB transaction covers visible window + read-ahead range
   var naEnd = Math.min(_vsData.length, end + VS_BUFFER * 2 + 20);
   batchPrefetchWindowArt(_vsData, start, end, 'vsRows', naEnd);
 }
 
 function artistRowHTML(a) {
-  var chkHtml = '';
-  if (_msArtistMode && _msArtistNames) {
-    var sel = !!_msArtistNames[a.name];
-    chkHtml = '<div style="width:18px;height:18px;border-radius:50%;border:2px solid '
-      + (sel ? 'var(--accent);background:var(--accent);color:#fff;' : 'var(--border);background:transparent;color:transparent;')
-      + 'flex-shrink:0;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;-webkit-box-pack:center;justify-content:center;font-size:11px;font-weight:700;margin-right:6px;">'
-      + (sel ? '&#10003;' : '') + '</div>';
-  }
   var artEl = (a.albumArtUris && a.albumArtUris.length > 0)
     ? '<div class="art-lazy" data-lazy-uri="' + escHtml(a.albumArtUris.join('|')) + '" data-size="56" data-round="1" style="width:56px;height:56px;flex-shrink:0;border-radius:50%;overflow:hidden;">' + artHTML(a.name, 56, true) + '</div>'
     : artHTML(a.name, 56, true);
-  var menuBtn = _msArtistMode ? '' : '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>';
+  var menuBtn = '<button class="artist-menu-btn" data-artist-menu="' + escHtml(a.name) + '">&#8942;</button>';
   return '<div class="artist-row" data-artist="' + escHtml(a.name) + '">'
-    + chkHtml + artEl
+    + artEl
     + '<div class="song-info">'
     + '<div class="artist-name">' + escHtml(a.name) + '</div>'
     + '<div class="artist-meta">' + a.albumCount + ' ' + (a.albumCount === 1 ? 'Album' : 'Albums') + ' &bull; ' + a.songCount + ' ' + (a.songCount === 1 ? 'Song' : 'Songs') + '</div>'
@@ -1884,8 +1877,7 @@ var currentSmartPlaylist = null;
 var _msMode = false;
 var _msSongIds = null;
 var _msEl = null;
-var _msArtistMode = false;
-var _msArtistNames = null;
+var _msList = null;   // the songs the selection was started from, for "All"
 var _prevTab = null; // tab to restore when backing out of album detail navigated from NowPlaying/search
 var albumFilter = 'all';
 var albumGenreFilter = 'all';
@@ -2454,7 +2446,6 @@ function render() {
   // whether it would be drawing the same thing again.
   _lastViewSignature = _viewSignature();
   _msExit();
-  _msArtistMode = false; _msArtistNames = null; _msHideBar();
   cleanupVirtualScroll();
   cleanupArtistVS();
   cleanupAlbumGrid();
@@ -2973,31 +2964,11 @@ function renderArtists(el) {
 
   var vsArtistRows = document.getElementById('vsArtistRows');
   vsArtistRows.onclick = function(e) {
-    if (_msArtistMode) {
-      var row = e.target.closest('.artist-row[data-artist]');
-      if (row) { _msArtistToggle(row.dataset.artist); return; }
-      return;
-    }
     var menuBtn = e.target.closest('[data-artist-menu]');
     if (menuBtn) { e.stopPropagation(); showArtistMenu(menuBtn.dataset.artistMenu); return; }
     var row = e.target.closest('.artist-row[data-artist]');
     if (row) { _savedArtistScroll = el.scrollTop; selectedArtist = row.dataset.artist; render(); }
   };
-  // Long-press to enter artist multi-select
-  var _arLpTimer = null;
-  vsArtistRows.addEventListener('touchstart', function(e) {
-    if (_msArtistMode) return;
-    var row = e.target.closest('.artist-row[data-artist]');
-    if (!row) return;
-    var name = row.dataset.artist;
-    _arLpTimer = setTimeout(function() { _arLpTimer = null; _msArtistEnter(name); }, 1200);
-  }, { passive: true });
-  vsArtistRows.addEventListener('touchend', function() {
-    if (_arLpTimer) { clearTimeout(_arLpTimer); _arLpTimer = null; }
-  }, { passive: true });
-  vsArtistRows.addEventListener('touchmove', function() {
-    if (_arLpTimer) { clearTimeout(_arLpTimer); _arLpTimer = null; }
-  }, { passive: true });
 
   initArtistVS(el, artists);
   renderAlphaStrip(el, alphaLetters, function(letter) {
@@ -4317,76 +4288,15 @@ function renderAlbumDetail(el) {
   bindSongRows(el, albumSongs);
 }
 
-// ─── Artist Multi-select (long-press artist row → select multiple → bulk edit) ───
-
-function _msArtistEnter(name) {
-  _msArtistMode = true;
-  _msArtistNames = Object.create(null);
-  _msArtistNames[name] = true;
-  _haptic([20]);
-  _msArtistShowBar();
-  _msArtistRefreshRows();
-}
-
-function _msArtistExit() {
-  _msArtistMode = false;
-  _msArtistNames = null;
-  _msHideBar();
-  _msArtistRefreshRows();
-}
-
-function _msArtistToggle(name) {
-  if (!_msArtistNames) return;
-  if (_msArtistNames[name]) delete _msArtistNames[name];
-  else _msArtistNames[name] = true;
-  _msArtistRefreshRows();
-  var lbl = document.getElementById('msBarLabel');
-  if (lbl) {
-    var cnt = Object.keys(_msArtistNames).length;
-    lbl.textContent = cnt + ' artist' + (cnt !== 1 ? 's' : '') + ' selected';
-  }
-  var btn = document.getElementById('msEditBtn');
-  if (btn) btn.disabled = Object.keys(_msArtistNames).length === 0;
-}
-
-function _msArtistRefreshRows() {
-  if (_vsArtistData && document.getElementById('vsArtistRows')) {
-    renderArtistVsWindow(Math.max(0, _vsArtistStart));
-  }
-}
-
-function _msArtistShowBar() {
-  _msHideBar();
-  var bar = document.createElement('div');
-  bar.id = 'msBar';
-  bar.style.cssText = 'position:fixed;bottom:72px;left:0;right:0;height:52px;background:var(--bg-secondary);border-top:1px solid var(--border);display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center;padding:0 12px;gap:8px;z-index:5000;box-shadow:0 -2px 12px rgba(0,0,0,0.4);';
-  bar.innerHTML = '<button id="msCancelBtn" style="padding:7px 14px;border:1px solid var(--border);background:transparent;color:var(--text-dim);border-radius:10px;font-size:13px;cursor:pointer;">&times; Cancel</button>'
-    + '<span id="msBarLabel" style="flex:1;text-align:center;font-size:13px;color:var(--text);">1 artist selected</span>'
-    + '<button id="msEditBtn" style="padding:7px 14px;background:var(--accent);border:none;color:#fff;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">&#9998; Edit Tags</button>';
-  document.getElementById('app').appendChild(bar);
-  document.getElementById('msCancelBtn').onclick = function() { _msArtistExit(); };
-  document.getElementById('msEditBtn').onclick = function() {
-    var names = Object.keys(_msArtistNames || {});
-    if (!names.length) return;
-    var seen = Object.create(null);
-    var allSongs = [];
-    names.forEach(function(n) {
-      getArtistSongs(n).forEach(function(s) {
-        if (!seen[s.id]) { seen[s.id] = true; allSongs.push(s); }
-      });
-    });
-    _msArtistExit();
-    openBulkEditModal(allSongs);
-  };
-}
-
 // ─── Song Multi-select (long-press song row → select multiple → bulk edit) ───
 
-function _msEnter(songId, el) {
+function _msEnter(songId, el, songList) {
+  if (_msMode) return;   // one press, one entry, whatever else is listening
   _msMode = true;
   _msSongIds = Object.create(null);
   _msSongIds[songId] = true;
   _msEl = el;
+  _msList = Array.isArray(songList) ? songList : null;
   _msShowBar();
   _msRefreshUI();
   _haptic([20]);
@@ -4396,6 +4306,7 @@ function _msExit() {
   _msMode = false;
   _msSongIds = null;
   _msEl = null;
+  _msList = null;
   _msHideBar();
 }
 
@@ -4430,13 +4341,17 @@ function _msRefreshUI() {
       chk.innerHTML = '';
     }
   });
+  var cnt = Object.keys(_msSongIds).length;
+  var total = _msList ? _msList.length : 0;
   var lbl = document.getElementById('msBarLabel');
-  if (lbl) {
-    var cnt = Object.keys(_msSongIds).length;
-    lbl.textContent = cnt + ' song' + (cnt !== 1 ? 's' : '') + ' selected';
-  }
+  if (lbl) lbl.textContent = total ? (cnt + ' of ' + total) : (cnt + ' selected');
   var btn = document.getElementById('msEditBtn');
-  if (btn) btn.disabled = Object.keys(_msSongIds).length === 0;
+  if (btn) btn.disabled = cnt === 0;
+  var allBtn = document.getElementById('msAllBtn');
+  if (allBtn) {
+    allBtn.classList.toggle('hidden', !total);
+    allBtn.textContent = (total && cnt >= total) ? 'Clear' : 'All';
+  }
 }
 
 function _msShowBar() {
@@ -4444,11 +4359,27 @@ function _msShowBar() {
   var bar = document.createElement('div');
   bar.id = 'msBar';
   bar.style.cssText = 'position:fixed;bottom:72px;left:0;right:0;height:52px;background:var(--bg-secondary);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:8px;z-index:5000;box-shadow:0 -2px 12px rgba(0,0,0,0.4);';
-  bar.innerHTML = '<button id="msCancelBtn" style="padding:7px 14px;border:1px solid var(--border);background:transparent;color:var(--text-dim);border-radius:10px;font-size:13px;cursor:pointer;">&times; Cancel</button>'
-    + '<span id="msBarLabel" style="flex:1;text-align:center;font-size:13px;color:var(--text);">0 songs selected</span>'
-    + '<button id="msEditBtn" style="padding:7px 14px;background:var(--accent);border:none;color:#fff;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;" disabled>&#9998; Edit Tags</button>';
+  var plain = 'padding:7px 12px;border:1px solid var(--border);background:transparent;'
+    + 'color:var(--text-dim);border-radius:10px;font-size:13px;cursor:pointer;flex-shrink:0;';
+  bar.innerHTML = '<button id="msCancelBtn" title="Cancel" aria-label="Cancel" style="' + plain + 'min-width:36px;">&times;</button>'
+    + '<button id="msAllBtn" style="' + plain + '">All</button>'
+    + '<span id="msBarLabel" style="flex:1;text-align:center;font-size:13px;color:var(--text);">0 selected</span>'
+    + '<button id="msEditBtn" style="padding:7px 14px;background:var(--accent);border:none;color:#fff;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;" disabled>&#9998; Edit Tags</button>';
   document.getElementById('app').appendChild(bar);
   document.getElementById('msCancelBtn').onclick = function() { _msExit(); };
+  // Everything in the list this started from, which on a virtual-scrolled list
+  // is far more than the rows that happen to be on screen. A second tap, once
+  // everything is selected, clears it again.
+  document.getElementById('msAllBtn').onclick = function() {
+    if (!_msSongIds || !_msList) return;
+    var ids = [];
+    _msList.forEach(function(sg) { if (sg && sg.id) ids.push(sg.id); });
+    var allOn = ids.length > 0 && Object.keys(_msSongIds).length >= ids.length;
+    _msSongIds = Object.create(null);
+    if (!allOn) ids.forEach(function(id) { _msSongIds[id] = true; });
+    _msRefreshUI();
+    _haptic([15]);
+  };
   document.getElementById('msEditBtn').onclick = function() {
     var ids = Object.keys(_msSongIds || {});
     if (!ids.length) return;
@@ -4465,24 +4396,40 @@ function _msHideBar() {
 
 // ─── Song Row Bindings ───
 
+var _songRowsBound = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+
 function bindSongRows(el, songList) {
-  var _lpTimer = null;
+  // onclick below is an assignment, so it replaces cleanly, but the touch
+  // listeners are added — and this runs again on every navigation, on elements
+  // as broad as the main content area. They stacked: a long press fired every
+  // listener ever attached, each holding whichever song list it was given at
+  // the time, and the last one to run decided what had been selected. Harmless
+  // while nothing read that list; wrong the moment "All" did. One set of
+  // listeners per element now, reading the current list off the element.
+  el._msSongList = songList;
+  if (!_songRowsBound || !_songRowsBound.has(el)) {
+    if (_songRowsBound) _songRowsBound.add(el);
+    var _lpTimer = null;
 
-  el.addEventListener('touchstart', function(e) {
-    if (_msMode) return;
-    var row = e.target.closest('.song-row[data-id]');
-    if (!row) return;
-    var rowId = row.dataset.id;
-    _lpTimer = setTimeout(function() { _lpTimer = null; _msEnter(rowId, el); }, 480);
-  }, { passive: true });
+    el.addEventListener('touchstart', function(e) {
+      if (_msMode) return;
+      var row = e.target.closest('.song-row[data-id]');
+      if (!row) return;
+      var rowId = row.dataset.id;
+      _lpTimer = setTimeout(function() {
+        _lpTimer = null;
+        _msEnter(rowId, el, el._msSongList);
+      }, 480);
+    }, { passive: true });
 
-  el.addEventListener('touchend', function() {
-    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
-  }, { passive: true });
+    el.addEventListener('touchend', function() {
+      if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+    }, { passive: true });
 
-  el.addEventListener('touchmove', function() {
-    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
-  }, { passive: true });
+    el.addEventListener('touchmove', function() {
+      if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+    }, { passive: true });
+  }
 
   el.onclick = function(e) {
     if (_msMode) {
@@ -5721,7 +5668,7 @@ function handleNext() {
     }
     audio.src = savedUrl;
     audio.playbackRate = playbackRate;
-    audio.play().catch(function() {});
+    audio.play().catch(function(err) { _playRejected(err); });
     loadCurrentSongArt(song);
     updateMediaSession();
     if (showNowPlaying) renderNowPlaying();
@@ -9082,6 +9029,22 @@ function restoreUIState() {
   } catch (e) {}
 }
 
+function _reconcileCurrentSongWithAudio() {
+  if (!currentSong || !audio || !audio.currentSrc) return;
+  if (currentSong.url && currentSong.url === audio.currentSrc) return;   // agree
+  var playing = null;
+  for (var i = 0; i < queue.length; i++) {
+    if (queue[i] && queue[i].url && queue[i].url === audio.currentSrc) { playing = queue[i]; break; }
+  }
+  // No match means the element is on something the queue does not know about,
+  // which is not a disagreement this can settle — leave it alone.
+  if (!playing || playing.id === currentSong.id) return;
+  currentSong = playing;
+  currentTime = audio.currentTime || 0;
+  duration = audio.duration || playing.dur || 0;
+  _miniLastSongId = '';   // force the mini player to redraw with the right cover
+}
+
 document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     saveUIState();
@@ -9090,6 +9053,7 @@ document.addEventListener('visibilitychange', function() {
   } else {
     // App came to foreground — re-render so the UI matches current state
     // (handles cases where Android briefly destroys and recreates the activity)
+    _reconcileCurrentSongWithAudio();
     render();
     if (showNowPlaying && currentSong) renderNowPlaying();
   }
