@@ -7,6 +7,37 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.11
+
+The Artists tab stops grabbing long presses, and selecting songs gets an All.
+
+- **No more selection mode on the Artists tab.** Holding an artist for a moment
+  put the whole tab into a select-several-artists mode, which went off by
+  accident far more often than it was wanted. It is gone from that tab. Tapping
+  an artist and the ⋮ menu are unchanged, and selecting songs by holding one
+  still works everywhere it did
+- **"All" when selecting songs.** Hold a song to start selecting, then tap
+  **All** rather than every song in turn; tap it again to clear. It takes the
+  whole list you are in, not just the rows on screen, so on the Songs tab that
+  is every song, and the bar reads "14 of 14" so you can see what you have
+- **Ticks survive scrolling.** Rows are rebuilt as they come back into view and
+  were losing their tick on the way, so a long selection looked like it had
+  come undone. The selection itself was always intact; now it looks it
+- **One press, one list.** Holding a song fired every set of listeners the
+  screen had ever been given, each remembering the list it was handed at the
+  time, and the last one to run decided what you had selected. It never showed
+  before because nothing read that list; "All" does
+- **The cover should match what you can hear.** Two fixes. A seamless handoff
+  into the next track threw away the failure if the track would not start, so
+  an interruption at a track boundary left the screen on the next song while
+  nothing was playing. And coming back to the app now checks the two against
+  each other: if the screen has moved on and the audio has not, the screen is
+  put back to the song that is actually playing
+
+That last one happens only sometimes and could not be reproduced here, so it is
+a fix for a real fault found on that path rather than a confirmed cure. Worth
+saying if it still happens.
+
 ## v1.9.10
 
 The old copy of the app, and clearer wording on the lyrics button.
