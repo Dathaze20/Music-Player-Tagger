@@ -2972,18 +2972,28 @@ body.np-open .alpha-strip { display: none !important; }
   gap: 10px;
   margin-bottom: 20px;
 }
-.eq-band-h {
+/* Name on the left, what it is set to on the right, slider underneath. The
+   name and the setting both need room for words, which they cannot have while
+   sharing a line with the slider on a phone. */
+.eq-band-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
 }
-.eq-band-freq {
-  font-size: 11px;
+.eq-band-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.eq-band-name {
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-dim);
-  min-width: 32px;
-  text-align: right;
+  color: var(--text);
 }
+/* Nine notches drawn on the track, one per position, so the steps are visible
+   as well as felt — 2px marks every eighth of the width, inset half a thumb at
+   each end so they line up with where the thumb can actually come to rest. */
 .eq-slider {
   flex: 1;
   height: 4px;
@@ -2991,9 +3001,15 @@ body.np-open .alpha-strip { display: none !important; }
   accent-color: var(--primary);
   -webkit-appearance: none;
   appearance: none;
-  background: rgba(255,255,255,0.12);
+  background:
+    repeating-linear-gradient(to right,
+      rgba(255,255,255,0.34) 0 2px,
+      transparent 2px calc((100% - 20px) / 8)
+    ) no-repeat 10px center / calc(100% - 18px) 10px,
+    rgba(255,255,255,0.12);
   border-radius: 4px;
   outline: none;
+  margin: 6px 0 2px;
 }
 .eq-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -3008,8 +3024,8 @@ body.np-open .alpha-strip { display: none !important; }
   font-size: 12px;
   font-weight: 700;
   color: var(--primary);
-  min-width: 32px;
-  text-align: left;
+  text-align: right;
+  white-space: nowrap;
 }
 .eq-xfade-row {
   display: flex;
