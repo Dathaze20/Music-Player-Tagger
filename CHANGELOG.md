@@ -7,6 +7,46 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.12
+
+AI Fill works on a single song again, the Songs tab stops grabbing long
+presses, and the equalizer says what it is doing in words.
+
+- **AI Fill on a single song works without a Gemini key.** The button was only
+  wired up when a key was set, so on a phone with none it drew itself and did
+  nothing. Most of what it fills comes from MusicBrainz, which is free and
+  needs no key — the album editor has always worked that way, which is why it
+  kept working while the single-song one appeared to break. Nothing about the
+  key changed; the key is simply no longer required to press the button
+- **The tag editor opens on songs that refused before.** Every song is given an
+  internal number when the library loads, and the screen remembers the numbers
+  it was drawn with. They are reissued on the next load, so a row drawn a
+  moment earlier pointed at a number nothing answered to, and the ⋮ menu and
+  the tag editor did nothing at all, with no sign why. Rows now also carry the
+  file's own name, which does not change, and that is used when the number
+  misses. If a song really has gone, it says so instead of ignoring the tap
+- **Two songs could share that number.** It was built from the clock plus six
+  random characters, and the clock reads the same for every song in a loop that
+  numbers fifteen thousand of them — about a one in twenty chance per load that
+  two collided, which pointed one song's row at another song's tags. Numbered
+  in sequence now, so it cannot happen
+- **No more selection mode on the Songs tab.** Same as the Artists tab last
+  time. Holding a song inside an album, an artist, a genre or a playlist still
+  starts a selection, which is where it is useful
+- **Tapping a song on the Songs tab plays from the Songs tab.** After visiting
+  an artist, every tap was being handled twice — once by the tab and once by
+  the screen you had left — and the older one won, so the queue became that
+  artist's songs instead of the whole list
+- **A new playlist made from a song's ⋮ menu keeps its song.** It stored the
+  song's internal number, which is reissued on the next load, so the playlist
+  came back empty. It stores the file now, like every other way of adding one
+- **The equalizer is in plain words.** The bands are named for what they do —
+  Deep bass, Bass, Vocals, Clarity, Sparkle — and each setting reads Normal, A
+  little more, More, Much more, Max, and the same downwards, instead of a
+  number of decibels. Nine notches you can see on the track and feel as you
+  pass them, so you can set one by feel and mix two presets together. Presets
+  sit on the same notches; settings saved before this move to the nearest one
+
 ## v1.9.11
 
 The Artists tab stops grabbing long presses, and selecting songs gets an All.

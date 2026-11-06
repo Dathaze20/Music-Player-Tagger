@@ -25,8 +25,28 @@ function _haptic(pattern) {
   } catch(e) {}
 }
 
+// Find the song a row is pointing at. By id first; by the file's own key when
+// that misses, which happens to every row on screen the moment the library
+// finishes loading and every id is reissued. Tapping ⋮ or the tag editor in
+// that window used to do nothing at all, with no sign why.
+function songFromRow(id, key) {
+  if (id && songMap[id]) return songMap[id];
+  if (!key) return null;
+  for (var i = 0; i < songs.length; i++) {
+    if (songs[i] && (songs[i].contentUri === key || songs[i].fn === key)) return songs[i];
+  }
+  return null;
+}
+
+var _idSeq = 0;
 function genId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  // A counter, because the timestamp is the same for every song in a loop that
+  // assigns fifteen thousand of them and six random base-36 characters is not
+  // enough to keep them apart at that size — a collision there puts two songs
+  // on one key, and the row for the shadowed one reaches the other song's tags.
+  // Ids live for the session only; nothing writes them to storage.
+  _idSeq++;
+  return Date.now().toString(36) + '-' + _idSeq.toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
 // fmtTime, escHtml, parseFileName, and parseLRC now live in text-utils.js
@@ -1715,13 +1735,33 @@ var _eqNodes  = [];
 
 var EQ_FREQS  = [60, 230, 910, 3600, 14000];
 var EQ_TYPES  = ['lowshelf', 'peaking', 'peaking', 'peaking', 'highshelf'];
+// What each band actually does to the sound, because "910" tells you nothing
+// about which one to move when the vocal is buried.
+var EQ_NAMES  = ['Deep bass', 'Bass', 'Vocals', 'Clarity', 'Sparkle'];
+
+// Nine positions rather than twenty-five. A step you cannot feel is a step you
+// cannot aim at on a phone, and every position here has a word for what it is.
+var EQ_STEP = 3, EQ_MIN = -12, EQ_MAX = 12;
+var EQ_WORDS = {
+  '-12': 'Off', '-9': 'Much less', '-6': 'Less', '-3': 'A little less',
+  '0': 'Normal',
+  '3': 'A little more', '6': 'More', '9': 'Much more', '12': 'Max'
+};
+function eqSnap(v) {
+  var n = Math.round((parseFloat(v) || 0) / EQ_STEP) * EQ_STEP;
+  return Math.max(EQ_MIN, Math.min(EQ_MAX, n));
+}
+function eqWord(v) { return EQ_WORDS[String(eqSnap(v))] || 'Normal'; }
+
+// On the same nine positions, so a preset and a hand-moved slider mean the same
+// thing and the panel never shows a word that is not where the slider is.
 var EQ_PRESETS = {
   'Default':    [0, 0, 0, 0, 0],
-  'Bass Boost': [6, 4, 0, -1, -1],
-  'Hip-Hop':    [5, 3, -1, 2, 1],
-  'Treble':     [-1, -1, 1, 4, 6],
-  'Vocal':      [-2, -1, 3, 3, 1],
-  'Rock':       [4, 2, -1, 2, 4]
+  'Bass Boost': [6, 3, 0, 0, 0],
+  'Hip-Hop':    [6, 3, 0, 3, 0],
+  'Treble':     [0, 0, 0, 3, 6],
+  'Vocal':      [-3, 0, 3, 3, 0],
+  'Rock':       [3, 3, 0, 3, 3]
 };
 
 var eqGains = [0, 0, 0, 0, 0];
@@ -1729,7 +1769,7 @@ var crossfadeDur = 2;
 (function() {
   var saved = localStorage.getItem('eqSettings');
   try { saved = saved ? JSON.parse(saved) : null; } catch(e) { saved = null; }
-  if (saved && Array.isArray(saved.gains) && saved.gains.length === 5) eqGains = saved.gains;
+  if (saved && Array.isArray(saved.gains) && saved.gains.length === 5) eqGains = saved.gains.map(eqSnap);
   if (saved && saved.xfade != null) crossfadeDur = saved.xfade;
 })();
 
@@ -3458,7 +3498,7 @@ function renderSongs(el) {
 
   // Bind song row events on vsRows using event delegation — survives innerHTML replacement on scroll
   var vsRows = document.getElementById('vsRows');
-  bindSongRows(vsRows, sorted);
+  bindSongRows(vsRows, sorted, false);   // Songs tab: no hold-to-select
 
   initSwipeGestures(vsRows);
   initVirtualScroll(vsRows, sorted);
@@ -4045,7 +4085,10 @@ function songRowHTML(s, playing, showEdit) {
     : s.albumArtUri
       ? '<div class="art-lazy" data-lazy-uri="' + escHtml(s.albumArtUri) + '" data-size="48" style="width:48px;height:48px;border-radius:8px;overflow:hidden;flex-shrink:0;">' + artHTML(s.album || s.title, 48) + '</div>'
       : imgOrArt(s.art, s.album || s.title, 48);
-  return '<div class="song-row' + (playing ? ' playing' : '') + (s.tagging ? ' tagging' : '') + '" data-id="' + s.id + '">'
+  // The id is regenerated every time the library loads, so a row drawn before
+  // that reload holds one nothing answers to. The file's own key does not move.
+  var stable = s.contentUri || s.fn || '';
+  return '<div class="song-row' + (playing ? ' playing' : '') + (s.tagging ? ' tagging' : '') + '" data-id="' + s.id + '" data-key="' + escHtml(stable) + '">'
     + artEl
     + '<div class="song-info">'
     + '<div class="song-title' + (playing ? ' playing' : '') + '">' + escHtml(s.title)
@@ -4058,7 +4101,7 @@ function songRowHTML(s, playing, showEdit) {
     + (s.tagging ? '<div class="tagging-spinner" style="width:20px;height:20px;"></div>' : '')
     + (playing ? eqBarsHTML(!isPlaying) : '<span class="song-duration">' + fmtTime(s.dur) + '</span>')
     + '<button class="song-fav' + (s.fav ? ' active' : '') + '" data-fav="' + s.id + '">' + heartSvg(s.fav, 20) + '</button>'
-    + (showEdit ? '<button class="song-edit" data-song-menu="' + s.id + '">&#8942;</button>' : '')
+    + (showEdit ? '<button class="song-edit" data-song-menu="' + s.id + '" data-song-key="' + escHtml(stable) + '">&#8942;</button>' : '')
     + '</div>';
 }
 
@@ -4398,7 +4441,23 @@ function _msHideBar() {
 
 var _songRowsBound = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
 
-function bindSongRows(el, songList) {
+// Views bind along the same ancestor chain — the Songs tab binds its virtual
+// scroll container, every other view binds the main content area that contains
+// it — and a binding is never taken off. So a tap or a press on a row is seen
+// by every bound ancestor, and the one left behind by the previous screen gets
+// the last word: tapping a song on the Songs tab after visiting an artist
+// queued that artist's songs instead of the tab's. Only the nearest binding
+// owns a row.
+function _msOwnerOf(row) {
+  var n = row;
+  while (n) {
+    if (n._msSongList !== undefined) return n;
+    n = n.parentElement;
+  }
+  return null;
+}
+
+function bindSongRows(el, songList, allowSelect) {
   // onclick below is an assignment, so it replaces cleanly, but the touch
   // listeners are added — and this runs again on every navigation, on elements
   // as broad as the main content area. They stacked: a long press fired every
@@ -4407,14 +4466,20 @@ function bindSongRows(el, songList) {
   // while nothing read that list; wrong the moment "All" did. One set of
   // listeners per element now, reading the current list off the element.
   el._msSongList = songList;
+  // The Songs tab opts out: holding a row there started a selection by accident
+  // far more often than on purpose, the same way it did on the Artists tab.
+  // Inside an album, an artist, a genre or a playlist it is how a batch of
+  // songs gets picked, so it stays. Read at press time, not closed over, since
+  // one element serves several views.
+  el._msAllowSelect = (allowSelect !== false);
   if (!_songRowsBound || !_songRowsBound.has(el)) {
     if (_songRowsBound) _songRowsBound.add(el);
     var _lpTimer = null;
 
     el.addEventListener('touchstart', function(e) {
-      if (_msMode) return;
+      if (_msMode || el._msAllowSelect === false) return;
       var row = e.target.closest('.song-row[data-id]');
-      if (!row) return;
+      if (!row || _msOwnerOf(row) !== el) return;
       var rowId = row.dataset.id;
       _lpTimer = setTimeout(function() {
         _lpTimer = null;
@@ -4432,6 +4497,8 @@ function bindSongRows(el, songList) {
   }
 
   el.onclick = function(e) {
+    var owned = e.target.closest('.song-row[data-id]');
+    if (owned && _msOwnerOf(owned) !== el) return;   // a nearer binding owns it
     if (_msMode) {
       var row = e.target.closest('.song-row[data-id]');
       if (row) { _msToggle(row.dataset.id); return; }
@@ -4448,13 +4515,13 @@ function bindSongRows(el, songList) {
       return;
     }
     var menuBtn = e.target.closest('[data-song-menu]');
-    if (menuBtn) { showSongMenu(menuBtn.dataset.songMenu, songList); return; }
+    if (menuBtn) { showSongMenu(menuBtn.dataset.songMenu, el._msSongList, menuBtn.dataset.songKey); return; }
     var row = e.target.closest('.song-row[data-id]');
     if (row) {
       var s = songMap[row.dataset.id];
       if (s) {
         if (!s.url) { showToast('Re-import your music folder to enable playback'); return; }
-        playSong(s, songList);
+        playSong(s, el._msSongList || songList);
       }
     }
   };
@@ -5336,7 +5403,8 @@ function showAddToPlaylistSheet(song) {
     action: function() {
       var name = prompt('Playlist name:');
       if (!name || !name.trim()) return;
-      var pl = { id: 'pl_' + Date.now(), name: name.trim(), songIds: [song.id] };
+      var pl = { id: 'pl_' + Date.now(), name: name.trim(),
+                 songIds: [song.contentUri || song.fn] };
       playlists.push(pl);
       savePlaylists();
       showToast('Added to ' + pl.name);
@@ -5345,9 +5413,9 @@ function showAddToPlaylistSheet(song) {
   openBottomSheet('<div class="bs-info"><div class="bs-name">Add to playlist</div><div class="bs-meta">' + escHtml(song.title) + '</div></div>', items);
 }
 
-function showSongMenu(songId, songList) {
-  var song = songMap[songId];
-  if (!song) return;
+function showSongMenu(songId, songList, songKey) {
+  var song = songFromRow(songId, songKey);
+  if (!song) { showToast('That song is no longer in the library', 2500); return; }
   var uri = song.albumArtUri || '';
   var g = getGrad(song.album || song.title);
   var init = (song.album || song.title).split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase();
@@ -5369,7 +5437,7 @@ function showSongMenu(songId, songList) {
       action: function() { song.fav = !song.fav; _countsCache = null; saveLibraryLater(); showToast(song.fav ? 'Added to favorites' : 'Removed from favorites'); } },
     { icon: '&#9835;', label: 'Add to playlist',   action: function() { showAddToPlaylistSheet(song); } },
     'divider',
-    { icon: '&#9998;', label: 'Tag editor',        action: function() { openSongEditModal(songId); } },
+    { icon: '&#9998;', label: 'Tag editor',        action: function() { openSongEditModal(song.id, song.contentUri || song.fn); } },
     { icon: '&#10068;', label: 'Why won’t this play?', action: function() {
         showToast('Checking the file…', 2000);
         explainUnplayable(song).then(function(msg) {
@@ -5474,11 +5542,15 @@ function openEqPanel() {
   }).join('');
 
   var bandHtml = EQ_FREQS.map(function(freq, i) {
-    var label = freq >= 1000 ? (freq / 1000) + 'k' : freq + '';
-    return '<div class="eq-band-h">'
-      + '<span class="eq-band-freq">' + label + '</span>'
-      + '<input type="range" class="eq-slider" data-band="' + i + '" min="-12" max="12" step="1" value="' + eqGains[i] + '">'
-      + '<span class="eq-band-val" id="eqVal' + i + '">' + (eqGains[i] > 0 ? '+' : '') + eqGains[i] + '</span>'
+    var hz = freq >= 1000 ? (freq / 1000) + 'k' : freq + '';
+    return '<div class="eq-band-row">'
+      + '<div class="eq-band-head">'
+      +   '<span class="eq-band-name">' + escHtml(EQ_NAMES[i]) + '</span>'
+      +   '<span class="eq-band-val" id="eqVal' + i + '">' + escHtml(eqWord(eqGains[i])) + '</span>'
+      + '</div>'
+      + '<input type="range" class="eq-slider" data-band="' + i + '"'
+      +   ' min="' + EQ_MIN + '" max="' + EQ_MAX + '" step="' + EQ_STEP + '" value="' + eqSnap(eqGains[i]) + '"'
+      +   ' aria-label="' + escHtml(EQ_NAMES[i]) + ' (' + hz + ' Hz)">'
       + '</div>';
   }).join('');
 
@@ -5499,9 +5571,12 @@ function openEqPanel() {
   overlay.querySelectorAll('.eq-slider').forEach(function(slider) {
     slider.oninput = function() {
       var band = parseInt(slider.dataset.band);
-      eqGains[band] = parseFloat(slider.value);
+      var next = eqSnap(slider.value);
+      var moved = next !== eqGains[band];
+      eqGains[band] = next;
       var valEl = document.getElementById('eqVal' + band);
-      if (valEl) valEl.textContent = (eqGains[band] > 0 ? '+' : '') + eqGains[band];
+      if (valEl) valEl.textContent = eqWord(next);
+      if (moved) _haptic(12);   // one tick per notch, so the step can be felt
       applyEqGains();
       overlay.querySelectorAll('.eq-preset-chip').forEach(function(c) {
         c.classList.toggle('active', JSON.stringify(EQ_PRESETS[c.dataset.preset]) === JSON.stringify(eqGains));
@@ -5519,7 +5594,7 @@ function openEqPanel() {
         var band = parseInt(slider.dataset.band);
         slider.value = eqGains[band];
         var valEl = document.getElementById('eqVal' + band);
-        if (valEl) valEl.textContent = (eqGains[band] > 0 ? '+' : '') + eqGains[band];
+        if (valEl) valEl.textContent = eqWord(eqGains[band]);
       });
       overlay.querySelectorAll('.eq-preset-chip').forEach(function(c) { c.classList.remove('active'); });
       chip.classList.add('active');
@@ -6990,9 +7065,9 @@ function callGeminiTag(song, _retried) {
 
 // ─── Edit Modals ───
 
-function openSongEditModal(songId) {
-  var song = songMap[songId];
-  if (!song) return;
+function openSongEditModal(songId, songKey) {
+  var song = songFromRow(songId, songKey);
+  if (!song) { showToast('That song is no longer in the library', 2500); return; }
   var modal = document.getElementById('editModal');
   var overlay = document.getElementById('editOverlay');
   var isNat = typeof NativeBridge !== 'undefined' && NativeBridge.isNative();
@@ -7257,7 +7332,13 @@ function openSongEditModal(songId) {
     }).catch(function() {});  // file write is best-effort; in-app save already confirmed
   };
 
-  if (apiKey) {
+  // Not gated on a Gemini key. aiFill asks MusicBrainz first, which is free and
+  // needs no key, and only uses Gemini to fill what is left — the album editor
+  // has always wired its button unconditionally for that reason. Gated here,
+  // the button rendered and did nothing on a phone with no key, which is every
+  // phone since the app's identity changed, because a backup does not carry the
+  // key and the new install starts without one.
+  {
     var teAiBtn = document.getElementById('teAiBtn');
     if (teAiBtn) {
       teAiBtn.onclick = function() {
