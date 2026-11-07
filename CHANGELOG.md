@@ -29,7 +29,9 @@ The app tells you when there is an update, instead of waiting to be asked.
 - **It is frugal.** At most one request a day, and the answer is remembered, so
   opening the app again inside that window asks for nothing. No connection, a
   GitHub error or a rate limit all pass in silence and are retried next launch
-- The Check for Updates button behaves exactly as before
+- The Check for Updates button behaves exactly as before, and a press that
+  finds nothing now counts as the day's check, so the quiet one does not go
+  asking again an hour later
 
 ## v1.9.12
 

@@ -30,11 +30,22 @@ function extract(name) {
 }
 
 const api = new Function(`
+  ${SRC.match(/var UPD_NOTES_MARKER = .*;/)[0]}
+  ${SRC.match(/var UPD_NOTES_MAX = .*?;/)[0]}
   ${extract('_versionCodeFromTag')}
   ${extract('pickRelease')}
   ${extract('updSnoozeActive')}
-  return { _versionCodeFromTag, pickRelease, updSnoozeActive };
+  ${extract('_updNotes')}
+  return { _versionCodeFromTag, pickRelease, updSnoozeActive, _updNotes,
+           UPD_NOTES_MARKER, UPD_NOTES_MAX };
 `)();
+
+// What _promptUpdate() does with a body, copied from app.js so a change there
+// that breaks what the cache feeds it shows up as a failure here.
+function notesAsDialogWouldRender(body) {
+  const section = String(body || '').split('## In this version')[1] || '';
+  return section.split('##')[0].trim().slice(0, 400);
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 const apk = (tag) => ({
@@ -153,5 +164,50 @@ describe('"Later" means later, not never', () => {
     expect(api.updSnoozeActive(null, 'v1.9.14', now, DAY)).toBe(false);
     expect(api.updSnoozeActive({}, 'v1.9.14', now, DAY)).toBe(false);
     expect(api.updSnoozeActive({ tag: 'v1.9.14' }, 'v1.9.14', now, DAY)).toBe(false);
+  });
+});
+
+describe('cached release notes survive the trip', () => {
+  // The real shape: an install preamble, then the notes the dialog reads.
+  const PREAMBLE = 'A local music player for Android.\n\n## Install\n\n'
+    + 'Download the APK below and open it.\n'.repeat(12);
+  const build = (notes) => PREAMBLE + '## In this version\n\n' + notes + '\n';
+
+  it('keeps the notes the dialog shows, identical to the live body', () => {
+    const notes = 'Something was fixed, and something else was improved.';
+    const full = build(notes);
+    expect(api._updNotes(full)).toContain(notes);
+    expect(notesAsDialogWouldRender(api._updNotes(full)))
+      .toBe(notesAsDialogWouldRender(full));
+  });
+
+  it('keeps them even when the preamble is longer than the old 1200 cap', () => {
+    // The case the old blind slice got wrong: the marker pushed past the cut,
+    // so the dialog found no section at all and showed nothing.
+    const long = 'A local music player.\n\n## Install\n\n'
+      + 'Install instructions that go on and on.\n'.repeat(60)
+      + '## In this version\n\nThe thing you wanted was fixed.\n';
+    expect(long.indexOf('## In this version')).toBeGreaterThan(1200);
+    expect(String(long).slice(0, 1200)).not.toContain('## In this version'); // old way: lost
+    expect(api._updNotes(long)).toContain('The thing you wanted was fixed.');
+    expect(notesAsDialogWouldRender(api._updNotes(long)))
+      .toBe(notesAsDialogWouldRender(long));
+  });
+
+  it('starts the cached body at the marker so the dialog can find it', () => {
+    expect(api._updNotes(build('x')).startsWith(api.UPD_NOTES_MARKER)).toBe(true);
+  });
+
+  it('says so when notes are long enough to need shortening', () => {
+    const huge = build('x'.repeat(api.UPD_NOTES_MAX + 500));
+    const out = api._updNotes(huge);
+    expect(out.length).toBeLessThanOrEqual(api.UPD_NOTES_MAX + 80);
+    expect(out).toContain('notes shortened');
+  });
+
+  it('passes a body with no marker through rather than inventing one', () => {
+    expect(api._updNotes('just some text')).toBe('just some text');
+    expect(api._updNotes('')).toBe('');
+    expect(api._updNotes(null)).toBe('');
   });
 });

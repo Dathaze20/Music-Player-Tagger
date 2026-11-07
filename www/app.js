@@ -8917,6 +8917,11 @@ function checkForUpdates() {
     }
     if (newest.code <= mineCode) {
       reset();
+      // Pressing the button answered the question, so the quiet check has no
+      // reason to ask GitHub again today. Only here: "newest has no APK yet"
+      // below is a state that can change within the hour, so that one is left
+      // unrecorded on purpose and tried again next launch.
+      _updWrite(UPD_K_CHECKED, Date.now());
       _updAvailable = null;
       try { localStorage.removeItem(UPD_K_FOUND); } catch (e) {}
       _updMarkDrawer(null);
@@ -8960,6 +8965,8 @@ function checkForUpdates() {
 var UPD_CHECK_EVERY_MS  = 24 * 60 * 60 * 1000;  // at most one request a day
 var UPD_SNOOZE_MS       = 24 * 60 * 60 * 1000;  // "Later" means later, not never
 var UPD_FIRST_DELAY_MS  = 6000;                 // well clear of the launch
+var UPD_NOTES_MARKER = '## In this version';
+var UPD_NOTES_MAX = 8000;       // generous; the dialog renders far less
 var UPD_K_CHECKED = 'muzio_upd_checked';
 var UPD_K_FOUND   = 'muzio_upd_found';
 var UPD_K_SNOOZED = 'muzio_upd_snoozed';
@@ -8974,13 +8981,31 @@ function _updWrite(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
 }
 
+// The notes the dialog will actually read, kept whole.
+//
+// Slicing the raw body to a fixed length was wrong in a way that would not have
+// shown up for a while: the install preamble above the notes is already 466
+// characters and only has to grow, and once it passes the cap the marker the
+// dialog looks for is cut off and the dialog shows no notes at all. Keep the
+// section itself, from its heading, so the cut can never land before it.
+function _updNotes(body) {
+  var raw = String(body || '');
+  var at = raw.indexOf(UPD_NOTES_MARKER);
+  var section = at === -1 ? raw : raw.slice(at);
+  if (section.length <= UPD_NOTES_MAX) return section;
+  // Only reachable with notes longer than a short essay, and said out loud
+  // rather than left to look like the end of the list.
+  return section.slice(0, UPD_NOTES_MAX)
+    + '\n\n\u2026 notes shortened \u2014 see the release page for the rest';
+}
+
 // Just enough of a release to rebuild the dialog from, so a launch inside the
 // day-long window needs no network call to know there is something waiting.
 function _updSummarise(best, ahead) {
   return {
     code: best.code,
     tag: best.rel.tag_name,
-    body: String(best.rel.body || '').slice(0, 1200),
+    body: _updNotes(best.rel.body),
     apkUrl: best.apk.browser_download_url,
     apkSize: best.apk.size || 0,
     ahead: ahead
@@ -9006,12 +9031,33 @@ function _updSnoozedFor(tag) {
   return updSnoozeActive(_updRead(UPD_K_SNOOZED), tag, Date.now(), UPD_SNOOZE_MS);
 }
 
+var _updWaitingForSlot = false;
+
+// Watch for the strip that is in the way to be taken down, then try again.
+// Cheap while idle, and it lets go the moment it has done its job.
+function _updWaitForBannerSlot() {
+  if (_updWaitingForSlot || typeof MutationObserver === 'undefined') return;
+  if (!document.body) return;
+  _updWaitingForSlot = true;
+  var obs = new MutationObserver(function() {
+    if (document.querySelector('.battery-banner')) return;   // still occupied
+    obs.disconnect();
+    _updWaitingForSlot = false;
+    maybeShowUpdateBanner();
+  });
+  obs.observe(document.body, { childList: true });
+}
+
 function maybeShowUpdateBanner() {
   var info = _updAvailable;
   if (!info) return;
   if (document.getElementById('updBanner')) return;       // already up
-  if (document.querySelector('.battery-banner')) return;  // one strip at a time
   if (_updSnoozedFor(info.tag)) return;                   // asked to wait
+  // One strip at a time — but nothing used to look again once the other went,
+  // so the notice sat out the whole session. Worse, the legacy-app strip is
+  // rebuilt on every launch until it is dealt with, so for anyone still
+  // carrying the old copy that was every session. Wait for the slot instead.
+  if (document.querySelector('.battery-banner')) { _updWaitForBannerSlot(); return; }
 
   var mb = info.apkSize ? (info.apkSize / 1048576).toFixed(1) + ' MB' : '';
   var b = document.createElement('div');
@@ -9073,8 +9119,17 @@ function autoCheckForUpdates() {
   // Ten is far more than enough to find the highest version, and a third of
   // the payload of the list the button asks for.
   fetchReleaseInfo(10).then(function(res) {
-    _updWrite(UPD_K_CHECKED, Date.now());
-    if (!res.best || res.mineCode === null || res.best.code <= res.mineCode) {
+    if (res.mineCode === null) return;   // nothing to compare against
+    var installable = res.best && res.best.code > res.mineCode;
+    // A release whose APK has not finished building yet is a state that
+    // changes within minutes of it being tagged, so it is not an answer worth
+    // holding on to for a day — same rule the button follows. Everything else
+    // is settled, and recording it is what keeps this to one request a day.
+    var settled = installable
+      || !res.newest || res.newest.code <= res.mineCode;
+    if (settled) _updWrite(UPD_K_CHECKED, Date.now());
+
+    if (!installable) {
       try { localStorage.removeItem(UPD_K_FOUND); } catch (e) {}
       _updApply(null);
       return;
