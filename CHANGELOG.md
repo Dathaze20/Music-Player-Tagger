@@ -7,6 +7,32 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.13
+
+The app tells you when there is an update, instead of waiting to be asked.
+
+- **An update notice appears on its own.** Until now the only way to learn about
+  a new version was to open the drawer and press Check for Updates, which
+  almost nobody does, so people stayed on old versions without knowing anything
+  had been fixed. The app now asks GitHub itself a few seconds after it opens
+  and, if there is something newer, shows a strip at the bottom of its own
+  screen: the version, the size, **Update Now**, and an ✕
+- **It stays out of the way.** Nothing appears if you are up to date. It is not
+  an Android notification and asks for no permission. It never downloads or
+  installs anything by itself — Update Now opens the same dialog the button has
+  always opened, and the download still starts on your press. It does not cover
+  the player or interrupt what is playing, and it never appears while the app
+  is still starting up
+- **It does not nag.** Dismissing holds that version back for a day. The drawer
+  keeps a dot beside Check for Updates in the meantime, so dismissing the strip
+  does not make the news vanish
+- **It is frugal.** At most one request a day, and the answer is remembered, so
+  opening the app again inside that window asks for nothing. No connection, a
+  GitHub error or a rate limit all pass in silence and are retried next launch
+- The Check for Updates button behaves exactly as before, and a press that
+  finds nothing now counts as the day's check, so the quiet one does not go
+  asking again an hour later
+
 ## v1.9.12
 
 AI Fill works on a single song again, the Songs tab stops grabbing long

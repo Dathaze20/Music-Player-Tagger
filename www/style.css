@@ -2966,6 +2966,20 @@ body.np-open .alpha-strip { display: none !important; }
   color: var(--primary-fg);
   border-color: var(--primary);
 }
+/* A dot on the drawer's update row once one is known, so dismissing the strip
+   does not make the news disappear with it. */
+.drawer-item.has-update > .icon { color: var(--primary); }
+.drawer-item.has-update::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 6px var(--primary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .eq-bands-v {
   display: flex;
   flex-direction: column;
