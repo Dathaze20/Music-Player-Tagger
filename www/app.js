@@ -8844,6 +8844,58 @@ function _showAppVersion() {
     : 'My Music';
 }
 
+// Ask GitHub which release is newest and whether it has a file to install.
+//
+// The whole list, not GitHub's "latest" pointer. "Latest" there means most
+// recently created, which is not the same thing as the highest version — an
+// edited or re-published release reorders it — and it says nothing about
+// whether that release has an APK attached at all. Working out the highest
+// version number that actually has a file on it is what "give me the newest"
+// means, and it lands on the newest in one step however many came out since.
+//
+// Both the button and the quiet check on launch come through here, so there is
+// one copy of the comparison rather than two that can disagree.
+function fetchReleaseInfo(perPage) {
+  return fetch('https://api.github.com/repos/' + GITHUB_REPO + '/releases?per_page=' + (perPage || 30), {
+    headers: { 'Accept': 'application/vnd.github+json' },
+    cache: 'no-store'   // a cached answer must never decide what the newest is
+  }).then(function(res) {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }).then(function(list) {
+    if (!Array.isArray(list) || !list.length) throw new Error('no releases');
+    return pickRelease(list, _appVersion ? _appVersion.versionCode : null);
+  });
+}
+
+// Which release to offer, given what GitHub returned and what is installed.
+// Kept apart from the fetch so it can be tested on its own.
+function pickRelease(list, mineCode) {
+  var best = null;      // highest version that has an APK
+  var newest = null;    // highest version at all, APK or not
+  var ahead = 0;        // how many releases are newer than the installed one
+  (list || []).forEach(function(rel) {
+    if (!rel || rel.draft || rel.prerelease) return;
+    var code = _versionCodeFromTag(rel.tag_name);
+    if (code === null) return;
+    if (mineCode !== null && code > mineCode) ahead++;
+    if (!newest || code > newest.code) newest = { code: code, rel: rel };
+    var apk = (rel.assets || []).filter(function(a) {
+      return /\.apk$/i.test(a.name || '');
+    })[0];
+    if (!apk) return;
+    if (!best || code > best.code) best = { code: code, rel: rel, apk: apk };
+  });
+  return { mineCode: mineCode, best: best, newest: newest, ahead: ahead };
+}
+
+// Is a dismissal still standing? Separated from storage and the clock so the
+// timing can be tested without waiting a day.
+function updSnoozeActive(snooze, tag, now, windowMs) {
+  if (!snooze || snooze.tag !== tag) return false;
+  return (now - (snooze.at || 0)) < windowMs;
+}
+
 function checkForUpdates() {
   var btn   = document.getElementById('checkUpdateBtn');
   var label = document.getElementById('checkUpdateLabel');
@@ -8855,36 +8907,8 @@ function checkForUpdates() {
   if (btn) btn.disabled = true;
   label.textContent = 'Checking…';
 
-  // The whole list, not GitHub's "latest" pointer. "Latest" there means most
-  // recently created, which is not the same thing as the highest version — an
-  // edited or re-published release reorders it — and it says nothing about
-  // whether that release has an APK attached at all. Working out the highest
-  // version number that actually has a file on it is what "give me the newest"
-  // means, and it lands on the newest in one step however many came out since.
-  fetch('https://api.github.com/repos/' + GITHUB_REPO + '/releases?per_page=30', {
-    headers: { 'Accept': 'application/vnd.github+json' },
-    cache: 'no-store'   // a cached answer must never decide what the newest is
-  }).then(function(res) {
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json();
-  }).then(function(list) {
-    if (!Array.isArray(list) || !list.length) throw new Error('no releases');
-    var mineCode = _appVersion ? _appVersion.versionCode : null;
-    var best = null;      // highest version that has an APK
-    var newest = null;    // highest version at all, APK or not
-    var ahead = 0;        // how many releases are newer than the installed one
-    list.forEach(function(rel) {
-      if (!rel || rel.draft || rel.prerelease) return;
-      var code = _versionCodeFromTag(rel.tag_name);
-      if (code === null) return;
-      if (mineCode !== null && code > mineCode) ahead++;
-      if (!newest || code > newest.code) newest = { code: code, rel: rel };
-      var apk = (rel.assets || []).filter(function(a) {
-        return /\.apk$/i.test(a.name || '');
-      })[0];
-      if (!apk) return;
-      if (!best || code > best.code) best = { code: code, rel: rel, apk: apk };
-    });
+  fetchReleaseInfo(30).then(function(info) {
+    var mineCode = info.mineCode, best = info.best, newest = info.newest, ahead = info.ahead;
 
     if (!newest || mineCode === null) {
       reset();
@@ -8893,6 +8917,9 @@ function checkForUpdates() {
     }
     if (newest.code <= mineCode) {
       reset();
+      _updAvailable = null;
+      try { localStorage.removeItem(UPD_K_FOUND); } catch (e) {}
+      _updMarkDrawer(null);
       showToast('You are on the latest version (v' + _appVersion.versionName + ')', 3000);
       return;
     }
@@ -8902,10 +8929,163 @@ function checkForUpdates() {
       return;
     }
     reset('Update to ' + best.rel.tag_name);
+    // Pressing the button is itself a check, so record it and remember what it
+    // found: the automatic one has no reason to ask again today.
+    _updWrite(UPD_K_CHECKED, Date.now());
+    var found = _updSummarise(best, ahead);
+    _updWrite(UPD_K_FOUND, found);
+    _updAvailable = found;
+    _updMarkDrawer(found);
     _promptUpdate(best.rel, best.apk, ahead);
   }).catch(function() {
     reset();
     showToast('Could not reach GitHub — check your connection', 3500);
+  });
+}
+
+// ─── Automatic update notice ───
+//
+// Nobody who installs this remembers to open the drawer and press a button, so
+// an update nobody hears about is an update nobody gets. The app asks GitHub
+// itself, quietly, and says so in a strip at the bottom of its own screen.
+//
+// Deliberately not an Android notification: that needs a permission, survives
+// the app being closed and belongs to things that happened, not to things that
+// are merely available. This is the app telling you something while you are
+// already looking at it.
+//
+// It never downloads anything on its own. The strip offers the same dialog the
+// button has always opened, which is where the download actually starts.
+
+var UPD_CHECK_EVERY_MS  = 24 * 60 * 60 * 1000;  // at most one request a day
+var UPD_SNOOZE_MS       = 24 * 60 * 60 * 1000;  // "Later" means later, not never
+var UPD_FIRST_DELAY_MS  = 6000;                 // well clear of the launch
+var UPD_K_CHECKED = 'muzio_upd_checked';
+var UPD_K_FOUND   = 'muzio_upd_found';
+var UPD_K_SNOOZED = 'muzio_upd_snoozed';
+
+var _updRan = false;        // one automatic check per launch
+var _updAvailable = null;   // the release to offer, once known
+
+function _updRead(key) {
+  try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+function _updWrite(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+}
+
+// Just enough of a release to rebuild the dialog from, so a launch inside the
+// day-long window needs no network call to know there is something waiting.
+function _updSummarise(best, ahead) {
+  return {
+    code: best.code,
+    tag: best.rel.tag_name,
+    body: String(best.rel.body || '').slice(0, 1200),
+    apkUrl: best.apk.browser_download_url,
+    apkSize: best.apk.size || 0,
+    ahead: ahead
+  };
+}
+
+// The drawer keeps saying so after the strip is dismissed, so a "Later" is not
+// the last anyone hears of it.
+function _updMarkDrawer(info) {
+  var btn = document.getElementById('checkUpdateBtn');
+  var label = document.getElementById('checkUpdateLabel');
+  if (!btn || !label) return;
+  if (info) {
+    btn.classList.add('has-update');
+    label.textContent = 'Update to ' + info.tag;
+  } else {
+    btn.classList.remove('has-update');
+    if (label.textContent.indexOf('Update to ') === 0) label.textContent = 'Check for Updates';
+  }
+}
+
+function _updSnoozedFor(tag) {
+  return updSnoozeActive(_updRead(UPD_K_SNOOZED), tag, Date.now(), UPD_SNOOZE_MS);
+}
+
+function maybeShowUpdateBanner() {
+  var info = _updAvailable;
+  if (!info) return;
+  if (document.getElementById('updBanner')) return;       // already up
+  if (document.querySelector('.battery-banner')) return;  // one strip at a time
+  if (_updSnoozedFor(info.tag)) return;                   // asked to wait
+
+  var mb = info.apkSize ? (info.apkSize / 1048576).toFixed(1) + ' MB' : '';
+  var b = document.createElement('div');
+  b.className = 'battery-banner';   // the app's own strip, so it looks like the rest
+  b.id = 'updBanner';
+  b.innerHTML = '<div class="battery-banner-text">'
+    + '<div class="battery-banner-title">&#8635; ' + escHtml(info.tag) + ' is available</div>'
+    + '<div class="battery-banner-sub">You have v' + escHtml(_appVersion ? _appVersion.versionName : '?')
+    +   (mb ? ' &bull; ' + escHtml(mb) : '') + '. Installs over this one; nothing is lost.</div>'
+    + '</div>'
+    + '<button class="battery-banner-fix">Update Now</button>'
+    + '<button class="battery-banner-dismiss" aria-label="Later">&#10005;</button>';
+  document.body.appendChild(b);
+
+  b.querySelector('.battery-banner-fix').onclick = function() {
+    b.remove();
+    // The same dialog the button has always opened: release notes, then a
+    // Download the user presses. Nothing downloads without that press.
+    _promptUpdate(
+      { tag_name: info.tag, body: info.body },
+      { size: info.apkSize, browser_download_url: info.apkUrl },
+      info.ahead
+    );
+  };
+  b.querySelector('.battery-banner-dismiss').onclick = function() {
+    _updWrite(UPD_K_SNOOZED, { tag: info.tag, at: Date.now() });
+    b.remove();
+  };
+}
+
+// Decide what the app knows, from a fresh answer or a remembered one.
+function _updApply(info) {
+  if (!info || !_appVersion || info.code <= _appVersion.versionCode) {
+    _updAvailable = null;
+    _updMarkDrawer(null);
+    return;
+  }
+  _updAvailable = info;
+  _updMarkDrawer(info);
+  maybeShowUpdateBanner();
+}
+
+function autoCheckForUpdates() {
+  if (typeof NativeBridge === 'undefined' || !NativeBridge.isNative()) return;  // only where it can install
+  if (_updRan) return;
+  // The installed version is read over the bridge and may not have arrived yet;
+  // without it there is nothing to compare against, so come back once.
+  if (!_appVersion) { setTimeout(autoCheckForUpdates, 3000); return; }
+  _updRan = true;
+
+  // What was found last time still stands, so the strip and the drawer work
+  // offline and on every launch inside the window without asking again.
+  var cached = _updRead(UPD_K_FOUND);
+  if (cached && cached.code) _updApply(cached);
+
+  var checked = _updRead(UPD_K_CHECKED);
+  if (checked && (Date.now() - checked) < UPD_CHECK_EVERY_MS) return;
+
+  // Ten is far more than enough to find the highest version, and a third of
+  // the payload of the list the button asks for.
+  fetchReleaseInfo(10).then(function(res) {
+    _updWrite(UPD_K_CHECKED, Date.now());
+    if (!res.best || res.mineCode === null || res.best.code <= res.mineCode) {
+      try { localStorage.removeItem(UPD_K_FOUND); } catch (e) {}
+      _updApply(null);
+      return;
+    }
+    var found = _updSummarise(res.best, res.ahead);
+    _updWrite(UPD_K_FOUND, found);   // so the next launch inside the window needs no request
+    _updApply(found);
+  }).catch(function() {
+    // No connection, GitHub having a bad day, a rate limit: none of that is
+    // the user's problem and none of it is worth a word on screen. Try again
+    // next launch rather than recording this as a check that happened.
   });
 }
 
@@ -9449,6 +9629,11 @@ setTimeout(nativeAutoScan, 2000);  // last resort for slow devices
 // can still be opening weeks later, and the battery banner beside it only ever
 // runs after a first-ever scan.
 setTimeout(maybeShowLegacyAppBanner, 2500);
+
+// The quiet update check. Late enough that the library, the artwork and the
+// MediaStore pass are all done with the main thread, and it touches nothing on
+// screen unless there is something to say.
+setTimeout(autoCheckForUpdates, UPD_FIRST_DELAY_MS);
 
 // Lock screen / notification controls
 initMediaSession();
