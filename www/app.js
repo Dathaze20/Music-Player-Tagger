@@ -9036,10 +9036,13 @@ var _updWaitingForSlot = false;
 // Watch for the strip that is in the way to be taken down, then try again.
 // Cheap while idle, and it lets go the moment it has done its job.
 function _updWaitForBannerSlot() {
-  if (_updWaitingForSlot || typeof MutationObserver === 'undefined') return;
+  // Reached through window, which is both how the rest of the browser globals
+  // that are not declared to the linter are reached here, and a guard in its
+  // own right on anything old enough not to have it.
+  if (_updWaitingForSlot || !window.MutationObserver) return;
   if (!document.body) return;
   _updWaitingForSlot = true;
-  var obs = new MutationObserver(function() {
+  var obs = new window.MutationObserver(function() {
     if (document.querySelector('.battery-banner')) return;   // still occupied
     obs.disconnect();
     _updWaitingForSlot = false;
