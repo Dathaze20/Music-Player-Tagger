@@ -8,7 +8,7 @@ I have a personal music collection of more than 15,000 songs, much of it ripped 
 
 ## The solution
 
-A local-first Android music player that repairs its own library while you use it. It plays what is already on the phone, with background playback, lock-screen controls, playlists, an equalizer and synced lyrics. It fills missing metadata from MusicBrainz (free, no key) and optionally Google Gemini, then writes the corrected tags back into the files themselves. Nothing is uploaded and there is no account.
+A local-first Android music player that helps repair its own library while you use it. It plays what is already on the phone, with background playback, lock-screen controls, playlists, an equalizer and synced lyrics. It uses MusicBrainz (free, no key) and optionally Google Gemini to help identify and correct missing metadata. You can run a lookup on a song or album with AI Fill, or one pass over every untagged album. Some releases cannot be found, and the app leaves a field empty rather than guess. Corrected tags are written back into the files themselves. Nothing is uploaded and there is no account.
 
 The interface is plain HTML, CSS and JavaScript. Android features come from a hand-written Capacitor plugin in Java (about 2,100 lines) that handles media scanning, tag writing, artwork decoding, deletion, sharing and the background playback service.
 
@@ -19,7 +19,7 @@ The interface is plain HTML, CSS and JavaScript. Android features come from a ha
 - **Resuming after a phone call** without fighting the WebView for audio focus. The solution watches the phone's audio state instead of claiming it.
 - **Metadata that is wrong in many different ways.** Genre spelling, album names with uploader labels, artists split across joint credits, and the 1970 dates corrupt tags produce.
 - **A security flaw found in review.** A song's own tags could run code inside the app. The class of problem was removed rather than patched, and six tests pin it.
-- **Keeping edits safe.** Manual edits survive rescans, reinstalls and backups. Imports merge and never wipe.
+- **Keeping edits safe.** Manual edits survive rescans and app updates. Uninstalling removes the app's private data, so carrying edits across a reinstall means exporting a backup first and importing it afterward. Imports merge and never wipe.
 
 ## The development process
 
