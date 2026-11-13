@@ -8,6 +8,10 @@ Built as **pure HTML/CSS/JavaScript with zero build tools** for the web layer, w
 
 Tested against a real 15,000-song library on a physical device.
 
+**How it was built:** the problem, the hardest engineering, the decisions behind it and what is still unfinished are written up in the [case study](CASE_STUDY.md).
+
+**Contents:** [Screenshots](#screenshots) · [Download](#install) · [Features](#features) · [Android integration](#android-integration) · [Architecture notes](#architecture-notes) · [Gemini key](#getting-a-free-gemini-api-key) · [Building](#building-the-android-apk) · [Tests](#tests-and-linting) · [Known limitations](#known-limitations)
+
 ---
 
 ## Screenshots
@@ -106,7 +110,7 @@ Android 7.0 or newer. Install notes are [further down](#install); after the firs
 
 ## Android Integration
 
-Everything below is implemented in the hand-written plugin (`MediaStorePlugin.java`, ~1,700 lines) and its playback service — not through an off-the-shelf wrapper.
+Everything below is implemented in the hand-written plugin (`MediaStorePlugin.java`, ~2,100 lines) and its playback service — not through an off-the-shelf wrapper.
 
 - **MediaStore scanning** — reads every audio file on the device without copying anything, pulling name, path, duration, disc, album artist, genre, size, and date added in a single cursor pass. Requests the correct runtime permission per API level (`READ_MEDIA_AUDIO` on API 33+, `READ_EXTERNAL_STORAGE` below). Includes files Android does not flag as music, which is where most downloaded tracks land
 - **Media notification** — lock-screen and shade controls via `MediaSession` and a foreground service
@@ -309,7 +313,7 @@ Six of the tests pin a security fix: a song's own tags could once run code insid
 ## Known Limitations
 
 - **SD card tag writing** is implemented natively but no UI triggers the permission request, so it cannot currently be used.
-- **Damaged audio files** cannot be played. The WebView uses Chromium's decoders, which reject some truncated or malformed downloads. The app reports the reason and the file's extension, including the file size when a download is incomplete, so a broken file is easy to tell apart from an unsupported format. A file that fails is retried by its real path first — see the architecture note on Content-Type below — so only files Chromium genuinely cannot decode reach this state.
+- **Damaged audio files** cannot be played. The WebView uses Chromium's decoders, which reject some truncated or malformed downloads. The app reports the reason and the file's extension, including the file size when a download is incomplete, so a broken file is easy to tell apart from an unsupported format. A file that fails is retried by its real path first — see the architecture note on Content-Type above — so only files Chromium genuinely cannot decode reach this state.
 - **Crossfade and the equalizer** rely on the Web Audio API and are unavailable on files the WebView cannot decode.
 - **Automated tests cover the pure helper functions only** — filename, LRC and time parsing, plus album grouping and artist-page navigation, which are lifted out of `app.js` by name since it has no exports. Playback, scanning, and the native layer are verified by hand on a device.
 - **AI Fill cannot always find a year.** A release missing from MusicBrainz, or one whose title is too short or generic to search on, may come back with a genre but no year. The app leaves the field empty and says "no year found" rather than estimating, since a confident wrong year is worse than a blank one — type it in yourself in that case.
