@@ -7,6 +7,32 @@ so this file is what people see on the download page.
 Add a `## vX.Y.Z` section before tagging. Without one, the notes fall back to
 the commit subjects since the previous tag.
 
+## v1.9.14
+
+Three fixes: skipping works again after you come back to the app, tapping a
+single song plays it, and the Equalizer got a tidy-up.
+
+- **Next and Previous work again after you leave the app and come back.** If
+  you switched to another app — or just closed and reopened My Music — the
+  song came back but the skip buttons did nothing, and playing the same track
+  again was the only thing that worked, as if it were stuck on repeat. The
+  list of songs behind what was playing was never saved, only the song itself,
+  so there was nothing left to skip through. It is saved now and comes back
+  with the song, in the order you were playing it, shuffled order included
+- **Tapping one song plays it.** Tapping a single track could say *"Re-import
+  your music folder to enable playback"* and refuse, even though the very same
+  song played perfectly if you started the album and skipped forward to it.
+  The address the app uses to open a file is rebuilt fresh every time the app
+  starts; starting an album rebuilt it, tapping a song did not and gave up
+  instead. Both now do the same thing, so a tap works wherever the song is
+- **The Equalizer is easier to read.** Each band now fills in from the middle
+  out to where you have set it, so how far it is pushed — and whether it is up
+  or down — is visible at a glance instead of having to find the dot. Bands
+  still sitting at Normal are greyed out so the ones you have changed stand
+  out, and the sliders now match the crossfade slider underneath them. The
+  sound, the steps, the presets and the crossfade are exactly as they were —
+  only the look changed
+
 ## v1.9.13
 
 The app tells you when there is an update, instead of waiting to be asked.

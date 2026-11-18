@@ -1923,6 +1923,12 @@ var albumFilter = 'all';
 var albumGenreFilter = 'all';
 var _pendingArtBase64 = ''; // album art picked in edit modal, cleared on close
 var queue = [];
+// What is playing survives a relaunch; the queue behind it did not, so Next and
+// Previous came back with nothing to walk. Saved by filename, because ids are
+// minted fresh on every launch. Only a hand-sized queue is worth storing — a
+// longer one is "everything", which is what the fallback rebuilds anyway.
+var QUEUE_SAVE_MAX = 600;
+var _restoreQueueFns = null;
 var apiKey = localStorage.getItem('gemini_api_key') || '';
 var _GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 var _GEMINI_LIST = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -4520,7 +4526,12 @@ function bindSongRows(el, songList, allowSelect) {
     if (row) {
       var s = songMap[row.dataset.id];
       if (s) {
-        if (!s.url) { showToast('Re-import your music folder to enable playback'); return; }
+        // Every launch blanks .url (loadLibrary) because a converted address
+        // does not survive the process. It is rebuilt from the song's own
+        // content URI on demand, which is what playSong does — so reading .url
+        // raw here turned a tap into "re-import your folder" for a song that
+        // played perfectly well once the album was started and skipped into.
+        if (!ensureSongUrl(s)) { showToast('Re-import your music folder to enable playback'); return; }
         playSong(s, el._msSongList || songList);
       }
     }
@@ -5530,6 +5541,15 @@ function applyEqGains() {
   localStorage.setItem('eqSettings', JSON.stringify({ gains: eqGains, xfade: crossfadeDur }));
 }
 
+// Appearance only: paints the filled part of a band's track from the centre out
+// to the thumb, so how far it is pushed — and which way — reads at a glance.
+// The value itself is the slider's own; nothing here touches it.
+function eqPaint(slider, v) {
+  var pct = (eqSnap(v) - EQ_MIN) / (EQ_MAX - EQ_MIN) * 100;
+  slider.style.setProperty('--eq-a', Math.min(50, pct) + '%');
+  slider.style.setProperty('--eq-b', Math.max(50, pct) + '%');
+}
+
 function openEqPanel() {
   var overlay = document.createElement('div');
   overlay.id = 'eqOverlay';
@@ -5546,7 +5566,8 @@ function openEqPanel() {
     return '<div class="eq-band-row">'
       + '<div class="eq-band-head">'
       +   '<span class="eq-band-name">' + escHtml(EQ_NAMES[i]) + '</span>'
-      +   '<span class="eq-band-val" id="eqVal' + i + '">' + escHtml(eqWord(eqGains[i])) + '</span>'
+      +   '<span class="eq-band-val' + (eqSnap(eqGains[i]) === 0 ? ' is-default' : '')
+      +     '" id="eqVal' + i + '">' + escHtml(eqWord(eqGains[i])) + '</span>'
       + '</div>'
       + '<input type="range" class="eq-slider" data-band="' + i + '"'
       +   ' min="' + EQ_MIN + '" max="' + EQ_MAX + '" step="' + EQ_STEP + '" value="' + eqSnap(eqGains[i]) + '"'
@@ -5568,14 +5589,20 @@ function openEqPanel() {
 
   document.body.appendChild(overlay);
 
+  overlay.querySelectorAll('.eq-slider').forEach(function(sl) { eqPaint(sl, sl.value); });
+
   overlay.querySelectorAll('.eq-slider').forEach(function(slider) {
     slider.oninput = function() {
       var band = parseInt(slider.dataset.band);
       var next = eqSnap(slider.value);
       var moved = next !== eqGains[band];
       eqGains[band] = next;
+      eqPaint(slider, next);
       var valEl = document.getElementById('eqVal' + band);
-      if (valEl) valEl.textContent = eqWord(next);
+      if (valEl) {
+        valEl.textContent = eqWord(next);
+        valEl.classList.toggle('is-default', next === 0);
+      }
       if (moved) _haptic(12);   // one tick per notch, so the step can be felt
       applyEqGains();
       overlay.querySelectorAll('.eq-preset-chip').forEach(function(c) {
@@ -5593,8 +5620,12 @@ function openEqPanel() {
       overlay.querySelectorAll('.eq-slider').forEach(function(slider) {
         var band = parseInt(slider.dataset.band);
         slider.value = eqGains[band];
+        eqPaint(slider, eqGains[band]);
         var valEl = document.getElementById('eqVal' + band);
-        if (valEl) valEl.textContent = eqWord(eqGains[band]);
+        if (valEl) {
+          valEl.textContent = eqWord(eqGains[band]);
+          valEl.classList.toggle('is-default', eqSnap(eqGains[band]) === 0);
+        }
       });
       overlay.querySelectorAll('.eq-preset-chip').forEach(function(c) { c.classList.remove('active'); });
       chip.classList.add('active');
@@ -5713,7 +5744,7 @@ function togglePlay() {
 }
 
 function handleNext() {
-  if (!currentSong || queue.length === 0) return;
+  if (!ensureQueue()) return;
   _haptic([14, 25, 14]);
   if (repeatMode === 'one') {
     audio.currentTime = 0;
@@ -5755,7 +5786,7 @@ function handleNext() {
 }
 
 function handlePrev() {
-  if (!currentSong || queue.length === 0) return;
+  if (!ensureQueue()) return;
   _haptic([14, 25, 14]);
   if (currentTime > 3) { seekTo(0); return; }
   preloadedUrl = '';
@@ -6041,6 +6072,47 @@ function pushPlaybackPosition(force) {
  */
 var _restoreSongFn = null;
 var _restoreSongTime = 0;
+
+/**
+ * Put a queue back behind the song that is playing.
+ *
+ * Next and Previous walk `queue`, which lives only in memory. A relaunch — or
+ * Android quietly recreating the activity after another app took over — brought
+ * the song back but not the list it came from, so both buttons returned at the
+ * first line and did nothing. The song still played, and playing it again was
+ * the only thing that worked, which reads as "it will only repeat".
+ *
+ * Names, not ids: ids are regenerated on every launch, so they cannot be used
+ * to match anything saved. Falls back to the whole library, which is exactly
+ * what playSong() uses when it is handed no list.
+ */
+function rebuildQueue(fns, current) {
+  if (fns && fns.length && songs.length) {
+    var byName = Object.create(null);
+    for (var i = songs.length - 1; i >= 0; i--) byName[songs[i].fn] = songs[i];
+    var out = [];
+    for (var j = 0; j < fns.length; j++) {
+      var s = byName[fns[j]];
+      if (s) out.push(s);
+    }
+    // Only worth having if what is playing is actually in it — otherwise Next
+    // would jump somewhere unrelated instead of carrying on.
+    for (var k = 0; k < out.length; k++) {
+      if (out[k].id === current.id) return out;
+    }
+  }
+  return songs;
+}
+
+// Only ever fills an empty queue. A queue that exists but does not contain the
+// current song is a real state the skip handlers already deal with, and is left
+// alone here.
+function ensureQueue() {
+  if (!currentSong) return false;
+  if (!queue.length) queue = rebuildQueue(_restoreQueueFns, currentSong);
+  return queue.length > 0;
+}
+
 function primeRestoredSong() {
   if (!_restoreSongFn) return;
   var match = null;
@@ -6051,6 +6123,7 @@ function primeRestoredSong() {
   currentSong = match;
   currentTime = _restoreSongTime;
   duration    = match.dur || 0;
+  if (!queue.length) queue = rebuildQueue(_restoreQueueFns, match);
   // Never disturb playback that has already started.
   if (isPlaying || audio.src) { _restoreSongFn = null; return; }
   // Rebuilt from the song's own content URI when the reload blanked it, so the
@@ -9277,6 +9350,8 @@ function saveUIState() {
       album: selectedAlbum,
       genre: selectedGenre,
       songFn: currentSong ? currentSong.fn : null,
+      queueFns: (queue.length && queue.length <= QUEUE_SAVE_MAX)
+        ? queue.map(function(s) { return s.fn; }) : null,
       nowPlaying: showNowPlaying,
       albumFilter: albumFilter,
       sortMode: sortMode,
@@ -9329,6 +9404,7 @@ function restoreUIState() {
     if (state.songFn) {
       _restoreSongFn   = state.songFn;
       _restoreSongTime = state.time || 0;
+      _restoreQueueFns = state.queueFns || null;
       primeRestoredSong();
     }
 
