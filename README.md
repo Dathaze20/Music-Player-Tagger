@@ -1,5 +1,7 @@
 # My Music — Smart Music Player
 
+⭐ **If My Music is useful to you, please star this repo.** It helps other people find it. Want to support development? [Buy me a coffee](https://buymeacoffee.com/dathaze20j).
+
 **A music player first.** It plays the audio already on your phone — browse by artist, album, genre or playlist, queue and shuffle, background playback with lock-screen controls, an equalizer, synced lyrics that follow the song, favorites, search, and artwork throughout. Nothing is uploaded and nothing needs an account.
 
 The tagging is what it does *for* you while you listen. Rips from YouTube, Spotify and SoundCloud arrive with half their metadata missing or wrong, and a library of them is unbrowsable — so the app fills in artist, album, year, genre and release type (Album / Mixtape / EP / Single) from MusicBrainz (free, no key) and, optionally, Google Gemini. It is a player that keeps your library tidy, not a tag editor with a play button.
